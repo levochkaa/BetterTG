@@ -1470,23 +1470,26 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         )
         var actions = items.map { item in
             var children = [TelegramContextMenuAction]()
-            if case .speed(let current) = item {
-                // contextMenuSpeedItems: the speeds with a check on the current one.
-                children = StoryMoreMenu.speeds.map { rate in
-                    TelegramContextMenuAction(
-                        title: StoryMoreMenu.speedTitle(rate),
-                        image: abs(rate - current) < 0.01 ? UIImage(systemName: "checkmark") : UIImage(),
-                        handler: { [weak self] in self?.setBaseRate(rate) },
-                    )
-                }
+            var speedRow: (value: AnyPublisher<String, Never>, image: AnyPublisher<UIImage?, Never>)?
+            if case .speed = item {
+                let speed = speedMenuItems()
+                children = speed.items
+                speedRow = (
+                    speed.settledRate.map { StoryMoreMenu.speedTitle($0) }.eraseToAnyPublisher(),
+                    speed.settledRate.map { StoryMoreMenu.speedImage($0) as UIImage? }.eraseToAnyPublisher(),
+                )
             }
-            return TelegramContextMenuAction(
+            var action = TelegramContextMenuAction(
                 title: StoryMoreMenu.title(of: item),
                 image: StoryMoreMenu.image(of: item),
                 isDestructive: item == .delete,
                 children: children,
                 handler: { [weak self] in self?.performMoreItem(item, story: story, poster: poster) },
             )
+            // The speed's row names the rate under its title and in its gauge, and follows the slider as it settles.
+            action.secondLineUpdates = speedRow?.value
+            action.imageUpdates = speedRow?.image
+            return action
         }
         // A separator follows the speed, as in Telegram.
         if case .speed = items.first, actions.count > 1 { actions[1].startsNewSection = true }
@@ -1540,13 +1543,54 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
+    /// contextMenuSpeedItems: SliderContextItem from 0.2 to 2.5, a separator and Telegram's speeds, with a check on
+    /// the one playing when the list opens. The slider sets the rate as it moves, rounded to tenths, and clears the
+    /// check; `settledRate` follows it once it settles. A speed picked from the list closes the menu.
+    private func speedMenuItems() -> (items: [TelegramContextMenuAction], settledRate: AnyPublisher<Double, Never>) {
+        let settledRate = CurrentValueSubject<Double, Never>(baseRate)
+        let sliderMoved = PassthroughSubject<Void, Never>()
+        let slider = TelegramContextMenuAction.slider(TelegramContextMenuSlider(
+            minimumValue: CGFloat(StoryMoreMenu.speedRange.lowerBound),
+            maximumValue: CGFloat(StoryMoreMenu.speedRange.upperBound),
+            value: { [weak self] in CGFloat(self?.baseRate ?? 1) },
+            accessibilityLabel: L10n.telegram("PlaybackSpeed.Title"),
+            valueChanged: { [weak self] value, isFinished in
+                let rate = (Double(value) * 10).rounded() / 10
+                self?.setBaseRate(rate)
+                sliderMoved.send()
+                if isFinished { settledRate.send(rate) }
+            },
+        ))
+        let checkmark = UIImage(systemName: "checkmark")
+        var presets = StoryMoreMenu.speeds.map { rate in
+            var preset = TelegramContextMenuAction(
+                title: StoryMoreMenu.speedTitle(rate),
+                image: UIImage(),
+                handler: { [weak self] in self?.setBaseRate(rate) },
+            )
+            // The list is built each time it opens, so the check reads the rate then; the slider clears it.
+            preset.imageUpdates = Deferred { [weak self] in
+                let isCurrent = abs((self?.baseRate ?? 1) - rate) < 0.01
+                return sliderMoved
+                    .map { UIImage() as UIImage? }
+                    .prepend(isCurrent ? checkmark : UIImage())
+            }
+            .eraseToAnyPublisher()
+            return preset
+        }
+        presets[0].startsNewSection = true
+        return ([slider] + presets, settledRate.removeDuplicates().eraseToAnyPublisher())
+    }
+
     /// The speed picked under Playback Speed, for this video and the next ones while the viewer is open.
     private func setBaseRate(_ rate: Double) {
+        if baseRate != rate {
+            baseRate = rate
+            player.setRate(Float(rate))
+        }
         #if DEBUG
-            if session.isOffline { probeMenuActionHandler?("speed \(rate)") }
+            if session.isOffline { probeMenuActionHandler?("speed \(rate) player \(player.debugPlaybackSnapshot)") }
         #endif
-        baseRate = rate
-        player.setRate(Float(rate))
     }
 
     private func showMenuToast(_ text: String, undo: (() -> Void)? = nil) {

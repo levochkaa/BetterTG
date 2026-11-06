@@ -116,7 +116,12 @@ import UIKit
 
     static func height(of action: TelegramContextMenuAction) -> CGFloat {
         if action.isHeader { return headerHeight }
-        return action.subtitleUpdates == nil && action.secondLine == nil ? actionHeight : subtitledActionHeight
+        if action.slider != nil { return TelegramContextMenuSliderView.height }
+        return hasSecondLine(action) ? subtitledActionHeight : actionHeight
+    }
+
+    static func hasSecondLine(_ action: TelegramContextMenuAction) -> Bool {
+        action.subtitleUpdates != nil || action.secondLine != nil || action.secondLineUpdates != nil
     }
 
     /// A title too long for the menu wraps, up to `maximumTitleLines`, and the row grows to hold it. Headers and titles
@@ -140,7 +145,7 @@ import UIKit
     }
 
     static func wrapsTitle(of action: TelegramContextMenuAction) -> Bool {
-        !action.isHeader && action.titleUpdates == nil && action.subtitleUpdates == nil && action.secondLine == nil
+        !action.isHeader && action.slider == nil && action.titleUpdates == nil && !hasSecondLine(action)
     }
 
     static func titleFontSize(of action: TelegramContextMenuAction) -> CGFloat {
@@ -199,6 +204,14 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `.secondLineWithAttributedValue`: a fixed line under the title in the secondary colour,
     /// such as a peer row's "View Profile" with its arrow.
     var secondLine: (text: String, showsArrow: Bool)?
+    /// ContextMenuActionItem's `.secondLineWithValue` while the value changes with the menu open, such as Playback
+    /// Speed's rate as its slider settles.
+    var secondLineUpdates: AnyPublisher<String, Never>?
+    /// ContextMenuActionItem's `iconSource`: an icon that changes with the menu open, such as the speed gauge's rate or
+    /// a preset's check that the slider clears.
+    var imageUpdates: AnyPublisher<UIImage?, Never>?
+    /// SliderContextItem in place of the row: a value dragged or tapped along the row, never highlighted or chosen.
+    var slider: TelegramContextMenuSlider?
     /// The row a too-tall menu opens scrolled to, as the list scrolls to its selected action.
     var isChosen = false
     /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
@@ -220,6 +233,32 @@ struct TelegramContextMenuAction {
         self.children = children
         self.handler = handler
     }
+}
+
+extension TelegramContextMenuAction {
+    /// SliderContextItem as a menu row.
+    static func slider(_ slider: TelegramContextMenuSlider) -> TelegramContextMenuAction {
+        var action = TelegramContextMenuAction(title: slider.accessibilityLabel)
+        action.isInformational = true
+        action.slider = slider
+        return action
+    }
+}
+
+// MARK: - TelegramContextMenuSlider
+
+/// SliderContextItem's model: the range, the value the row opens with, read as it is built, and `valueChanged`, called
+/// with `false` while the finger moves and `true` when a drag ends or a tap lands.
+struct TelegramContextMenuSlider {
+    let minimumValue: CGFloat
+    let maximumValue: CGFloat
+    let value: () -> CGFloat
+    /// The value as the row shows it, `%.1fx` for Telegram's speeds.
+    var format: (CGFloat) -> String = { String(format: "%.1fx", $0) }
+    /// VoiceOver's increment and decrement.
+    var accessibilityStep: CGFloat = 0.1
+    let accessibilityLabel: String
+    let valueChanged: (CGFloat, Bool) -> Void
 }
 
 // MARK: - TelegramContextMenuPeerIcon
@@ -2662,10 +2701,15 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         trackTouch(at: point, time: recognizer.timestamp, state: recognizer.state)
     }
 
-    /// `nil` leaves the touch to the view under it: reactions, quote selection in the message text and the
-    /// scrollable chat preview keep their own gestures.
+    /// `nil` leaves the touch to the view under it: reactions, quote selection in the message text, the scrollable
+    /// chat preview and a slider row keep their own gestures, so a drag on the slider neither highlights a row nor
+    /// chooses or dismisses anything when it ends.
     private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
         if showsSourceTabs, sourceTabsView.frame.contains(point) { return nil }
+        if activeButtons.contains(where: { button in
+            guard let slider = button.sliderView else { return false }
+            return slider.convert(slider.bounds, to: view).contains(point)
+        }) { return nil }
         if !reactionStrip.isHidden, reactionStrip.convert(reactionStrip.bounds, to: view).contains(point) { return nil }
         if menuHitFrame.contains(point) { return .menu }
         guard previewFrame.contains(point) else { return .outside }
@@ -3128,6 +3172,8 @@ private final class TelegramContextSubmenuView: UIView {
     /// The actions under the header, which scroll in a card too tall for its place.
     private let childrenScrollView = UIScrollView()
     private let divider = UIView()
+    /// The separators between the actions' sections.
+    private var sectionDividers = [TelegramContextMenuSectionDivider]()
     /// Carries the menu glass, which draws past its bounds while it stretches under a finger, and the rows.
     private let backgroundView = UIView()
     /// The card's bounds, which clip the rows while the card opens and closes.
@@ -3230,7 +3276,23 @@ private final class TelegramContextSubmenuView: UIView {
         )
         originY += TelegramContextMenuLayout.sectionSeparatorHeight
         var childY = CGFloat.zero
-        for button in childButtons {
+        sectionDividers.forEach { $0.removeFromSuperview() }
+        sectionDividers.removeAll()
+        for (index, button) in childButtons.enumerated() {
+            if index > 0, button.menuAction.startsNewSection {
+                // ContextMenuItem.separator between a submenu's sections, as in the menu.
+                let sectionDivider = TelegramContextMenuSectionDivider()
+                sectionDivider.translatesAutoresizingMaskIntoConstraints = true
+                sectionDivider.frame = CGRect(
+                    x: 0,
+                    y: childY,
+                    width: width,
+                    height: TelegramContextMenuLayout.sectionSeparatorHeight,
+                )
+                childrenScrollView.addSubview(sectionDivider)
+                sectionDividers.append(sectionDivider)
+                childY += TelegramContextMenuLayout.sectionSeparatorHeight
+            }
             let height = TelegramContextMenuLayout.height(of: button.menuAction, menuWidth: width)
             button.frame = CGRect(x: 0, y: childY, width: width, height: height)
             childY += height
@@ -3247,6 +3309,7 @@ private final class TelegramContextSubmenuView: UIView {
     /// header, as `_UIContextMenuSubmenuTitleView`'s separator does.
     func setClosingAlpha(_ alpha: CGFloat) {
         childButtons.forEach { $0.alpha = alpha }
+        sectionDividers.forEach { $0.alpha = alpha }
     }
 
     /// `setSuppressGlassBackground:NO`. Inside a spring, the glass materializes along with it.
@@ -3386,6 +3449,9 @@ final class TelegramContextMenuActionButton: UIControl {
     /// it offers something.
     private(set) var acceptsSelection: Bool
 
+    /// SliderContextItem's row, which takes its own touches.
+    private(set) var sliderView: TelegramContextMenuSliderView?
+
     // MARK: Private
 
     private let titleLabel = UILabel()
@@ -3402,11 +3468,22 @@ final class TelegramContextMenuActionButton: UIControl {
     /// ChatReadReportContextItem's shimmer where the title will show until it arrives.
     private var titlePlaceholder: TelegramContextMenuShimmerView?
     private var avatarsView: TelegramContextMenuAvatarsView?
+    private var imageCancellable: AnyCancellable?
 
     init(action: TelegramContextMenuAction, role: Role = .action) {
         self.menuAction = action
         self.acceptsSelection = !action.isInformational && !action.isHeader
         super.init(frame: .zero)
+
+        if let slider = action.slider {
+            let sliderView = TelegramContextMenuSliderView(slider: slider)
+            sliderView.frame = bounds
+            sliderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(sliderView)
+            self.sliderView = sliderView
+            isAccessibilityElement = false
+            return
+        }
 
         let color: UIColor = action.isDestructive ? .systemRed : TelegramContextMenuLayout.primaryColor
         titleLabel.text = action.title
@@ -3424,7 +3501,8 @@ final class TelegramContextMenuActionButton: UIControl {
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         var constraints = [NSLayoutConstraint]()
-        if let secondLine = action.secondLine {
+        if action.secondLine != nil || action.secondLineUpdates != nil {
+            let secondLine = action.secondLine ?? (text: "", showsArrow: false)
             subtitleLabel.attributedText = Self.secondLineText(secondLine.text, showsArrow: secondLine.showsArrow)
             subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subtitleLabel)
@@ -3656,6 +3734,21 @@ final class TelegramContextMenuActionButton: UIControl {
                     subtitleLabel.text = subtitle
                     accessibilityValue = subtitle
                 }
+        } else if let updates = action.secondLineUpdates {
+            self.subtitleCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] value in
+                    guard let self else { return }
+                    subtitleLabel.attributedText = Self.secondLineText(value, showsArrow: false)
+                    accessibilityValue = value
+                }
+        }
+        if let updates = action.imageUpdates {
+            self.imageCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] image in
+                    self?.iconView.image = image
+                }
         }
     }
 
@@ -3692,6 +3785,215 @@ final class TelegramContextMenuActionButton: UIControl {
         expandedTitleLabel.alpha = expanded ? 1 : 0
         let angle = CGFloat.pi / 2 * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)
         submenuIndicator.transform = expanded ? CGAffineTransform(rotationAngle: angle) : .identity
+    }
+}
+
+// MARK: - TelegramContextMenuSliderView
+
+/// SliderContextItem (Telegram `fb0e62ba8a`): a 45 pt row whose fill grows from 10 pt inside its leading edge to the
+/// value's share of the width, its value in 17 pt monospaced digits over it. The text under the fill takes the fill's
+/// inverse colour, which Telegram draws as a second, clipped copy. Under 40 pt wide the fill shrinks vertically too
+/// and stays round. Glass on iOS 27 moves a view's background and radius to an effect layer that doesn't follow its
+/// frame, and it recolours a one-colour label to suit the backdrop, so the fill is a plain sublayer and the second copy
+/// of the text is a picture in a layer of its own, masked to the fill. A drag adds its horizontal
+/// travel over the whole row's width times the range; a tap sets the
+/// value its position along the row stands for. The radius is the menu highlight's, concentric with BetterTG's
+/// menu, where Telegram caps it at 20.
+final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
+    // MARK: Internal
+
+    static let height = CGFloat(45)
+
+    // MARK: Private
+
+    private static let sideInset = CGFloat(10)
+    private static let textInset = CGFloat(10)
+    private static let minimumFillWidth = CGFloat(40)
+
+    private(set) var value: CGFloat
+
+    private let slider: TelegramContextMenuSlider
+    private let backgroundLabel = UILabel()
+    private let fillLayer = CALayer()
+    /// The value in the fill's inverse colour, drawn by `updateText`.
+    private let foregroundLayer = CALayer()
+    /// The fill's shape in the foreground text's coordinates.
+    private let foregroundMask = CALayer()
+    private let feedback = UIImpactFeedbackGenerator(style: .soft)
+    private var drawnStyle = UIUserInterfaceStyle.unspecified
+
+    private var range: CGFloat {
+        max(0.0001, slider.maximumValue - slider.minimumValue)
+    }
+
+    init(slider: TelegramContextMenuSlider) {
+        self.slider = slider
+        self.value = min(slider.maximumValue, max(slider.minimumValue, slider.value()))
+        super.init(frame: .zero)
+        semanticContentAttribute = .forceLeftToRight
+        let font = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        backgroundLabel.font = font
+        backgroundLabel.textColor = .secondaryLabel
+        fillLayer.cornerCurve = .continuous
+        foregroundMask.cornerCurve = .continuous
+        foregroundMask.backgroundColor = UIColor.black.cgColor
+        foregroundLayer.mask = foregroundMask
+        foregroundLayer.contentsGravity = .topLeft
+        addSubview(backgroundLabel)
+        layer.addSublayer(fillLayer)
+        layer.addSublayer(foregroundLayer)
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
+        pan.delegate = self
+        addGestureRecognizer(pan)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+
+        isAccessibilityElement = true
+        accessibilityTraits = .adjustable
+        accessibilityLabel = slider.accessibilityLabel
+        updateText()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        fillLayer.backgroundColor = TelegramContextMenuLayout.primaryColor.resolvedColor(with: traitCollection).cgColor
+        if traitCollection.userInterfaceStyle != drawnStyle {
+            drawnStyle = traitCollection.userInterfaceStyle
+            updateText()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layoutFill()
+        CATransaction.commit()
+    }
+
+    override func accessibilityIncrement() {
+        setValue(value + slider.accessibilityStep, animated: true)
+        slider.valueChanged(value, true)
+    }
+
+    override func accessibilityDecrement() {
+        setValue(value - slider.accessibilityStep, animated: true)
+        slider.valueChanged(value, true)
+    }
+
+    /// The row's drag belongs to the slider, not to a list that would scroll the menu.
+    func gestureRecognizer(
+        _: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+    ) -> Bool {
+        false
+    }
+
+    private func setValue(_ newValue: CGFloat, animated: Bool) {
+        value = min(slider.maximumValue, max(slider.minimumValue, newValue))
+        updateText()
+        // SliderContextItemNode moves the fill at once under a finger and on a 0.2 s spring for a value that jumps.
+        CATransaction.begin()
+        if animated {
+            CATransaction.setAnimationDuration(0.2)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        layoutFill()
+        CATransaction.commit()
+    }
+
+    private func updateText() {
+        let text = slider.format(value)
+        backgroundLabel.text = text
+        accessibilityValue = text
+        backgroundLabel.sizeToFit()
+        let size = backgroundLabel.bounds.size
+        let format = UIGraphicsImageRendererFormat(for: traitCollection)
+        let color = UIColor.systemBackground.resolvedColor(with: traitCollection)
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            (text as NSString).draw(at: .zero, withAttributes: [
+                .font: backgroundLabel.font as Any,
+                .foregroundColor: color,
+            ])
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        foregroundLayer.contents = image.cgImage
+        foregroundLayer.contentsScale = image.scale
+        CATransaction.commit()
+    }
+
+    private func layoutFill() {
+        let width = max(0, bounds.width - Self.sideInset * 2)
+        var fill = CGRect(
+            x: Self.sideInset,
+            y: 0,
+            width: (value - slider.minimumValue) / range * width,
+            height: bounds.height,
+        )
+        if fill.width < Self.minimumFillWidth {
+            fill = fill.insetBy(dx: 0, dy: (Self.minimumFillWidth - fill.width) / 2)
+        }
+        let radius = min(
+            TelegramContextMenuLayout.menuCornerRadius - TelegramContextMenuLayout.highlightInset,
+            fill.width / 2,
+            fill.height / 2,
+        )
+        fillLayer.frame = fill
+        fillLayer.cornerRadius = radius
+        let textSize = backgroundLabel.bounds.size
+        let textFrame = CGRect(
+            x: Self.sideInset + Self.textInset,
+            y: floor((bounds.height - textSize.height) / 2),
+            width: textSize.width,
+            height: textSize.height,
+        )
+        backgroundLabel.frame = textFrame
+        foregroundLayer.frame = textFrame
+        foregroundMask.frame = fill.offsetBy(dx: -textFrame.minX, dy: -textFrame.minY)
+        foregroundMask.cornerRadius = radius
+    }
+
+    @objc private func panned(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            feedback.prepare()
+            stopGlassFlex()
+        case .changed:
+            stopGlassFlex()
+            let previous = value
+            setValue(value + pan.translation(in: self).x / max(1, bounds.width) * range, animated: false)
+            pan.setTranslation(.zero, in: self)
+            // SliderContextItemNode's soft taps at 1x, 2x and the top of the range.
+            if value != previous, [1, 2, slider.maximumValue].contains(value) { feedback.impactOccurred() }
+            if abs(previous - value) >= 0.001 { slider.valueChanged(value, false) }
+        case .cancelled,
+             .ended:
+            setValue(value + pan.translation(in: self).x / max(1, bounds.width) * range, animated: true)
+            pan.setTranslation(.zero, in: self)
+            slider.valueChanged(value, true)
+        default:
+            break
+        }
+    }
+
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        let x = tap.location(in: self).x
+        setValue(slider.minimumValue + x / max(1, bounds.width) * range, animated: true)
+        slider.valueChanged(value, true)
+    }
+
+    /// The menu's glass flexes toward a finger that drags on it, from the window's `_UIFlexInteraction` pan; a slider
+    /// drag is a value, so the glass holds still, as Telegram's menu does under its slider.
+    private func stopGlassFlex() {
+        for recognizer in window?.gestureRecognizers ?? []
+            where recognizer.isEnabled && [.began, .changed].contains(recognizer.state)
+        {
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+        }
     }
 }
 

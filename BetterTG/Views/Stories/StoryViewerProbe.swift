@@ -40,7 +40,7 @@ import UIKit
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
                     + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
                     + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
-                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/channel-admin/own/panel-share/speed/"
+                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/channel-admin/own/panel-share/speed/speed-range/"
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
@@ -622,6 +622,14 @@ import UIKit
                 speedItems.first == .speed(rate: 1.5) && StoryMoreMenu.speedTitle(1.5) == "1.5x"
                     && StoryMoreMenu.speedTitle(1) == L10n.telegram("PlaybackSpeed.Normal"),
                 "a video story's speed: \(items(videoStory, poster(stranger)))",
+            )
+            // SliderContextItem's 0.2–2.5 reaches the player unclamped, and a rate off the presets names itself.
+            try require(
+                StoryMoreMenu.speedRange == 0.2...2.5 && MediaPlaybackRate.clamped(0.2) == 0.2
+                    && MediaPlaybackRate.clamped(2.5) == 2.5 && MediaPlaybackRate.clamped(0.1) == 0.2
+                    && MediaPlaybackRate.clamped(3) == 2.5 && StoryMoreMenu.speedTitle(1.3) == "1.3x"
+                    && StoryMoreMenu.speedTitle(2) == "2x",
+                "the speed slider's range",
             )
             let captioned = StoryViewerUIProbe.makeStory(
                 id: 6,

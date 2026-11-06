@@ -74,6 +74,9 @@ enum StoryMoreMenu {
     /// speedList: Telegram's story speeds.
     static let speeds: [Double] = [0.5, 1, 1.5, 2]
 
+    /// contextMenuSpeedItems' SliderContextItem range.
+    static let speedRange: ClosedRange<Double> = 0.2...2.5
+
     /// EnginePeer.isService: Telegram's notifications, support and replies accounts and the verification codes bot.
     static let serviceUserIDs: Set<Int64> = [777_000, 333_000, 708_513, 1_271_266_957, 489_000]
 
