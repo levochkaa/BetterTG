@@ -23,10 +23,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// Telegram hides the tab bar while the list edits, for its toolbar.
     var onTabBarHiddenChange: ((Bool) -> Void)?
-    /// Beside a tab bar standing in iPhone Duo's strip, the folder tabs keep to the band.
-    var isBesideStandingTabBar = false {
-        didSet { folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar }
-    }
+
+    /// Beside a tab bar standing in iPhone Duo's strip, the folder tabs keep to the band and stand as low as the tab
+    /// bar, and the backgrounds cover only the band.
+    private var isBesideStandingTabBar = false
+    private var navigationBackgroundLeftConstraint: NSLayoutConstraint?
+    private var navigationBackgroundRightConstraint: NSLayoutConstraint?
 
     private var editingDone: (() -> Void)?
 
@@ -94,6 +96,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     var navigationClientSource: TdUpdateSource? {
         actionAuthority.scope(owner: self).source
+    }
+
+    /// How far the folder tabs come down beside a standing tab bar: their capsule's bottom on the bar's.
+    private var folderTabsLowering: CGFloat {
+        guard isBesideStandingTabBar, !folderTabsAtTop else { return 0 }
+        let capsuleBottom = FolderPickerView.barHeight - FolderPickerView.controlTopInset - FolderPickerView
+            .capsuleHeight
+        return max(0, view.safeAreaInsets.bottom + capsuleBottom - IPhoneDuoLayout.Metrics.columnOuterMargin)
     }
 
     /// Whether this screen, or the tabs holding it, is the stack's top.
@@ -207,6 +217,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateNavigationBarHeight()
+        applyFolderTabsLowering()
     }
 
     /// Telegram's compactDisplayTitle of a private chat's user, for the live location description; nil elsewhere.
@@ -217,6 +228,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if !firstName.isEmpty { return firstName }
         let lastName = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         return lastName.isEmpty ? chat.title : lastName
+    }
+
+    func setStandingTabBar(bandInsets: (left: CGFloat, right: CGFloat)?) {
+        isBesideStandingTabBar = bandInsets != nil
+        let insets = bandInsets ?? (0, 0)
+        folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar
+        folderPicker.backgroundSideInsets = insets
+        customNavigationBar.backgroundSideInsets = insets
+        navigationBackgroundLeftConstraint?.constant = insets.left
+        navigationBackgroundRightConstraint?.constant = -insets.right
+        applyFolderTabsLowering()
     }
 
     func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
@@ -370,6 +392,15 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             tracking: gesture,
             presentationStyle: .sourceMorph,
         )
+    }
+
+    private func applyFolderTabsLowering() {
+        let lowering = folderTabsLowering
+        folderPickerBottomConstraints.first?.constant = -FolderPickerView.barHeight + lowering
+        folderPickerBottomConstraints.last?.constant = lowering
+        for controller in folderControllers {
+            controller.setAccessoryBottomInset(folderTabsAtTop ? 0 : FolderPickerView.barHeight - lowering)
+        }
     }
 
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
@@ -734,7 +765,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureFolderPicker() {
         folderPicker.translatesAutoresizingMaskIntoConstraints = false
-        folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar
         folderPicker.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
         folderPicker.onReselection = { [weak self] id in
             self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
@@ -777,6 +807,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         NSLayoutConstraint.activate(atTop ? folderPickerTopConstraints : folderPickerBottomConstraints)
         headerPanelsTopConstraint?.constant = topFolderTabsHeight
         folderPicker.showsBackground = !atTop
+        applyFolderTabsLowering()
         for controller in folderControllers {
             controller.setAccessoryTopInset(headerPanels.contentHeight + topFolderTabsHeight)
             controller.setAccessoryBottomInset(atTop ? 0 : FolderPickerView.barHeight)
@@ -856,14 +887,18 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         headerPanelsHeightConstraint = height
         let headerPanelsTop = headerPanels.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor)
         headerPanelsTopConstraint = headerPanelsTop
+        let backgroundLeft = navigationBackground.leftAnchor.constraint(equalTo: view.leftAnchor)
+        let backgroundRight = navigationBackground.rightAnchor.constraint(equalTo: view.rightAnchor)
+        navigationBackgroundLeftConstraint = backgroundLeft
+        navigationBackgroundRightConstraint = backgroundRight
         NSLayoutConstraint.activate([
             headerPanelsTop,
             headerPanels.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerPanels.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             height,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
-            navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backgroundLeft,
+            backgroundRight,
             navigationBackground.bottomAnchor.constraint(equalTo: headerPanels.bottomAnchor),
         ])
     }
@@ -1130,7 +1165,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
             controller.setAccessoryTopInset(headerPanels.contentHeight + topFolderTabsHeight)
-            controller.setAccessoryBottomInset(folderTabsAtTop ? 0 : FolderPickerView.barHeight)
+            controller.setAccessoryBottomInset(folderTabsAtTop ? 0 : FolderPickerView.barHeight - folderTabsLowering)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSelectionEditingChange = { [weak self] title, done in
                 self?.setChatSelectionEditing(title: title, done: done)
@@ -1440,6 +1475,7 @@ final class FolderPickerView: UIView {
 
     /// The blur above the folder strip.
     static let controlTopInset: CGFloat = 8
+    static let capsuleHeight: CGFloat = 42
 
     // MARK: Private
 
@@ -1453,6 +1489,14 @@ final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+    /// How far the blur stays from each side: beside a tab bar standing in iPhone Duo's strip it covers only the band.
+    var backgroundSideInsets = (left: CGFloat.zero, right: CGFloat.zero) {
+        didSet {
+            blurLeftConstraint?.constant = backgroundSideInsets.left
+            blurRightConstraint?.constant = -backgroundSideInsets.right
+        }
+    }
+
     /// Whether the strip draws its own blur; under the chat list's bar the bar's background covers it.
     var showsBackground = true {
         didSet { blurView.isHidden = !showsBackground }
@@ -1491,6 +1535,9 @@ final class FolderPickerView: UIView {
     private(set) var isEditingOrder = false
     /// The tabs' ids in the order editing dragged them into; nil until a tab moved.
     private(set) var reorderedIDs: [Int]?
+
+    private var blurLeftConstraint: NSLayoutConstraint!
+    private var blurRightConstraint: NSLayoutConstraint!
 
     // MARK: Private
 
@@ -1784,10 +1831,12 @@ final class FolderPickerView: UIView {
             equalTo: safeAreaLayoutGuide.trailingAnchor,
             constant: -controlHorizontalInset,
         )
+        blurLeftConstraint = blurView.leftAnchor.constraint(equalTo: leftAnchor)
+        blurRightConstraint = blurView.rightAnchor.constraint(equalTo: rightAnchor)
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurLeftConstraint,
+            blurRightConstraint,
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             liftedContainer.topAnchor.constraint(equalTo: topAnchor),
             liftedContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1796,7 +1845,7 @@ final class FolderPickerView: UIView {
             controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlTopInset),
             controlLeadingConstraint,
             controlTrailingConstraint,
-            controlEffectView.heightAnchor.constraint(equalToConstant: 42),
+            controlEffectView.heightAnchor.constraint(equalToConstant: Self.capsuleHeight),
             controlContainer.topAnchor.constraint(equalTo: controlEffectView.contentView.topAnchor, constant: 3),
             controlContainer.leadingAnchor.constraint(
                 equalTo: controlEffectView.contentView.leadingAnchor,

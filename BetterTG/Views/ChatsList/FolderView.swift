@@ -145,6 +145,11 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         scheduleRestorationRetry()
     }
 
+    /// How far the bar's background stays from each side beside a tab bar standing in iPhone Duo's strip.
+    func setBackgroundSideInsets(_ insets: (left: CGFloat, right: CGFloat)) {
+        navigationBarView.backgroundSideInsets = insets
+    }
+
     /// A second tap on the Archive tab scrolls the list to its top.
     func scrollToTop() {
         folderController.scrollToTop()

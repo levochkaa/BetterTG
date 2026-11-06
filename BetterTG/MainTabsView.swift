@@ -6,8 +6,9 @@ import UIKit
 // MARK: - MainTab
 
 enum MainTab: Int, CaseIterable {
-    case chats
+    // Chats in the middle: the archive above it, or left of it along the bottom, and Settings below or right.
     case archive
+    case chats
     case settings
 
     var title: String {
@@ -265,7 +266,12 @@ TelegramEmbeddedNavigationChrome {
         {
             controller.additionalSafeAreaInsets.bottom = reserved
         }
-        chats.isBesideStandingTabBar = tabBar.axis == .vertical && !isTabBarHidden
+        let band = tabBar.axis == .vertical && !isTabBarHidden
+            ? (left: view.safeAreaInsets.left, right: view.safeAreaInsets.right)
+            : nil
+        chats.setStandingTabBar(bandInsets: band)
+        archive?.setBackgroundSideInsets(band ?? (0, 0))
+        settingsChrome?.bar.backgroundSideInsets = band ?? (0, 0)
     }
 }
 
