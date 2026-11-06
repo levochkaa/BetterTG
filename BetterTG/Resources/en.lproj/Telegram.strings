@@ -3383,3 +3383,6 @@
 "StoryList.DeleteConfirmation.Title_any" = "Delete %d stories?";
 "StoryList.DeleteConfirmation.Action" = "Delete";
 "StoryList.ItemAction.Forward" = "Forward";
+"TwoFactorSetup.Intro.Title" = "Additional Password";
+"TwoFactorSetup.Intro.Text" = "You can set a password that will be\nrequired when you log in on a new device in addition to the code you get via SMS.";
+"TwoFactorSetup.Intro.Action" = "Set Additional Password";

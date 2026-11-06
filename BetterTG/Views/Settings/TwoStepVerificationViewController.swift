@@ -46,6 +46,12 @@ final class TwoStepVerificationViewController: SettingsListViewController {
         super.init()
     }
 
+    init(data: Data, service: TwoStepVerificationService) {
+        self.data = data
+        self.service = service
+        super.init()
+    }
+
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -129,6 +135,57 @@ final class TwoStepVerificationViewController: SettingsListViewController {
             }
             return sections
         }
+    }
+
+    /// PrivacyAndSecurityController's openTwoStepVerification: TwoFactorAuthSplashScreen's intro for an account with
+    /// no password and no email waiting for its code, this screen otherwise. The intro's button sets a password, and
+    /// the settings then take the intro's place.
+    static func entry(
+        for configuration: TwoStepVerificationConfiguration?,
+        service: TwoStepVerificationService,
+    ) -> UIViewController {
+        guard let configuration, !configuration.hasPassword, configuration.pendingEmail == nil else {
+            return TwoStepVerificationViewController(configuration: configuration, service: service)
+        }
+        let intro = TwoStepVerificationIntroViewController()
+        intro.onAction = { [weak intro] in
+            guard let intro else { return }
+            let setup = TwoStepVerificationSetupViewController(initial: .createPassword, service: service)
+            setup.onUpdate = { [weak intro] outcome, _ in
+                guard let intro, let navigation = intro.navigationController else { return }
+                let data: Data
+                switch outcome {
+                case .noPassword:
+                    return
+                case .awaitingEmailConfirmation(_, let pattern, let codeLength):
+                    var pending = configuration
+                    pending.pendingEmail = .init(pattern: pattern, codeLength: codeLength)
+                    data = .access(pending)
+                case .passwordSet(let password?, let hasRecoveryEmail, let hasPassportData):
+                    data = .manage(
+                        password: password, emailSet: hasRecoveryEmail, pendingEmail: nil,
+                        hasPassportData: hasPassportData,
+                    )
+                case .passwordSet(nil, _, _):
+                    data = .access(nil)
+                }
+                let settings = TwoStepVerificationViewController(data: data, service: service)
+                navigation.setViewControllers(
+                    navigation.viewControllers.map { $0 === intro ? settings : $0 },
+                    animated: false,
+                )
+                if case .manage = data {
+                    TelegramUndoToast.show(
+                        text: L10n.telegram("TwoStepAuth.EnabledSuccess").replacing("\n", with: " "),
+                        in: navigation.view,
+                        bottomInset: 12,
+                        undo: nil,
+                    )
+                }
+            }
+            intro.present(TelegramNavigationController(rootViewController: setup), animated: true)
+        }
+        return intro
     }
 
     /// The password field, and under it the hint, then Forgot Password, or what a pending reset allows.

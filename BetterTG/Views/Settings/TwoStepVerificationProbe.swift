@@ -10,7 +10,8 @@
     /// changing a real account's password. Launch with `-ui-probe-two-step MODE`:
     /// - `set`: a password ("probe", hint "pet") with a recovery email; a wrong password fails, the right one opens the
     ///   settings, and Change Password, Turn Password Off and the email answer as TDLib would;
-    /// - `none`: no password; Set Additional Password creates one, whose email waits for code 123456;
+    /// - `none`: no password; TwoFactorAuthSplashScreen's intro, whose button creates one with an email waiting for
+    ///   code 123456;
     /// - `pending`: a new password whose email waits for code 123456;
     /// - `reset`: a password without a recovery email whose reset is due in three days.
     /// Every request goes to the log and to Documents/two-step-probe.txt.
@@ -177,7 +178,10 @@
                 try? await Task.sleep(for: .seconds(1))
                 let service = ProbeService(mode: mode)
                 self.service = service
-                let screen = TwoStepVerificationViewController(service: service)
+                let screen = TwoStepVerificationViewController.entry(
+                    for: service.configuration(),
+                    service: service,
+                )
                 let navigation = TelegramNavigationController(rootViewController: screen)
                 navigation.modalPresentationStyle = .fullScreen
                 var presenter = window.rootViewController

@@ -161,7 +161,15 @@ final class PrivacySettingsViewController: SettingsListViewController {
     /// openTwoStepVerification: TwoStepVerificationUnlockSettingsController, which reads the password's state.
     private func openTwoStepVerification() {
         guard contextIsCurrent else { return }
-        navigationController?.pushViewController(TwoStepVerificationViewController(), animated: true)
+        let service = TDLibTwoStepVerificationService(client: client)
+        Task { [weak self] in
+            let configuration = try? await service.configuration()
+            guard let self, contextIsCurrent else { return }
+            navigationController?.pushViewController(
+                TwoStepVerificationViewController.entry(for: configuration, service: service),
+                animated: true,
+            )
+        }
     }
 
     /// Telegram asks for the passcode before its settings open.
