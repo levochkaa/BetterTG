@@ -331,6 +331,9 @@ ClientRestorableNavigationEntry {
     private var postsTask: Task<Void, Never>?
     private var postsHasMore = true
     private var postsGeneration = UInt64.zero
+    /// The profile's story albums (getChatStoryAlbums) and the one the Posts grid shows, nil for All Stories.
+    private var storyAlbums = [(id: Int, name: String)]()
+    private var selectedAlbumID: Int?
     /// PeerInfoStoryPaneNode's selectedIds: the stories picked while the grid selects; nil otherwise.
     private var selectedPostIDs: Set<Int64>?
     private var postSelectionToolbar: StickerSelectionToolbar?
@@ -552,6 +555,11 @@ ClientRestorableNavigationEntry {
         case .bot,
              .group: return false
         }
+    }
+
+    /// The folder tab shows over Posts once the profile has albums.
+    private var showsAlbumTabs: Bool {
+        currentSharedTab == .posts && !storyAlbums.isEmpty
     }
 
     init(
@@ -1581,6 +1589,11 @@ ClientRestorableNavigationEntry {
             forCellWithReuseIdentifier: ProfileStoryGridCell.reuseIdentifier,
         )
         collectionView.register(
+            StoryAlbumTabsView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: StoryAlbumTabsView.reuseIdentifier,
+        )
+        collectionView.register(
             SharedMemberRowCell.self,
             forCellWithReuseIdentifier: SharedMemberRowCell.reuseIdentifier,
         )
@@ -1657,6 +1670,16 @@ ClientRestorableNavigationEntry {
                 let section = NSCollectionLayoutSection(group: group)
                 section.interGroupSpacing = 1
                 section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0)
+                if self?.showsAlbumTabs == true {
+                    section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+                        layoutSize: NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .absolute(StoryAlbumTabsView.height),
+                        ),
+                        elementKind: UICollectionView.elementKindSectionHeader,
+                        alignment: .top,
+                    )]
+                }
                 return section
             }
             guard self?.currentSharedTab.isGrid == true else {
@@ -1812,6 +1835,17 @@ ClientRestorableNavigationEntry {
             cell?.configure(message: message)
             cell?.setDownloadProgress(sharedItemProgress[message.id])
             return cell ?? UICollectionViewCell()
+        }
+        dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
+            let view = collectionView.dequeueReusableSupplementaryView(
+                ofKind: kind, withReuseIdentifier: StoryAlbumTabsView.reuseIdentifier, for: indexPath,
+            ) as? StoryAlbumTabsView
+            if let self {
+                view?.configure(albums: storyAlbums, selectedID: selectedAlbumID) { [weak self] id in
+                    self?.selectAlbum(id)
+                }
+            }
+            return view
         }
     }
 
@@ -2903,6 +2937,15 @@ ClientRestorableNavigationEntry {
             label.textColor = .secondaryLabel
             collectionView.backgroundView = label
         }
+        // Over Posts with albums the text keeps below the folder tab, which sits where it would be centred.
+        if showsAlbumTabs, let content = collectionView.backgroundView {
+            // The collection takes its old background off its superview when replaced, so it lets go first.
+            collectionView.backgroundView = nil
+            collectionView.backgroundView = TopInsetBackgroundView(
+                content: content,
+                topInset: StoryAlbumTabsView.height * 2,
+            )
+        }
     }
 
     private func initialStatus() -> String {
@@ -3276,6 +3319,7 @@ ClientRestorableNavigationEntry {
         groupsInCommonOffset = 0
         groupsInCommonHasMore = true
         if selectedPostIDs != nil { setPostSelection(nil) }
+        selectedAlbumID = nil
         postsGeneration &+= 1
         postsTask?.cancel()
         postsTask = nil
@@ -3305,6 +3349,7 @@ ClientRestorableNavigationEntry {
             let page = try? await client.send(TDNativeRequests.getChatPostedToChatPageStories(
                 chatId: chatID, fromStoryId: 0, limit: 1,
             ))
+            let albums = try? await client.send(TDNativeRequests.getChatStoryAlbums(chatId: chatID))
             let archive = readsArchive
                 ? try? await client.send(TDNativeRequests.getChatArchivedStories(
                     chatId: chatID,
@@ -3315,6 +3360,14 @@ ClientRestorableNavigationEntry {
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             postsCountTask = nil
             postsCount = page?.totalCount ?? 0
+            storyAlbums = albums?.albums.map { (id: $0.id, name: $0.name) } ?? []
+            #if DEBUG
+                // `-ui-probe-story-albums` names two made-up albums so the folder tab shows on any profile; the
+                // stories of a made-up album fail to load.
+                if storyAlbums.isEmpty, ProcessInfo.processInfo.arguments.contains("-ui-probe-story-albums") {
+                    storyAlbums = [(id: 9_000_001, name: "Travel"), (id: 9_000_002, name: "Cats")]
+                }
+            #endif
             if readsArchive { archivedPostsCount = archive?.totalCount ?? 0 }
             updateSharedTabAvailability()
         }
@@ -3328,24 +3381,39 @@ ClientRestorableNavigationEntry {
         let fromStoryID = posts.last.map(Int.init) ?? 0
         let generation = postsGeneration
         let isArchive = currentSharedTab == .archivedPosts
+        let albumID = isArchive ? nil : selectedAlbumID
+        let offset = posts.count
         historyError = nil
         postsTask = Task { [weak self] in
             do {
-                let page = try await client.send(isArchive
-                    ? TDNativeRequests.getChatArchivedStories(chatId: chatID, fromStoryId: fromStoryID, limit: 30)
-                    : TDNativeRequests.getChatPostedToChatPageStories(
-                        chatId: chatID, fromStoryId: fromStoryID, limit: 30,
-                    ))
+                let page: TDNativeStories =
+                    if let albumID {
+                        try await client.send(TDNativeRequests.getStoryAlbumStories(
+                            chatId: chatID, storyAlbumId: albumID, offset: offset, limit: 30,
+                        ))
+                    } else if isArchive {
+                        try await client.send(TDNativeRequests.getChatArchivedStories(
+                            chatId: chatID, fromStoryId: fromStoryID, limit: 30,
+                        ))
+                    } else {
+                        try await client.send(TDNativeRequests.getChatPostedToChatPageStories(
+                            chatId: chatID, fromStoryId: fromStoryID, limit: 30,
+                        ))
+                    }
                 guard let self, postsGeneration == generation, contextIsCurrent else { return }
                 postsTask = nil
-                pinnedPostIDs.formUnion(page.pinnedStoryIds)
+                if albumID == nil { pinnedPostIDs.formUnion(page.pinnedStoryIds) }
                 var added = 0
                 for story in page.stories where postsByID[Int64(story.id)] == nil {
                     postsByID[Int64(story.id)] = story
                     posts.append(Int64(story.id))
                     added += 1
                 }
-                if isArchive { archivedPostsCount = page.totalCount } else { postsCount = page.totalCount }
+                if isArchive {
+                    archivedPostsCount = page.totalCount
+                } else if albumID == nil {
+                    postsCount = page.totalCount
+                }
                 postsHasMore = added > 0 && posts.count < page.totalCount
                 applySnapshot()
             } catch {
@@ -3659,6 +3727,25 @@ ClientRestorableNavigationEntry {
         postsByID[id] = nil
         pinnedPostIDs.remove(storyID)
         applySnapshot()
+    }
+
+    private func selectAlbum(_ id: Int?) {
+        guard id != selectedAlbumID, selectedPostIDs == nil else { return }
+        selectedAlbumID = id
+        postsGeneration &+= 1
+        postsTask?.cancel()
+        postsTask = nil
+        posts = []
+        postsByID = [:]
+        postsHasMore = true
+        applySnapshot(animated: false)
+        // The tabs redraw with the new choice.
+        if let header = collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader)
+            .first as? StoryAlbumTabsView
+        {
+            header.configure(albums: storyAlbums, selectedID: id) { [weak self] id in self?.selectAlbum(id) }
+        }
+        loadMorePosts()
     }
 
     /// PeerInfoStoryPaneNode opens the story among the pane's stories (PeerStoryListContentContextImpl).
@@ -4947,4 +5034,28 @@ private enum ProfileDateFormatting {
 
 func profileDateString(_ timestamp: Int) -> String {
     Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(ProfileDateFormatting.style)
+}
+
+// MARK: - TopInsetBackgroundView
+
+/// A collection's background that lays its one view out below a top inset, as a header row leaves room for.
+private final class TopInsetBackgroundView: UIView {
+    private let content: UIView
+    private let topInset: CGFloat
+
+    init(content: UIView, topInset: CGFloat) {
+        self.content = content
+        self.topInset = topInset
+        super.init(frame: .zero)
+        addSubview(content)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        content.frame = CGRect(x: 0, y: topInset, width: bounds.width, height: max(0, bounds.height - topInset))
+    }
 }
