@@ -156,6 +156,7 @@ final class SettingsViewController: UITableViewController {
              .faq,
              .language,
              .licenses,
+             .myProfile,
              .notifications,
              .powerSaving,
              .privacy,
@@ -200,6 +201,8 @@ final class SettingsViewController: UITableViewController {
             navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
             navigationController?.pushViewController(EditProfileViewController(), animated: true)
+        case .myProfile:
+            openMyProfile()
         case .proxy:
             navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
         case .savedMessages:
@@ -251,10 +254,12 @@ final class SettingsViewController: UITableViewController {
             #else
                 return accountRows + [.addAccount]
             #endif
+        case .myProfile:
+            return TDLib.shared.activeAccountID == nil ? [] : [.myProfile]
         case .apps:
             return appEntries().map { .app($0.bot.botUserId) }
         case .proxy:
-            // PeerInfoSettingsItems shows the proxy once a server is saved.
+            // PeerInfoSettingsItems shows the proxy, after My Profile, once a server is saved.
             return TDLib.shared.activeAccountID != nil && ProxyStatusStore.shared.state.hasProxy ? [.proxy] : []
         case .shortcuts:
             return TDLib.shared.activeAccountID == nil ? [] : [.savedMessages, .devices, .chatFolders]
@@ -391,6 +396,23 @@ final class SettingsViewController: UITableViewController {
         launcher.openSettingsWebApp(bot: entry.bot)
     }
 
+    /// PeerInfoScreenSettingsActions' `.profile`: the account's own PeerInfoScreen with `isMyProfile`.
+    private func openMyProfile() {
+        guard let accountID = TDLib.shared.activeAccountID else { return }
+        let client = TDLib.shared.activeClient
+        Task { [weak self] in
+            guard let me = try? await client.getMe(),
+                  let chat = try? await client.createPrivateChat(force: false, userId: me.id),
+                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
+                  let self, TDLib.shared.activeAccountID == accountID
+            else { return }
+            let profile = PeerProfileViewController(
+                customChat: customChat, topic: nil, client: client, accountID: accountID, isMyProfile: true,
+            )
+            navigationController?.pushViewController(profile, animated: true)
+        }
+    }
+
     /// Telegram's Saved Messages row opens the account's own chat.
     private func openSavedMessages() {
         guard let accountID = TDLib.shared.activeAccountID else { return }
@@ -460,8 +482,9 @@ private extension SettingsViewController {
     enum Section: Int, CaseIterable {
         case profile
         case accounts
-        case apps
+        case myProfile
         case proxy
+        case apps
         case shortcuts
         case appearance
         case support
@@ -479,6 +502,7 @@ private extension SettingsViewController {
             case .accountActions,
                  .appearance,
                  .apps,
+                 .myProfile,
                  .profile,
                  .proxy,
                  .shortcuts,
@@ -495,6 +519,7 @@ private extension SettingsViewController {
         case addTestServerAccount
         /// A side menu bot by its user ID.
         case app(Int64)
+        case myProfile
         case proxy
         case savedMessages
         case devices
@@ -534,6 +559,8 @@ private extension SettingsViewController {
                 ""
             case .profile:
                 L10n.telegram("EditProfile.Title")
+            case .myProfile:
+                L10n.telegram("Settings.MyProfile")
             case .proxy:
                 L10n.telegram("Settings.Proxy")
             case .savedMessages:
@@ -600,6 +627,7 @@ private extension SettingsViewController {
                  .faq,
                  .licenses,
                  .logOut,
+                 .myProfile,
                  .notifications,
                  .privacy,
                  .privacyPolicy,
@@ -632,6 +660,7 @@ private extension SettingsViewController {
             case .addTestServerAccount: "testtube.2"
             case .app: "square.grid.2x2.fill"
             case .proxy: "shield.fill"
+            case .myProfile: "person.crop.circle.fill"
             case .savedMessages: "bookmark.fill"
             case .devices: "laptopcomputer.and.iphone"
             case .chatFolders: "folder.fill"
@@ -668,6 +697,7 @@ private extension SettingsViewController {
             case .chatFolders: .systemCyan
             case .notifications: .systemRed
             case .proxy: .systemBlue
+            case .myProfile: .systemRed
             case .licenses,
                  .privacy,
                  .termsOfService: .systemGray

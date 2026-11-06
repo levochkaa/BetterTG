@@ -140,6 +140,10 @@ ClientRestorableNavigationEntry {
     private let client: TDLibClient
     private let customChat: CustomChat
     private let isSelfProfile: Bool
+    /// PeerInfoScreen's `isMyProfile`: the account's own profile from Settings' My Profile, under the account's name
+    /// and online, with no action buttons. The account's chat with itself is Saved Messages otherwise.
+    private let isMyProfile: Bool
+
     private let topic: MessageTopic?
     private let restoration: PeerProfileRestorationState?
     private var restoredViewport: PeerProfileViewport?
@@ -329,6 +333,11 @@ ClientRestorableNavigationEntry {
 
     var navigationClientSource: TdUpdateSource? { restorationIdentity.origin }
 
+    /// The account's own chat shown as Saved Messages, as it is when opened from that chat.
+    private var isSavedMessagesProfile: Bool {
+        isSelfProfile && !isMyProfile
+    }
+
     private var currentSharedTab: SharedTab {
         selectedSharedTab
     }
@@ -506,6 +515,7 @@ ClientRestorableNavigationEntry {
     init(
         customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
         restoration: PeerProfileRestorationState? = nil,
+        isMyProfile: Bool = false,
     ) {
         self.customChat = customChat
         self.topic = topic
@@ -538,13 +548,23 @@ ClientRestorableNavigationEntry {
             self.currentBioText = restoration.bio
             self.currentDetailTexts = restoration.details
         }
-        self.isSelfProfile = accountUserID.map { customChat.user?.id == $0 } == true
-        self.currentChatTitle = customChat.displayTitle
+        let isSelfProfile = accountUserID.map { customChat.user?.id == $0 } == true
+        self.isSelfProfile = isSelfProfile
+        self.isMyProfile = isMyProfile && isSelfProfile
+        self.currentChatTitle = self.isMyProfile
+            ? customChat.user.map(Self.userName) ?? customChat.displayTitle
+            : customChat.displayTitle
         self.currentChatPhotoInfo = customChat.chat.photo
         self.currentUserProfilePhoto = customChat.user?.profilePhoto
-        self.currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
-        if !isSelfProfile, case .user(let user) = customChat.type {
-            self.currentStatusIsOnline = Self.isOnline(user.status)
+        if self.isMyProfile {
+            // PeerInfoHeaderNode shows the account itself as online.
+            self.currentStatusText = L10n.telegram("Presence.online")
+            self.currentStatusIsOnline = true
+        } else {
+            self.currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
+            if !isSelfProfile, case .user(let user) = customChat.type {
+                self.currentStatusIsOnline = Self.isOnline(user.status)
+            }
         }
         super.init(nibName: nil, bundle: nil)
         observeClientOwnership()
@@ -778,6 +798,11 @@ ClientRestorableNavigationEntry {
         return L10n.telegramPlural("SharedMedia.SimilarChannel.Subscribers", count: count)
     }
 
+    /// The user's first and last name, as My Profile's title.
+    private static func userName(_ user: User) -> String {
+        [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -806,7 +831,7 @@ ClientRestorableNavigationEntry {
             guard client.id == source.clientID else { return nil }
             let replacement = PeerProfileViewController(
                 customChat: preparedMetadata.1, topic: self.topic, client: client, accountID: source.accountID,
-                restoration: state,
+                restoration: state, isMyProfile: self.isMyProfile,
             )
             replacement.configureOpensChatItself()
             return replacement
@@ -1982,7 +2007,8 @@ ClientRestorableNavigationEntry {
 
     private func handleUserStatusUpdate(_ update: UpdateUserStatus) {
         // A bot's status is its users, not a presence.
-        guard contextIsCurrent, update.userId == customChat.user?.id, customChat.bot == nil else { return }
+        guard contextIsCurrent, update.userId == customChat.user?.id, customChat.bot == nil,
+              !isMyProfile else { return }
         currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.status)
         currentStatusIsOnline = !isSelfProfile && Self.isOnline(update.status)
         scheduleMetadataRender()
@@ -2001,11 +2027,13 @@ ClientRestorableNavigationEntry {
             currentUserProfilePhoto = update.user.profilePhoto
         }
         let name = [update.user.firstName, update.user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
-        if !name.isEmpty, !isSelfProfile {
+        if !name.isEmpty, !isSavedMessagesProfile {
             currentChatTitle = name
         }
-        currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
-        currentStatusIsOnline = !isSelfProfile && customChat.bot == nil && Self.isOnline(update.user.status)
+        if !isMyProfile {
+            currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
+            currentStatusIsOnline = !isSelfProfile && customChat.bot == nil && Self.isOnline(update.user.status)
+        }
         currentDetailTexts = update.user.usernames?.activeUsernames.map { "@\($0)" } ?? []
         if !update.user.phoneNumber.isEmpty {
             currentDetailTexts.append("+\(update.user.phoneNumber)")
@@ -2142,7 +2170,9 @@ ClientRestorableNavigationEntry {
                   let chat
             else { return }
             customChat.chat = chat
-            currentChatTitle = isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : chat.title
+            if !isMyProfile {
+                currentChatTitle = isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : chat.title
+            }
             if currentChatPhotoInfo != chat.photo {
                 currentProfilePhoto = nil
                 hasHydratedFullInfo = false
@@ -2358,6 +2388,8 @@ ClientRestorableNavigationEntry {
         #endif
         // Telegram's Mute and More act on the whole chat; a topic's profile and Saved Messages have their own.
         moreActionButton.isHidden = isSelfProfile || topic != nil
+        // PeerInfoHeaderNode gives My Profile no buttons at all.
+        searchActionButton.isHidden = isMyProfile
         membersActionButton.isHidden =
             switch customChat.type {
             case .group:
@@ -2766,7 +2798,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func profileTitle() -> String {
-        isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : currentChatTitle
+        isSavedMessagesProfile ? L10n.telegram("Conversation.SavedMessages") : currentChatTitle
     }
 
     /// Telegram (avatarGalleryFallbackItem) opens the current photo at once and reconciles the list when it arrives.
