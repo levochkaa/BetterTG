@@ -149,6 +149,7 @@ import UIKit
     }
 
     static func titleFontSize(of action: TelegramContextMenuAction) -> CGFloat {
+        if action.isSectionTitle { return 12 }
         if action.isHeader { return headerFontSize }
         return action.isInformational || action.usesSmallText ? 14 : actionFontSize
     }
@@ -192,6 +193,9 @@ struct TelegramContextMenuAction {
     /// ChatReadReportContextItem in a private chat: a compact line of text at the top of the menu, such as when the
     /// message was read. It is never highlighted or selected unless `selectableUpdates` says so.
     var isHeader = false
+    /// SectionTitleContextItem: a section's title in 12 / 17 of the list font and the secondary colour, laid out as
+    /// a header row, never highlighted or chosen.
+    var isSectionTitle = false
     /// Whether the row can be chosen while it shows something to act on, such as Telegram's "show when" or a group's
     /// viewers. An ordinary row that can't be chosen dims its title, as Telegram's "Nobody Viewed".
     var selectableUpdates: AnyPublisher<Bool, Never>?
@@ -3489,7 +3493,7 @@ final class TelegramContextMenuActionButton: UIControl {
 
         let color: UIColor = action.isDestructive ? .systemRed : TelegramContextMenuLayout.primaryColor
         titleLabel.text = action.title
-        titleLabel.textColor = color
+        titleLabel.textColor = action.isSectionTitle ? .secondaryLabel : color
         titleLabel.font = TelegramContextMenuLayout.titleFont(of: action)
         titleLabel.numberOfLines = TelegramContextMenuLayout.wrapsTitle(of: action)
             ? TelegramContextMenuLayout.maximumTitleLines

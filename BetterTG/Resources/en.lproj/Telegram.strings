@@ -3413,3 +3413,4 @@
 "Stories.AddStories_1" = "Add %@ Story";
 "Stories.AddStories_any" = "Add %@ Stories";
 "BotPreviews.MenuReorder" = "Reorder";
+"Gallery.VideoSettings.SpeedSectionTitle" = "PLAYBACK SPEED";

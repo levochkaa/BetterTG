@@ -5460,9 +5460,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                     rateProbeCancellable = owner.playbackContext.playbackRate.sink { [weak owner] rate in
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             guard let owner else { return }
+                            // No playback time here: AVPlayerItem.currentTime blocks the main thread while the
+                            // item builds its audio pipeline, which a stalled simulator audio server never finishes.
                             recordRateProbe(
-                                "Gallery rate probe: shared=\(rate) player=\(owner.mediaView.debugPlayerRate) "
-                                + "time=\(owner.mediaView.debugPlaybackTime)",
+                                "Gallery rate probe: shared=\(rate) player=\(owner.mediaView.debugPlayerRate)",
                             )
                         }
                     }
@@ -9867,7 +9868,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 sliderMoved.send()
             },
         ))
-        var presets = Media.playbackRates.map { rate in
+        let presets = Media.playbackRates.map { rate in
             var action = TelegramContextMenuAction(
                 title: StoryMoreMenu.speedTitle(Double(rate)),
                 image: abs(rate - current) < 0.01 ? checkmark : UIImage(),
@@ -9876,10 +9877,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             action.imageUpdates = sliderMoved.map { UIImage() as UIImage? }.eraseToAnyPublisher()
             return action
         }
-        presets[0].startsNewSection = true
+        // SectionTitleContextItem: Playback Speed over the presets, as Telegram titles them without quality options.
+        var sectionTitle = TelegramContextMenuAction(title: L10n.telegram("Gallery.VideoSettings.SpeedSectionTitle"))
+        sectionTitle.isHeader = true
+        sectionTitle.isSectionTitle = true
+        sectionTitle.startsNewSection = true
         controller.presentTelegramContextMenu(
             sourceView: rateButton,
-            actions: [slider] + presets,
+            actions: [slider, sectionTitle] + presets,
             presentationStyle: .menuOnly,
             onDismiss: { [weak self] in
                 self?.isPlaybackRateMenuOpen = false
