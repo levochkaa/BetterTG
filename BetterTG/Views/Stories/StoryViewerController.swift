@@ -23,6 +23,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         case story(chatID: Int64, storyID: Int)
         /// Posters' active stories, opened at one poster and paging through the others in order.
         case activeStories(chatIDs: [Int64], initialChatID: Int64)
+        /// A list of one poster's stories opened at one of them, as PeerInfoStoryPaneNode's Posts open
+        /// (PeerStoryListContentContextImpl).
+        case storyList(chatID: Int64, storyIDs: [Int], initialStoryID: Int)
     }
 
     private enum PanAxis {
@@ -393,6 +396,16 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 state = story == nil
                     ? nil
                     : StoryViewerState(posters: [.init(chatID: chatID, storyIDs: [storyID])], initialChatID: chatID)
+            case .storyList(let chatID, let storyIDs, let initialStoryID):
+                followsActiveStories = false
+                let story = await session.story(.init(chatID: chatID, storyID: initialStoryID))
+                if story == nil || storyIDs.isEmpty {
+                    state = nil
+                } else {
+                    var poster = StoryViewerState.Poster(chatID: chatID, storyIDs: storyIDs)
+                    poster.entryIndex = storyIDs.firstIndex(of: initialStoryID) ?? 0
+                    state = StoryViewerState(posters: [poster], initialChatID: chatID)
+                }
             case .activeStories(let chatIDs, let initialChatID):
                 followsActiveStories = true
                 let active = await session.activeStories(chatID: initialChatID)

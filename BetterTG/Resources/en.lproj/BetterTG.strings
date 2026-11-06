@@ -526,6 +526,8 @@
 "Profile.SharedGroupsEmpty" = "No groups in common";
 "Profile.SimilarLoadFailed" = "Couldn't load recommendations.";
 "Profile.SimilarEmpty" = "No recommendations";
+"Profile.PostsLoadFailed" = "Couldn't load posts.";
+"Profile.PostsEmpty" = "No posts";
 "Profile.Title" = "Profile";
 "Profile.ForumStatus" = "forum";
 "Profile.ReloadFailed" = "Couldn't reload profile.";

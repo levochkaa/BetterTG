@@ -526,6 +526,8 @@
 "Profile.SharedGroupsEmpty" = "Нет общих групп";
 "Profile.SimilarLoadFailed" = "Не удалось загрузить рекомендации.";
 "Profile.SimilarEmpty" = "Нет рекомендаций";
+"Profile.PostsLoadFailed" = "Не удалось загрузить публикации.";
+"Profile.PostsEmpty" = "Нет публикаций";
 "Profile.Title" = "Профиль";
 "Profile.ForumStatus" = "форум";
 "Profile.ReloadFailed" = "Не удалось обновить профиль.";
