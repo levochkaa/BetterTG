@@ -81,6 +81,7 @@ final class TelegramListNavigationBar: UIView {
     /// Clips the search field as it collapses with the list.
     private let searchClipView = UIView()
     private var leadingRowConstraints = [NSLayoutConstraint]()
+    private var leadingOnlyRowConstraints = [NSLayoutConstraint]()
     private var titleLeadingRowConstraint: NSLayoutConstraint?
     private var titleLeadingColumnConstraint: NSLayoutConstraint!
     private var columnXConstraint: NSLayoutConstraint?
@@ -169,6 +170,7 @@ final class TelegramListNavigationBar: UIView {
         secondaryRightAction: (() -> Void)? = nil,
         secondaryRightAccessibilityLabel: String? = nil,
         showsBackButton: Bool = false,
+        leftTitle: String? = nil,
         leftAccessibilityLabel: String? = nil,
         rightAccessibilityLabel: String? = nil,
         opensSearchFromButton: Bool = false,
@@ -183,6 +185,8 @@ final class TelegramListNavigationBar: UIView {
         super.init(frame: .zero)
         titleLabel.text = title
         leftButton.setImage(leftImage, for: .normal)
+        if let leftTitle { setLeftTitle(leftTitle) }
+        leftButton.isHidden = leftImage == nil && leftTitle == nil
         rightButton.setImage(rightImage, for: .normal)
         secondaryRightButton.setImage(secondaryRightImage, for: .normal)
         secondaryRightButton.isHidden = secondaryRightImage == nil
@@ -257,6 +261,19 @@ final class TelegramListNavigationBar: UIView {
         setRowGlassHidden(true)
         titleControl.alpha = 0
         lockButton.alpha = 0
+    }
+
+    /// A text left button, such as the chat list's Edit and its Done, in a pill that stays in the row, as the system's
+    /// bar keeps a text button there beside iPhone Duo's strip.
+    func setLeftTitle(_ title: String, isProminent: Bool = false) {
+        leftButton.setTitle(title, for: .normal)
+        leftButton.titleLabel?.font = .systemFont(ofSize: 17, weight: isProminent ? .semibold : .medium)
+        leftButton.tintColor = isProminent ? .white : .label
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        if isProminent { effect.tintColor = .systemBlue }
+        leadingPlatter.glassView.effect = effect
+        leadingPlatter.refresh()
     }
 
     func setLeftButtonHidden(_ hidden: Bool) {
@@ -341,7 +358,9 @@ final class TelegramListNavigationBar: UIView {
         guard layout != appliedDuoLayout else { return }
         let hadColumn = appliedDuoLayout?.sideColumn != nil
         appliedDuoLayout = layout
-        let columnPlatters = (opensSearchFromButton ? [leadingPlatter, searchPlatter] : [leadingPlatter])
+        // A text left button stays in the row.
+        let leadingInColumn = leftButton.title(for: .normal)?.isEmpty != false
+        let columnPlatters = (leadingInColumn ? [leadingPlatter] : []) + (opensSearchFromButton ? [searchPlatter] : [])
             + [trailingPlatter, secondaryTrailingPlatter, proxyPlatter]
         if let column = layout?.sideColumn {
             if !hadColumn {
@@ -352,7 +371,11 @@ final class TelegramListNavigationBar: UIView {
                     columnStack.addArrangedSubview(platter)
                 }
                 columnStack.isHidden = false
-                titleLeadingColumnConstraint.isActive = true
+                if leadingInColumn {
+                    titleLeadingColumnConstraint.isActive = true
+                } else {
+                    activateLeadingOnlyRowConstraints()
+                }
             }
             if let superview, columnStack.superview !== superview {
                 superview.insertSubview(columnStack, aboveSubview: self)
@@ -373,6 +396,8 @@ final class TelegramListNavigationBar: UIView {
             }
             columnStack.isHidden = true
             titleLeadingColumnConstraint.isActive = false
+            NSLayoutConstraint.deactivate(leadingOnlyRowConstraints)
+            leadingOnlyRowConstraints.removeAll()
             addSubview(leadingPlatter)
             if opensSearchFromButton { addSubview(searchPlatter) }
             activateLeadingRowConstraints()
@@ -411,6 +436,23 @@ final class TelegramListNavigationBar: UIView {
         titleControl.accessibilityTraits = tappable ? .button : []
         let subtitle = subtitleLabel.isHidden ? nil : subtitleLabel.text
         titleControl.accessibilityLabel = [titleLabel.text, subtitle].compactMap(\.self).joined(separator: ", ")
+    }
+
+    /// The row's left beside iPhone Duo's strip when only a text button stays in it: search has gone to the column.
+    private func activateLeadingOnlyRowConstraints() {
+        let top = leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: rowTopOffset)
+        rowTopConstraints.removeAll { $0.firstItem === leadingPlatter || $0.firstItem === searchPlatter }
+        rowTopConstraints.append(top)
+        leadingOnlyRowConstraints = [
+            leadingPlatter.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: TelegramGlassPlatter.edgeInset,
+            ),
+            top,
+            titleSlotGuide.leadingAnchor.constraint(equalTo: leadingPlatter.trailingAnchor),
+            titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leadingPlatter.trailingAnchor, constant: 8),
+        ]
+        NSLayoutConstraint.activate(leadingOnlyRowConstraints)
     }
 
     private func activateLeadingRowConstraints() {

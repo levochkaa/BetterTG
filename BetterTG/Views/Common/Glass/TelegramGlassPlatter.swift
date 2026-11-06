@@ -95,6 +95,7 @@ final class TelegramGlassPlatter: UIView {
     var preferredWidth: CGFloat {
         let visible = visibleItems
         guard customContent == nil else { return bounds.width }
+        guard !visible.isEmpty else { return 0 }
         return visible.reduce(endInset(for: visible) * 2) { $0 + Self.width(of: $1) }
     }
 

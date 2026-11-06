@@ -67,7 +67,7 @@ final class RootViewController: UIViewController {
 
         let controller: UIViewController
         if rootVM.loggedIn {
-            let mainController = MainViewController(rootVM: rootVM)
+            let mainController = MainTabsViewController(rootVM: rootVM)
             controller = NavigationStorage.shared.setRoot(mainController)
         } else {
             controller = LoginViewController(accountID: displayedAccountID)

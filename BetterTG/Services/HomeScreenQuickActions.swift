@@ -105,13 +105,13 @@ import UIKit
         pendingAction = nil
         dismissActiveTelegramContextMenu()
         let navigation = NavigationStorage.shared.activeNavigationController
-        let main = NavigationStorage.shared.viewControllers.first as? MainViewController
+        let main = NavigationStorage.shared.viewControllers.first as? MainTabsViewController
         switch action {
         case .search:
             // TelegramRootController.openChatsController(activateSearch: true)
             TelegramLinkRouter.shared.afterDismissingPresentations {
                 NavigationStorage.shared.popToRoot(animated: false)
-                main?.activateSearch()
+                main?.activateChatsSearch()
             }
         case .compose:
             // ChatListController.composePressed
@@ -136,7 +136,7 @@ import UIKit
             do {
                 try TDLib.shared.switchToAccount(other.id)
             } catch {
-                main?.showAccountError(error)
+                main?.chats.showAccountError(error)
             }
         }
     }

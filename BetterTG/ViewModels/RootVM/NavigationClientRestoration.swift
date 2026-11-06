@@ -25,6 +25,11 @@ import UIKit
         self.commitAction = commit
     }
 
+    /// For a container whose own plan is made of its children's: its preflight and commit only.
+    func canCommitReplacement() -> Bool { canCommit() }
+
+    func commitReplacement() -> UIViewController? { commit() }
+
     fileprivate func canCommit() -> Bool {
         commitAction != nil && preflight()
     }

@@ -33,10 +33,14 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private var isRestoringSearchFocus = false
     private let navigationContentHeight = TelegramListNavigationBar.rowContentHeight
 
+    /// Whether the archive is a tab of the root, with no back button.
+    private let isTabRoot: Bool
+
     var navigationClientSource: TdUpdateSource? { actionAuthority.scope(owner: self).source }
 
-    init(folder: CustomFolder, rootVM: RootVM, restoration: ClientRestorationState? = nil) {
+    init(folder: CustomFolder, rootVM: RootVM, isTabRoot: Bool = false, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
+        self.isTabRoot = isTabRoot
         self.query = restoration?.query ?? ""
         self.restoresSearchFocus = restoration?.searchWasFocused ?? false
         self.folderController = FolderViewController(
@@ -52,11 +56,11 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
             placeholder: L10n.betterTG("Folders.SearchIn", folder.name.lowercased()),
-            leftImage: UIImage(systemName: "chevron.left"),
+            leftImage: isTabRoot ? nil : UIImage(systemName: "chevron.left"),
             rightImage: UIImage(systemName: "ellipsis"),
             leftAction: { NavigationStorage.shared.pop() },
             rightAction: { openMoreMenu?() },
-            showsBackButton: true,
+            showsBackButton: !isTabRoot,
             rightAccessibilityLabel: L10n.telegram("Common.More"),
             opensSearchFromButton: true,
         )
@@ -138,8 +142,14 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         scheduleRestorationRetry()
     }
 
+    /// A second tap on the Archive tab scrolls the list to its top.
+    func scrollToTop() {
+        folderController.scrollToTop()
+    }
+
     func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
         guard canRestoreClient(source), let folder = rootVM.archive else { return nil }
+        let isTabRoot = isTabRoot
         let state = ClientRestorationState(
             query: query,
             searchWasFocused: isViewLoaded ? navigationBarView.isSearchFocused : restoresSearchFocus,
@@ -151,7 +161,12 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
                 self?.canRestoreClient(source) == true && rootVM.archive === folder
             },
             commit: {
-                let replacement = ArchiveViewController(folder: folder, rootVM: rootVM, restoration: state)
+                let replacement = ArchiveViewController(
+                    folder: folder,
+                    rootVM: rootVM,
+                    isTabRoot: isTabRoot,
+                    restoration: state,
+                )
                 #if DEBUG
                     log("Archive client restoration: replacement accepted; search-focus=\(state.searchWasFocused)")
                 #endif

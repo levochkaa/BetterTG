@@ -185,7 +185,11 @@ UINavigationControllerDelegate {
             state.bar.layoutIfNeeded()
         } else {
             // The screen isn't in its window yet. The morph needs to know where its bar's buttons will be.
-            let bar = controller.view.subviews.lazy.compactMap { $0 as? TelegramListNavigationBar }.first
+            // A tab's bar sits in the tab's view, one level further down.
+            let bar = (controller.view.subviews + controller.children.flatMap(\.view.subviews))
+                .lazy
+                .compactMap { $0 as? TelegramListNavigationBar }
+                .first
             bar?.applyIPhoneDuoLayout(view.iPhoneDuoLayout)
         }
         // The bars' glass platters morph into the incoming screen's, as UIKit's iOS 26 bar does.

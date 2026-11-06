@@ -21,6 +21,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         private var allMessagesForumSmokeAttemptID: UUID?
     #endif
 
+    /// Telegram hides the tab bar while the list edits, for its toolbar.
+    var onTabBarHiddenChange: ((Bool) -> Void)?
+
+    /// Beside a tab bar standing in iPhone Duo's strip, the folder tabs keep to the band.
+    var isBesideStandingTabBar = false {
+        didSet { folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar }
+    }
+
     // MARK: Private
 
     private let rootVM: RootVM
@@ -43,19 +51,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var liveLocationChatTitles = [Int64: String]()
     private var liveLocationTitleTask: Task<Void, Never>?
     private var liveLocationOpenTask: Task<Void, Never>?
+    /// Telegram's chat list bar: Edit, then search, the tab's title, and compose. The archive and Settings are tabs.
     private lazy var customNavigationBar = TelegramListNavigationBar(
-        title: "BetterTG",
+        title: L10n.telegram("DialogList.Title"),
         placeholder: L10n.telegram("DialogList.SearchLabel"),
-        leftImage: UIImage(systemName: "archivebox"),
-        rightImage: UIImage(systemName: "gearshape"),
-        leftAction: { [weak self] in self?.openArchive() },
-        rightAction: { [weak self] in self?.openSettings() },
-        // Telegram's compose button (ChatListController's pencil); Settings keeps the right edge.
-        secondaryRightImage: UIImage(systemName: "square.and.pencil"),
-        secondaryRightAction: { [weak self] in self?.openCompose() },
-        secondaryRightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
-        leftAccessibilityLabel: L10n.telegram("ChatList.ArchivedChatsTitle"),
-        rightAccessibilityLabel: L10n.telegram("Settings.Title"),
+        leftImage: nil,
+        rightImage: UIImage(systemName: "square.and.pencil"),
+        leftAction: { [weak self] in self?.editPressed() },
+        rightAction: { [weak self] in self?.openCompose() },
+        leftTitle: L10n.telegram("Common.Edit"),
+        rightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
         opensSearchFromButton: true,
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
@@ -83,6 +88,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     var navigationClientSource: TdUpdateSource? {
         actionAuthority.scope(owner: self).source
+    }
+
+    /// Whether this screen, or the tabs holding it, is the stack's top.
+    private var isNavigationTop: Bool {
+        let top = navigationController?.topViewController
+        return top === self || (top != nil && top === parent)
     }
 
     private var voicePlaybackHeader: VoicePlaybackHeaderView { headerPanels.voiceHeader }
@@ -278,6 +289,76 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
+    /// A second tap on the Chats tab scrolls the shown folder to its top.
+    func scrollCurrentFolderToTop() {
+        currentFolderController?.scrollToTop()
+    }
+
+    /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: Add Account and
+    /// the current account, then the other accounts in a section of their own.
+    func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer) {
+        let tdlib = TDLib.shared
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram("Settings.AddAccount"),
+            image: UIImage(systemName: "plus"),
+        ) { [weak self] in
+            do {
+                try tdlib.addAccount()
+            } catch {
+                self?.showAccountError(error)
+            }
+        }]
+        if let current = tdlib.accounts.first(where: { $0.id == tdlib.activeAccountID }) {
+            var action = TelegramContextMenuAction(
+                title: current.localizedTitle,
+                image: UIImage(systemName: "person.crop.circle"),
+            )
+            action.leadingPeer = accountPeer.map {
+                TelegramContextMenuPeerIcon(peer: $0, client: actionAuthority.client, isSelected: false)
+            }
+            actions.append(action)
+        }
+        for (index, account) in tdlib.accounts.filter({ $0.id != tdlib.activeAccountID }).enumerated() {
+            var action = TelegramContextMenuAction(
+                title: account.localizedTitle,
+                image: UIImage(systemName: "person.crop.circle"),
+                startsNewSection: index == 0,
+            ) { [weak self] in
+                do {
+                    try tdlib.switchToAccount(account.id)
+                } catch {
+                    self?.showAccountError(error)
+                }
+            }
+            // The account's color and first letter until it has shared its photo.
+            action.leadingPeer = TelegramContextMenuPeerIcon(
+                peer: SettingsPeer(
+                    id: account.userID ?? 0,
+                    title: account.localizedTitle,
+                    file: nil,
+                    minithumbnail: nil,
+                    placeholder: TelegramAvatarPlaceholder(
+                        peerID: account.userID ?? 0,
+                        accentColorID: Int((account.userID ?? 0) % 7),
+                        upgradedGiftColors: nil,
+                        letters: account.localizedTitle.telegramAvatarFirstLetter.map { [$0] } ?? [],
+                        isDeleted: false,
+                    ),
+                ),
+                client: actionAuthority.client,
+                isSelected: false,
+                cachedPhoto: TelegramAccountAvatarCache.photo(for: account.id),
+            )
+            actions.append(action)
+        }
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
+        )
+    }
+
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
         source == TDLib.shared.activeUpdateSource
             && source.accountID == navigationClientSource?.accountID
@@ -305,7 +386,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 .sink { [weak self] chat in
                     guard let self, !Self.didOpenForumListForSmoke, source != nil,
                           TDLib.shared.activeUpdateSource == source,
-                          navigationController?.topViewController === self else { return }
+                          isNavigationTop else { return }
                     Self.didOpenForumListForSmoke = true
                     NavigationStorage.shared.push(.customChat(chat), animated: false)
                     log("Forum list smoke: opened existing topics route; no topic selected")
@@ -473,7 +554,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         private func permitsAllMessagesForumSmoke(_ source: TdUpdateSource, attemptID: UUID) -> Bool {
             allMessagesForumSmokeAttemptID == attemptID
                 && TDLib.shared.activeUpdateSource == source && actionAuthority.scope(owner: self).isCurrent
-                && navigationController?.topViewController === self
+                && isNavigationTop
                 && navigationController?.presentedViewController == nil && presentedViewController == nil
         }
 
@@ -512,6 +593,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private func setChatSelectionEditing(title: String?, done: (() -> Void)?) {
         customNavigationBar.setEditing(title: title, done: done)
         isSelectingChats = done != nil
+        onTabBarHiddenChange?(isSelectingChats)
         if let scrollView = pageController.view.subviews.compactMap({ $0 as? UIScrollView }).first {
             scrollView.isScrollEnabled = !isSelectingChats
         }
@@ -565,9 +647,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             }
             updateSearchResults(animated: !isRestoringSearchFocus, searchActive: active)
         }
-        customNavigationBar.onRightLongPress = { [weak self] source, gesture in
-            self?.showAccountSwitcher(from: source, tracking: gesture)
-        }
         TDLib.shared
             .chatListNetworkStatus
             .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
@@ -602,6 +681,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureFolderPicker() {
         folderPicker.translatesAutoresizingMaskIntoConstraints = false
+        folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar
         folderPicker.onSelection = { [weak self] id in self?.selectFolder(id: id, animated: true) }
         folderPicker.onReselection = { [weak self] id in
             self?.folderControllers.first(where: { $0.folder.id == id })?.scrollToTop()
@@ -876,7 +956,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// location viewer with every live location in its chat shown, and a new live location goes to that chat.
     private func openLiveLocationChat(_ broadcast: LiveLocationBroadcast) {
         let scope = actionAuthority.scope(owner: self)
-        guard scope.isCurrent, navigationController?.topViewController === self,
+        guard scope.isCurrent, isNavigationTop,
               broadcast.source == scope.source else { return }
         let client = actionAuthority.client
         liveLocationOpenTask?.cancel()
@@ -884,7 +964,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             let message = try? await client.getMessage(chatId: broadcast.chatID, messageId: broadcast.messageID)
             let peerName = await Self.liveLocationPeerName(chatID: broadcast.chatID, client: client)
             guard let self, !Task.isCancelled, let message, let subject = LocationViewSubject(message: message),
-                  scope.isCurrent, navigationController?.topViewController === self,
+                  scope.isCurrent, isNavigationTop,
                   presentedViewController == nil else { return }
             liveLocationOpenTask = nil
             view.endEditing(true)
@@ -915,7 +995,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// MediaPlaybackHeaderPanelComponent's tapAction does.
     private func openVoicePlaybackMessage() {
         let scope = actionAuthority.scope(owner: self)
-        guard scope.isCurrent, navigationController?.topViewController === self,
+        guard scope.isCurrent, isNavigationTop,
               let item = Media.shared.nowPlaying, item.accountID == scope.source?.accountID else { return }
         if item.isMusic {
             voicePlaybackOpenTask?.cancel()
@@ -928,7 +1008,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         voicePlaybackOpenTask?.cancel()
         voicePlaybackOpenTask = Task { [weak self] in
             let chat = await rootVM.getCustomChatForNavigation(from: item.chatID, client: client)
-            guard let self, let chat, scope.isCurrent, navigationController?.topViewController === self else { return }
+            guard let self, let chat, scope.isCurrent, isNavigationTop else { return }
             voicePlaybackOpenTask = nil
             NavigationStorage.shared.push(.customChat(chat, targetMessageID: item.messageID))
         }
@@ -1021,75 +1101,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         )
     }
 
-    @objc private func openArchive() {
-        guard let archive = rootVM.archive else { return }
-        NavigationStorage.shared.push(.archive(archive))
-    }
-
-    /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: Add Account and
-    /// the current account, then the other accounts in a section of their own.
-    private func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer) {
-        let tdlib = TDLib.shared
-        var actions = [TelegramContextMenuAction(
-            title: L10n.telegram("Settings.AddAccount"),
-            image: UIImage(systemName: "plus"),
-        ) { [weak self] in
-            do {
-                try tdlib.addAccount()
-            } catch {
-                self?.showAccountError(error)
-            }
-        }]
-        if let current = tdlib.accounts.first(where: { $0.id == tdlib.activeAccountID }) {
-            var action = TelegramContextMenuAction(
-                title: current.localizedTitle,
-                image: UIImage(systemName: "person.crop.circle"),
-            )
-            action.leadingPeer = accountPeer.map {
-                TelegramContextMenuPeerIcon(peer: $0, client: actionAuthority.client, isSelected: false)
-            }
-            actions.append(action)
-        }
-        for (index, account) in tdlib.accounts.filter({ $0.id != tdlib.activeAccountID }).enumerated() {
-            var action = TelegramContextMenuAction(
-                title: account.localizedTitle,
-                image: UIImage(systemName: "person.crop.circle"),
-                startsNewSection: index == 0,
-            ) { [weak self] in
-                do {
-                    try tdlib.switchToAccount(account.id)
-                } catch {
-                    self?.showAccountError(error)
-                }
-            }
-            // The account's color and first letter until it has shared its photo.
-            action.leadingPeer = TelegramContextMenuPeerIcon(
-                peer: SettingsPeer(
-                    id: account.userID ?? 0,
-                    title: account.localizedTitle,
-                    file: nil,
-                    minithumbnail: nil,
-                    placeholder: TelegramAvatarPlaceholder(
-                        peerID: account.userID ?? 0,
-                        accentColorID: Int((account.userID ?? 0) % 7),
-                        upgradedGiftColors: nil,
-                        letters: account.localizedTitle.telegramAvatarFirstLetter.map { [$0] } ?? [],
-                        isDeleted: false,
-                    ),
-                ),
-                client: actionAuthority.client,
-                isSelected: false,
-                cachedPhoto: TelegramAccountAvatarCache.photo(for: account.id),
-            )
-            actions.append(action)
-        }
-        presentTelegramContextMenu(
-            sourceView: source,
-            actions: actions,
-            tracking: gesture,
-            presentationStyle: .sourceMorph,
-        )
-    }
+    /// Telegram's Edit (ChatListControllerImpl.editPressed).
+    private func editPressed() {}
 
     /// The account's row in the switcher, and its photo for the switcher of whichever account is active later.
     private func loadAccountPeer() {
@@ -1121,14 +1134,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
-    @objc private func openSettings() {
-        navigationController?.pushViewController(SettingsViewController(), animated: true)
-    }
-
     /// ChatListController.composePressed: Telegram's New Message.
     private func openCompose() {
         guard actionAuthority.scope(owner: self).isCurrent,
-              navigationController?.topViewController === self
+              isNavigationTop
         else { return }
         navigationController?.pushViewController(NewMessageViewController(), animated: true)
     }
@@ -1352,6 +1361,12 @@ final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+    /// Whether the strip spans iPhone Duo's side strip, as a panel at the bottom edge does; beside a tab bar standing
+    /// there it keeps to the band.
+    var spansIPhoneDuoStrip = true {
+        didSet { updateControlInsets() }
+    }
+
     /// The capsule's distance from the safe area's sides; the composer's media panel keeps its keys beside it.
     var controlHorizontalInset: CGFloat = 16 {
         didSet { updateControlInsets() }
@@ -1518,7 +1533,7 @@ final class FolderPickerView: UIView {
 
     private func updateControlInsets() {
         // A panel at the bottom edge spans iPhone Duo's strip; the composer's media panel stays with the composer.
-        let outset = superview?.iPhoneDuoLayout == nil ? 0 : iPhoneDuoBottomEdgeRightOutset
+        let outset = superview?.iPhoneDuoLayout == nil || !spansIPhoneDuoStrip ? 0 : iPhoneDuoBottomEdgeRightOutset
         controlLeadingConstraint.constant = controlHorizontalInset
         controlTrailingConstraint.constant = -controlHorizontalInset + outset
     }

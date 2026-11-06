@@ -18,9 +18,9 @@ func telegramGridColumns(phoneColumns: Int, width: CGFloat) -> Int {
 ///
 /// Most of what the system reserves on the Duo is not an edge but a block in one corner, the status corner: clock,
 /// connectivity, camera. UIKit widens that block into a full-edge safe inset. Beside it content keeps to the band
-/// between the side insets. In unfolded landscape the rest of the inset is a strip for the vertical bar, which this
-/// layout describes for our own bars; folded, our bars keep their buttons in the row. In unfolded portrait the block is
-/// an island beside a horizontal bar.
+/// between the side insets, and the rest of the inset is a strip for the vertical bar, which this layout describes for
+/// our own bars: their buttons at its top and the root's tab bar at its bottom. In unfolded portrait the block is an
+/// island beside a horizontal bar.
 ///
 /// | posture | window | safe insets (t, l, b, r) | block |
 /// |---|---|---|---|
@@ -40,6 +40,10 @@ struct IPhoneDuoLayout: Equatable {
         let x: CGFloat
         /// The first shape's top.
         let minY: CGFloat
+        /// Where the strip's free run ends: the window's bottom, or the top of a block below it.
+        let maxY: CGFloat
+        /// Whether the strip is on the left, as folded landscape right has it.
+        var isLeft = false
     }
 
     /// The system's vertical bar, measured on iOS 27.2: 48 pt wide, 24 pt from the screen's edge, a capsule's items
@@ -71,6 +75,7 @@ struct IPhoneDuoLayout: Equatable {
     private(set) var bottomEdgeRightInset: CGFloat
 
     private let windowWidth: CGFloat
+    private let windowHeight: CGFloat
 
     /// The top safe area of a screen under the root beside the island: the search field under a bar's row then starts
     /// below it, and takes the whole width.
@@ -81,6 +86,7 @@ struct IPhoneDuoLayout: Equatable {
     /// Nil for a window that doesn't fill one of the Duo's screens.
     init?(windowSize: CGSize, safeInsets: UIEdgeInsets, reportedBlocks: () -> [CGRect]) {
         self.windowWidth = windowSize.width
+        self.windowHeight = windowSize.height
         let isLandscape = windowSize.width > windowSize.height
         let portrait = CGSize(
             width: min(windowSize.width, windowSize.height),
@@ -89,34 +95,50 @@ struct IPhoneDuoLayout: Equatable {
         func matches(_ size: CGSize) -> Bool {
             abs(portrait.width - size.width) <= 1 && abs(portrait.height - size.height) <= 1
         }
-        // The blocks in the top right corner. A frame counts only when it touches the corner and stays under half the
-        // window: a report after a rotation or fold can be another posture's shape.
-        func topRightBlocks() -> [CGRect] {
+        func column(left: Bool, minY: CGFloat, maxY: CGFloat) -> SideColumn {
+            let x = left
+                ? Metrics.columnOuterMargin
+                : windowSize.width - Metrics.columnOuterMargin - Metrics.columnWidth
+            return SideColumn(x: x, minY: minY, maxY: maxY, isLeft: left)
+        }
+        // The blocks in a top corner. A frame counts only when it touches the corner and stays under half the window:
+        // a report after a rotation or fold can be another posture's shape.
+        func topBlocks(left: Bool) -> [CGRect] {
             reportedBlocks().filter {
-                $0.minY <= 0.5 && $0.maxX >= windowSize.width - 0.5
+                $0.minY <= 0.5 && (left ? $0.minX <= 0.5 : $0.maxX >= windowSize.width - 0.5)
                     && $0.height < windowSize.height / 2 && $0.width < windowSize.width / 2
             }
         }
+        // The height of a top block at least `height` tall and as wide as the strip.
+        func stripBlockHeight(_ height: CGFloat, left: Bool = false) -> CGFloat {
+            topBlocks(left: left)
+                .filter { abs($0.width - (left ? safeInsets.left : safeInsets.right)) <= 2 }
+                .reduce(height) { max($0, $1.height) }
+        }
         self.islandHeight = 0
         if matches(CGSize(width: 466, height: 678)) {
-            self.sideColumn = nil
+            if !isLandscape {
+                self.sideColumn = column(left: false, minY: stripBlockHeight(174), maxY: windowSize.height)
+            } else if safeInsets.left > 0 {
+                self.sideColumn = column(
+                    left: true,
+                    minY: stripBlockHeight(84, left: true),
+                    maxY: windowSize.height,
+                )
+            } else {
+                // Folded landscape left keeps its block at the bottom of the strip.
+                self.sideColumn = column(left: false, minY: Metrics.barTop, maxY: windowSize.height - 82)
+            }
             self.trailingButtonsInset = 0
             self.bottomEdgeRightInset = isLandscape && safeInsets.left == 0 ? safeInsets.right : 0
         } else if matches(CGSize(width: 669, height: 951)) {
             self.bottomEdgeRightInset = 0
             if isLandscape {
-                // The height of a block at least 124 pt tall and as wide as the strip.
-                let minY = topRightBlocks()
-                    .filter { abs($0.width - safeInsets.right) <= 2 }
-                    .reduce(CGFloat(124)) { max($0, $1.height) }
-                self.sideColumn = SideColumn(
-                    x: windowSize.width - Metrics.columnOuterMargin - Metrics.columnWidth,
-                    minY: minY,
-                )
+                self.sideColumn = column(left: false, minY: stripBlockHeight(124), maxY: windowSize.height)
                 self.trailingButtonsInset = 0
             } else {
                 self.sideColumn = nil
-                let island = topRightBlocks().reduce(CGSize(width: 144, height: 82)) {
+                let island = topBlocks(left: false).reduce(CGSize(width: 144, height: 82)) {
                     CGSize(width: max($0.width, $1.width), height: max($0.height, $1.height))
                 }
                 self.trailingButtonsInset = island.width
@@ -132,6 +154,23 @@ struct IPhoneDuoLayout: Equatable {
         islandHeight > 0 && safeTop > Metrics.barTop && safeTop < islandHeight ? Metrics.barTop - safeTop : 0
     }
 
+    /// Where a root's tab bar of `size` stands in the strip (Swiftgram's `tabBarSidePlacement`): 24 pt from the
+    /// screen's edge and from the bottom, or 8 pt above a block below the strip. Nil without a strip, or when the bar
+    /// would come within 8 pt of the strip's top.
+    func tabBarFrame(size: CGSize) -> CGRect? {
+        guard let sideColumn else { return nil }
+        let hasBlockBelow = sideColumn.maxY < windowHeight - 0.5
+        let maxY = hasBlockBelow ? sideColumn.maxY - 8 : windowHeight - Metrics.columnOuterMargin
+        let minY = maxY - size.height
+        guard minY >= sideColumn.minY + 8 else { return nil }
+        return CGRect(
+            x: sideColumn.x + (Metrics.columnWidth - size.width) / 2,
+            y: minY,
+            width: size.width,
+            height: size.height,
+        )
+    }
+
     /// `trailingButtonsInset` for a row that starts `rowTop` down: none once it stands below the island.
     func trailingButtonsInset(rowTop: CGFloat) -> CGFloat {
         rowTop >= islandHeight ? 0 : trailingButtonsInset
@@ -145,7 +184,9 @@ struct IPhoneDuoLayout: Equatable {
         let reachesRight = maxX >= windowWidth - 1
         layout.sideColumn = sideColumn.flatMap { column in
             let inPane = column.x >= minX && column.x + Metrics.columnWidth <= maxX
-            return inPane ? SideColumn(x: column.x - minX, minY: column.minY) : nil
+            return inPane
+                ? SideColumn(x: column.x - minX, minY: column.minY, maxY: column.maxY, isLeft: column.isLeft)
+                : nil
         }
         layout.trailingButtonsInset = reachesRight ? trailingButtonsInset : 0
         layout.bottomEdgeRightInset = reachesRight ? bottomEdgeRightInset : 0
