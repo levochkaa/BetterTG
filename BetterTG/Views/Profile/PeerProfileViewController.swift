@@ -334,6 +334,9 @@ ClientRestorableNavigationEntry {
     /// The profile's story albums (getChatStoryAlbums) and the one the Posts grid shows, nil for All Stories.
     private var storyAlbums = [(id: Int, name: String)]()
     private var selectedAlbumID: Int?
+    /// PeerInfoScreen's selectedMessageIds: the shared messages picked while a message pane selects; nil otherwise.
+    private var selectedMessageIDs: Set<Int64>?
+    private var messageSelectionToolbar: StickerSelectionToolbar?
     /// PeerInfoStoryPaneNode's selectedIds: the stories picked while the grid selects; nil otherwise.
     private var selectedPostIDs: Set<Int64>?
     private var postSelectionToolbar: StickerSelectionToolbar?
@@ -1014,6 +1017,12 @@ ClientRestorableNavigationEntry {
         guard let id = dataSource.itemIdentifier(for: indexPath),
               let message = messagesByID[id]
         else { return }
+        if var selected = selectedMessageIDs {
+            if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+            selectedMessageIDs = selected
+            updateMessageSelection()
+            return
+        }
         let performed = sharedMessageRefresh?.perform(id: id) {
             if currentSharedTab == .media, SharedMediaGridPreview.opensGallery(message) {
                 openMediaGallery(selectedMessage: message)
@@ -1031,6 +1040,13 @@ ClientRestorableNavigationEntry {
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? SharedMediaGridCell)?.resumeLoading()
+        if currentSharedTab.filter != nil, let id = dataSource.itemIdentifier(for: indexPath) {
+            cell.setSharedSelectionMark(
+                isSelecting: selectedMessageIDs != nil,
+                isSelected: selectedMessageIDs?.contains(id) == true,
+                isGrid: currentSharedTab.isGrid,
+            )
+        }
         let itemCount =
             switch currentSharedTab {
             case .groupsInCommon: groupsInCommon.count
@@ -1554,7 +1570,7 @@ ClientRestorableNavigationEntry {
             presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
             return
         }
-        guard gesture.state == .began, currentSharedTab.filter != nil, contextIsCurrent,
+        guard gesture.state == .began, currentSharedTab.filter != nil, contextIsCurrent, selectedMessageIDs == nil,
               let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
               let id = dataSource.itemIdentifier(for: path), let message = messagesByID[id],
               sharedMessageRefresh?.allows(id) == true,
@@ -1614,7 +1630,119 @@ ClientRestorableNavigationEntry {
                 children: deleteOptions,
             ))
         }
+        var select = TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ContextMenuSelect"),
+            image: UIImage(systemName: "checkmark.circle"),
+        ) { [weak self] in self?.setMessageSelection([id]) }
+        select.startsNewSection = true
+        actions.append(select)
         return actions
+    }
+
+    /// PeerInfoScreen's message selection: a check on each item, Cancel in the bar and PeerInfoSelectionPanelNode's
+    /// Forward and Delete at the bottom. Nil ends it.
+    private func setMessageSelection(_ ids: Set<Int64>?) {
+        selectedMessageIDs = ids
+        if ids != nil, messageSelectionToolbar == nil {
+            let toolbar = StickerSelectionToolbar(titles: [
+                L10n.telegram("Conversation.ContextMenuForward"),
+                "",
+                L10n.telegram("Conversation.ContextMenuDelete"),
+            ])
+            toolbar.deleteButton.addAction(UIAction { [weak self] _ in
+                guard let self, let ids = selectedMessageIDs else { return }
+                forwardSharedMessages(sortedIDs(ids))
+            }, for: .touchUpInside)
+            toolbar.shareButton.addAction(
+                UIAction { [weak self] _ in self?.confirmDeleteSelectedMessages() },
+                for: .touchUpInside,
+            )
+            toolbar.shareButton.setTitleColor(.systemRed, for: .normal)
+            toolbar.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(toolbar)
+            NSLayoutConstraint.activate([
+                toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                toolbar.topAnchor.constraint(
+                    equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                    constant: -StickerSelectionToolbar.contentHeight,
+                ),
+            ])
+            messageSelectionToolbar = toolbar
+            additionalSafeAreaInsets.bottom += StickerSelectionToolbar.contentHeight
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Cancel"),
+                primaryAction: UIAction { [weak self] _ in self?.setMessageSelection(nil) },
+            )
+        } else if ids == nil, let toolbar = messageSelectionToolbar {
+            messageSelectionToolbar = nil
+            additionalSafeAreaInsets.bottom -= StickerSelectionToolbar.contentHeight
+            toolbar.removeFromSuperview()
+            updateActionAvailability()
+        }
+        updateMessageSelection()
+    }
+
+    private func updateMessageSelection() {
+        messageSelectionToolbar?.update(hasSelection: !(selectedMessageIDs ?? []).isEmpty)
+        for cell in collectionView.visibleCells {
+            guard let path = collectionView.indexPath(for: cell), let id = dataSource.itemIdentifier(for: path) else {
+                continue
+            }
+            cell.setSharedSelectionMark(
+                isSelecting: selectedMessageIDs != nil,
+                isSelected: selectedMessageIDs?.contains(id) == true,
+                isGrid: currentSharedTab.isGrid,
+            )
+        }
+    }
+
+    /// The picked messages in the pane's order, oldest first, as a forward keeps them.
+    private func sortedIDs(_ ids: Set<Int64>) -> [Int64] {
+        ids.sorted()
+    }
+
+    /// presentDeleteMessageOptions for the picked messages: for everyone when all allow it, then for me.
+    private func confirmDeleteSelectedMessages() {
+        guard let ids = selectedMessageIDs, !ids.isEmpty else { return }
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            var forAll = true
+            var forSelf = true
+            for id in ids {
+                let properties = try? await client.getMessageProperties(chatId: chatID, messageId: id)
+                forAll = forAll && properties?.canBeDeletedForAllUsers == true
+                forSelf = forSelf && properties?.canBeDeletedOnlyForSelf == true
+            }
+            guard let self, contextIsCurrent, forAll || forSelf else { return }
+            let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            if forAll {
+                let title =
+                    switch customChat.type {
+                    case .bot(let user),
+                         .user(let user): L10n.telegram("Conversation.DeleteMessagesFor", user.compactDisplayTitle)
+                    case .group,
+                         .supergroup: L10n.telegram("Conversation.DeleteMessagesForEveryone")
+                    }
+                sheet.addAction(UIAlertAction(title: title, style: .destructive) { [weak self] _ in
+                    self?.deleteSharedMessages(Array(ids), revoke: true)
+                    self?.setMessageSelection(nil)
+                })
+            }
+            if forSelf {
+                let title = L10n.telegram(isSavedMessagesProfile
+                    ? "Chat.ConfirmationDeleteFromSavedMessages"
+                    : "Conversation.DeleteMessagesForMe")
+                sheet.addAction(UIAlertAction(title: title, style: .destructive) { [weak self] _ in
+                    self?.deleteSharedMessages(Array(ids), revoke: false)
+                    self?.setMessageSelection(nil)
+                })
+            }
+            sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            present(sheet, animated: true)
+        }
     }
 
     /// forwardMessages: the chat picker, then the chat with the messages waiting to be sent, as the gallery does.
@@ -1633,6 +1761,7 @@ ClientRestorableNavigationEntry {
             seedChats: seedChats,
         )
         picker.onSelect = { [weak self] chat, topic, draft in
+            self?.setMessageSelection(nil)
             self?.dismiss(animated: true) {
                 guard TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id else { return }
@@ -3678,6 +3807,7 @@ ClientRestorableNavigationEntry {
         groupsInCommonOffset = 0
         groupsInCommonHasMore = true
         if selectedPostIDs != nil { setPostSelection(nil) }
+        if selectedMessageIDs != nil { setMessageSelection(nil) }
         if isReorderingPosts { setReorderingPosts(false) }
         selectedAlbumID = nil
         updateAlbumAddButton()
@@ -5579,5 +5709,42 @@ private final class TopInsetBackgroundView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         content.frame = CGRect(x: 0, y: topInset, width: bounds.width, height: max(0, bounds.height - topInset))
+    }
+}
+
+// MARK: - UICollectionViewCell + Shared selection
+
+extension UICollectionViewCell {
+    private static let selectionMarkTag = 0x5E1EC7
+
+    /// PeerInfoScreen's selection check over a shared item: at a grid tile's top right, at a row's trailing edge.
+    func setSharedSelectionMark(isSelecting: Bool, isSelected: Bool, isGrid: Bool) {
+        let mark = contentView.viewWithTag(Self.selectionMarkTag) as? UIImageView ?? {
+            let view = UIImageView()
+            view.tag = Self.selectionMarkTag
+            contentView.addSubview(view)
+            return view
+        }()
+        mark.isHidden = !isSelecting
+        guard isSelecting else { return }
+        contentView.bringSubviewToFront(mark)
+        let configuration = UIImage.SymbolConfiguration(pointSize: isGrid ? 20 : 22, weight: .regular)
+        mark.image = isSelected
+            ? UIImage(systemName: "checkmark.circle.fill", withConfiguration: configuration)?
+                .applyingSymbolConfiguration(.init(paletteColors: [.white, .tintColor]))
+            : UIImage(systemName: "circle", withConfiguration: configuration)?
+                .withTintColor(isGrid ? .white : .tertiaryLabel, renderingMode: .alwaysOriginal)
+        let side: CGFloat = isGrid ? 22 : 26
+        mark.frame = isGrid
+            ? CGRect(x: contentView.bounds.width - side - 4, y: 4, width: side, height: side)
+            : CGRect(
+                x: contentView.bounds.width - side - 12,
+                y: (contentView.bounds.height - side) / 2,
+                width: side,
+                height: side,
+            )
+        accessibilityTraits = isSelected
+            ? accessibilityTraits.union(.selected)
+            : accessibilityTraits.subtracting(.selected)
     }
 }
