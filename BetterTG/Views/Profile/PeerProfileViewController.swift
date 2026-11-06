@@ -337,6 +337,8 @@ ClientRestorableNavigationEntry {
     /// PeerInfoStoryPaneNode's selectedIds: the stories picked while the grid selects; nil otherwise.
     private var selectedPostIDs: Set<Int64>?
     private var postSelectionToolbar: StickerSelectionToolbar?
+    /// BottomButtonPanelComponent's Add Stories under an album the account manages.
+    private var albumAddButton: UIButton?
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
     private var membersPane: PeerProfileMembersPane?
     private var currentSupergroupMemberCount = 0
@@ -1223,6 +1225,7 @@ ClientRestorableNavigationEntry {
                 _ = try await client.send(TDNativeRequests.addStoryAlbumStories(
                     chatId: chatID, storyAlbumId: albumID, storyIds: storyIDs,
                 ))
+                if let self, selectedAlbumID == albumID { reloadAlbum() }
                 self?.showInfoToast(L10n.telegramPlural(
                     "Stories.ToastAddedToFolder",
                     count: storyIDs.count,
@@ -3512,6 +3515,7 @@ ClientRestorableNavigationEntry {
         groupsInCommonHasMore = true
         if selectedPostIDs != nil { setPostSelection(nil) }
         selectedAlbumID = nil
+        updateAlbumAddButton()
         postsGeneration &+= 1
         postsTask?.cancel()
         postsTask = nil
@@ -3823,6 +3827,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func updatePostSelection() {
+        updateAlbumAddButton()
         let selected = selectedPostIDs ?? []
         postSelectionToolbar?.update(hasSelection: !selected.isEmpty)
         if currentSharedTab == .posts {
@@ -3931,9 +3936,59 @@ ClientRestorableNavigationEntry {
         applySnapshot()
     }
 
+    /// The shown album again, after stories join it.
+    private func reloadAlbum() {
+        let id = selectedAlbumID
+        selectedAlbumID = nil
+        selectAlbum(id)
+    }
+
+    /// Add Stories stands at the bottom of an album the account manages while the grid doesn't select.
+    private func updateAlbumAddButton() {
+        let shows = currentSharedTab == .posts && selectedAlbumID != nil && managesStories && selectedPostIDs == nil
+        if shows, albumAddButton == nil {
+            var configuration = UIButton.Configuration.prominentGlass()
+            configuration.title = L10n.telegram("Stories.AddStoriesEmpty")
+            configuration.image = UIImage(systemName: "plus")
+            configuration.imagePadding = 6
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = .systemFont(ofSize: 17, weight: .semibold)
+                return outgoing
+            }
+            let button = UIButton(configuration: configuration)
+            button.addAction(UIAction { [weak self] _ in self?.presentAddStoriesToAlbum() }, for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 28),
+                button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28),
+                button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+                button.heightAnchor.constraint(equalToConstant: 52),
+            ])
+            albumAddButton = button
+        } else if !shows, let button = albumAddButton {
+            albumAddButton = nil
+            button.removeFromSuperview()
+        }
+    }
+
+    /// presentAddStoriesToFolder: the account's stories not in the album yet, added in the grid's order.
+    private func presentAddStoriesToAlbum() {
+        guard let albumID = selectedAlbumID, contextIsCurrent else { return }
+        let picker = StorySelectionViewController(
+            chatID: customChat.id,
+            excluding: posts.map(Int.init),
+            client: client,
+        )
+        picker.onAdd = { [weak self] ids in self?.addPosts(ids, toAlbum: albumID) }
+        present(TelegramNavigationController(rootViewController: picker), animated: true)
+    }
+
     private func selectAlbum(_ id: Int?) {
         guard id != selectedAlbumID, selectedPostIDs == nil else { return }
         selectedAlbumID = id
+        updateAlbumAddButton()
         postsGeneration &+= 1
         postsTask?.cancel()
         postsTask = nil

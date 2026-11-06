@@ -3406,3 +3406,9 @@
 "Stories.DeleteAlbum.Confirmation" = "Delete %@?";
 "Stories.ToastAddedToFolder_1" = "Story added to folder.";
 "Stories.ToastAddedToFolder_any" = "%@ stories added to folder.";
+"StoryList.TitleSaved" = "My Stories";
+"StoryList.SubtitleSelected_1" = "1 story selected";
+"StoryList.SubtitleSelected_any" = "%d stories selected";
+"Stories.AddStoriesEmpty" = "Add Stories";
+"Stories.AddStories_1" = "Add %@ Story";
+"Stories.AddStories_any" = "Add %@ Stories";
