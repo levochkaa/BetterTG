@@ -121,6 +121,12 @@ import UIKit
         destinationView: UIView,
     ) {
         guard !source.isEmpty || !destination.isEmpty, let navigationView = navigation.view else { return }
+        // A swipe back can start while the push's springs still settle, with its overlay holding the bars' glass: the
+        // bars take their platters back first, or the new morph would find none to pair and the swipe would run
+        // without one.
+        for morph in active where morph.navigationView === navigationView {
+            morph.finish()
+        }
         let morph = TelegramGlassNavigationMorph(navigationView: navigationView)
         morph.begin(source: source, destination: destination)
         guard !morph.pieces.isEmpty else {
