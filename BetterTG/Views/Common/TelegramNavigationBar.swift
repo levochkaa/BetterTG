@@ -267,9 +267,13 @@ final class TelegramListNavigationBar: UIView {
     /// A text left button, such as the chat list's Edit and its Done, in a pill that stays in the row, as the system's
     /// bar keeps a text button there beside iPhone Duo's strip.
     func setLeftTitle(_ title: String, isProminent: Bool = false) {
-        leftButton.setTitle(title, for: .normal)
-        leftButton.titleLabel?.font = .systemFont(ofSize: 17, weight: isProminent ? .semibold : .medium)
-        leftButton.tintColor = isProminent ? .white : .label
+        // The text changes at once; the pill's width and tint spring with the bar.
+        UIView.performWithoutAnimation {
+            leftButton.setTitle(title, for: .normal)
+            leftButton.titleLabel?.font = .systemFont(ofSize: 17, weight: isProminent ? .semibold : .medium)
+            leftButton.tintColor = isProminent ? .white : .label
+            leftButton.layoutIfNeeded()
+        }
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
         if isProminent { effect.tintColor = .systemBlue }
@@ -319,6 +323,8 @@ final class TelegramListNavigationBar: UIView {
     /// the push morph's spring, as UIKit's bar changes its items.
     func animateGlassChange(_ change: () -> Void) {
         guard window != nil, !UIAccessibility.isReduceMotionEnabled else { return change() }
+        // What else waits for layout, such as a toolbar just added, lands in place; only the bar springs.
+        UIView.performWithoutAnimation { superview?.layoutIfNeeded() }
         let shown = allPlatters.filter { !$0.isHidden }
         change()
         let leaving = shown.filter(\.isHidden)
@@ -342,7 +348,8 @@ final class TelegramListNavigationBar: UIView {
                 platter.glassView.contentView.alpha = 1
                 platter.transform = .identity
             }
-            self.superview?.layoutIfNeeded()
+            self.layoutIfNeeded()
+            self.columnStack.layoutIfNeeded()
         } completion: { _ in
             for platter in leaving {
                 platter.transform = .identity
