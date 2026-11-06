@@ -16,6 +16,9 @@ final class StoryAlbumTabsView: UICollectionReusableView {
     private var onSelect: ((Int?) -> Void)?
     private var onAdd: (() -> Void)?
     private var onMenu: ((Int, UIView, ContextMenuPressGestureRecognizer) -> Void)?
+    /// While the grid reorders, a held album tab follows the finger along the row; the new order goes here.
+    private var onReorder: (([Int]) -> Void)?
+    private var draggedButton: UIButton?
     private var ids = [Int?]()
 
     override init(frame: CGRect) {
@@ -51,7 +54,9 @@ final class StoryAlbumTabsView: UICollectionReusableView {
         onSelect: @escaping (Int?) -> Void,
         onAdd: (() -> Void)? = nil,
         onMenu: ((Int, UIView, ContextMenuPressGestureRecognizer) -> Void)? = nil,
+        onReorder: (([Int]) -> Void)? = nil,
     ) {
+        self.onReorder = onReorder
         self.onSelect = onSelect
         self.onAdd = onAdd
         self.onMenu = onMenu
@@ -78,7 +83,11 @@ final class StoryAlbumTabsView: UICollectionReusableView {
                 guard let self, let sender = action.sender as? UIButton else { return }
                 self.onSelect?(ids[sender.tag])
             }, for: .touchUpInside)
-            if onMenu != nil, ids[index] != nil {
+            if onReorder != nil, ids[index] != nil {
+                let drag = UILongPressGestureRecognizer(target: self, action: #selector(albumDragged(_:)))
+                drag.minimumPressDuration = 0.15
+                button.addGestureRecognizer(drag)
+            } else if onMenu != nil, ids[index] != nil {
                 let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(albumHeld(_:)))
                 press.castsShadow = false
                 button.addGestureRecognizer(press)
@@ -98,6 +107,39 @@ final class StoryAlbumTabsView: UICollectionReusableView {
             let button = UIButton(configuration: configuration)
             button.addAction(UIAction { [weak self] _ in self?.onAdd?() }, for: .touchUpInside)
             stack.addArrangedSubview(button)
+        }
+    }
+
+    /// TabSelectorComponent's reorderable items: the held tab lifts and swaps places as it passes its neighbours'
+    /// centres; All Stories stays first.
+    @objc private func albumDragged(_ gesture: UILongPressGestureRecognizer) {
+        guard let button = gesture.view as? UIButton else { return }
+        switch gesture.state {
+        case .began:
+            draggedButton = button
+            UIView.animate(withDuration: 0.15) { button.transform = CGAffineTransform(scaleX: 1.08, y: 1.08) }
+        case .changed:
+            let x = gesture.location(in: stack).x
+            let views = stack.arrangedSubviews
+            guard let current = views.firstIndex(of: button) else { return }
+            let target = views.indices.last { index in
+                index > 0 && views[index] is UIButton && ids.indices.contains((views[index] as? UIButton)?.tag ?? -1)
+                    && ids[(views[index] as? UIButton)?.tag ?? 0] != nil && views[index].frame.minX <= x
+            } ?? current
+            guard target != current else { return }
+            UIView.animate(withDuration: 0.2) {
+                self.stack.removeArrangedSubview(button)
+                self.stack.insertArrangedSubview(button, at: target)
+                self.stack.layoutIfNeeded()
+            }
+        default:
+            draggedButton = nil
+            UIView.animate(withDuration: 0.15) { button.transform = .identity }
+            let order = stack.arrangedSubviews.compactMap { view -> Int? in
+                guard let button = view as? UIButton, ids.indices.contains(button.tag) else { return nil }
+                return ids[button.tag]
+            }
+            onReorder?(order)
         }
     }
 

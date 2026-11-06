@@ -339,6 +339,10 @@ ClientRestorableNavigationEntry {
     private var postSelectionToolbar: StickerSelectionToolbar?
     /// PeerInfoStoryPaneNode's reordering: pinned stories in All Stories, or an album's stories, follow the finger.
     private var isReorderingPosts = false
+    /// The album tabs moved during this reordering; Done saves them with reorderStoryAlbums.
+    private var albumOrderChanged = false
+    /// A tile moved during this reordering; only then does Done save the stories' order.
+    private var postOrderChanged = false
     private lazy var reorderGesture: UILongPressGestureRecognizer = {
         let gesture = UILongPressGestureRecognizer(target: self, action: #selector(reorderPanned(_:)))
         gesture.minimumPressDuration = 0.15
@@ -1117,6 +1121,14 @@ ClientRestorableNavigationEntry {
                     self?.openAlbumMenu(id, source: source, gesture: gesture)
                 }
                 : nil,
+            onReorder: managesStories && isReorderingPosts
+                ? { [weak self] order in
+                    guard let self else { return }
+                    let albums = storyAlbums
+                    storyAlbums = order.compactMap { id in albums.first { $0.id == id } }
+                    albumOrderChanged = true
+                }
+                : nil,
         )
     }
 
@@ -1150,6 +1162,10 @@ ClientRestorableNavigationEntry {
     private func openAlbumMenu(_ id: Int, source: UIView, gesture: UIGestureRecognizer) {
         guard let album = storyAlbums.first(where: { $0.id == id }) else { return }
         presentTelegramContextMenu(sourceView: source, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("BotPreviews.MenuReorder"),
+                image: UIImage(systemName: "arrow.left.arrow.right"),
+            ) { [weak self] in self?.setReorderingPosts(true) },
             TelegramContextMenuAction(
                 title: L10n.telegram("Stories.MenuRenameAlbum"),
                 image: UIImage(systemName: "pencil"),
@@ -2078,6 +2094,7 @@ ClientRestorableNavigationEntry {
         dataSource.reorderingHandlers.canReorderItem = { [weak self] _ in self?.isReorderingPosts == true }
         dataSource.reorderingHandlers.didReorder = { [weak self] transaction in
             self?.posts = transaction.finalSnapshot.itemIdentifiers
+            self?.postOrderChanged = true
         }
         dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
             let view = collectionView.dequeueReusableSupplementaryView(
@@ -4018,6 +4035,7 @@ ClientRestorableNavigationEntry {
         isReorderingPosts = reordering
         reorderGesture.isEnabled = reordering
         updateAlbumAddButton()
+        configureAlbumTabs(albumTabsView)
         if reordering {
             navigationItem.rightBarButtonItem = UIBarButtonItem(
                 title: L10n.telegram("Common.Done"),
@@ -4028,6 +4046,24 @@ ClientRestorableNavigationEntry {
             return
         }
         updateActionAvailability()
+        if albumOrderChanged {
+            albumOrderChanged = false
+            let client = client
+            let chatID = customChat.id
+            let albumIDs = storyAlbums.map(\.id)
+            Task { [weak self] in
+                do {
+                    _ = try await client.send(TDNativeRequests.reorderStoryAlbums(
+                        chatId: chatID,
+                        storyAlbumIds: albumIDs,
+                    ))
+                } catch {
+                    self?.presentChatListActionFailure()
+                }
+            }
+        }
+        guard postOrderChanged else { return }
+        postOrderChanged = false
         let ids = posts.map(Int.init)
         let client = client
         let chatID = customChat.id
