@@ -986,6 +986,18 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var searchActive = false
     private var selectionCount: Int?
     private var backButtonExplicitlyHidden = false
+    /// iPhone Duo's strip, which holds back and the avatar in place of the row, back on top.
+    private let columnStack = UIStackView()
+    private var columnXConstraint: NSLayoutConstraint?
+    private var columnYConstraint: NSLayoutConstraint?
+    private var appliedColumn: IPhoneDuoLayout.SideColumn?
+    /// The title's edges while back and the avatar stand in the column: the band's.
+    private var columnTitleLeadingConstraint: NSLayoutConstraint!
+    private var columnTitleTrailingConstraint: NSLayoutConstraint!
+    /// The row's constraints on back and the avatar, which leave with them for the column and come back with them.
+    private var rowButtonConstraints = [NSLayoutConstraint]()
+    /// The keyboard's top in the window, which the column must stay above; nil while it is down.
+    private var keyboardTop: CGFloat?
     private var regularTitleLeadingConstraint: NSLayoutConstraint!
     private var regularTitleTrailingConstraint: NSLayoutConstraint!
     private var selectionTitleLeadingConstraint: NSLayoutConstraint!
@@ -1013,6 +1025,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter].filter { !$0.isHidden }
     }
 
+    private var titleEdgeConstraints: [NSLayoutConstraint] {
+        if appliedColumn == nil {
+            [regularTitleLeadingConstraint, regularTitleTrailingConstraint]
+        } else {
+            [columnTitleLeadingConstraint, columnTitleTrailingConstraint]
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
@@ -1023,9 +1043,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     override func layoutSubviews() {
-        // A chat keeps its bar in the row beside iPhone Duo's strip, as the side column would have to leave it as the
-        // keyboard rises; the row only keeps clear of the status island.
         let layout = superview?.iPhoneDuoLayout
+        applySideColumn(layout.flatMap(fittingColumn(in:)))
         let inset = layout?.trailingButtonsInset(rowTop: safeAreaInsets.top) ?? 0
         // Its buttons stop against the status island, as the system's do.
         let trailingEdge = inset > 0 ? inset : TelegramGlassPlatter.edgeInset
@@ -1129,8 +1148,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         }
         selectionCount = count
         if let count {
-            regularTitleLeadingConstraint.isActive = false
-            regularTitleTrailingConstraint.isActive = false
+            NSLayoutConstraint.deactivate(titleEdgeConstraints)
             selectionTitleLeadingConstraint.isActive = true
             selectionTitleTrailingConstraint.isActive = true
             backButton.isHidden = true
@@ -1148,8 +1166,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         } else {
             selectionTitleLeadingConstraint.isActive = false
             selectionTitleTrailingConstraint.isActive = false
-            regularTitleLeadingConstraint.isActive = true
-            regularTitleTrailingConstraint.isActive = true
+            NSLayoutConstraint.activate(titleEdgeConstraints)
             backButton.isHidden = backButtonExplicitlyHidden
             selectionCancelButton.isHidden = true
             avatarView.isHidden = showsMoreButton
@@ -1287,6 +1304,71 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         }, completion: { [weak self] in
             self?.searchView.setGlassHidden(false)
         })
+    }
+
+    /// Beside iPhone Duo's strip back and the avatar stand in the side column, as the system's bar puts back and the
+    /// icon buttons, and the row holds only the title, as Swiftgram's chat. With the keyboard up the column must stay
+    /// above it; where it can't, the two stay in the row.
+    private func fittingColumn(in layout: IPhoneDuoLayout) -> IPhoneDuoLayout.SideColumn? {
+        guard let column = layout.sideColumn, let superview, let window else { return nil }
+        let length = IPhoneDuoLayout.Metrics.columnLength(count: 1) * 2 + IPhoneDuoLayout.Metrics.columnSpacing
+        let columnBottom = superview.convert(CGPoint(x: 0, y: column.minY + length), to: window).y
+        if let keyboardTop, columnBottom > keyboardTop - 8 { return nil }
+        return column
+    }
+
+    private func applySideColumn(_ column: IPhoneDuoLayout.SideColumn?) {
+        defer {
+            if let column {
+                columnXConstraint?.constant = column.x
+                columnYConstraint?.constant = column.minY
+            }
+        }
+        guard (column == nil) != (appliedColumn == nil) else {
+            appliedColumn = column
+            return
+        }
+        let titleEdges = titleEdgeConstraints
+        appliedColumn = column
+        let showsTitleEdges = selectionCount == nil
+        if column != nil {
+            NSLayoutConstraint.deactivate(titleEdges + rowButtonConstraints)
+            for platter in [leadingPlatter, trailingPlatter] {
+                platter.isInSideColumn = true
+                columnStack.addArrangedSubview(platter)
+            }
+            if let superview, columnStack.superview !== superview {
+                superview.insertSubview(columnStack, aboveSubview: self)
+                let x = columnStack.leadingAnchor.constraint(equalTo: superview.leadingAnchor)
+                let y = columnStack.topAnchor.constraint(equalTo: superview.topAnchor)
+                NSLayoutConstraint.activate([
+                    x, y, columnStack.widthAnchor.constraint(equalToConstant: IPhoneDuoLayout.Metrics.columnWidth),
+                ])
+                columnXConstraint = x
+                columnYConstraint = y
+            }
+            columnStack.isHidden = false
+        } else {
+            NSLayoutConstraint.deactivate(titleEdges)
+            for platter in [leadingPlatter, trailingPlatter] {
+                platter.isInSideColumn = false
+                rowGlassContainer.contentView.addSubview(platter)
+            }
+            columnStack.isHidden = true
+            NSLayoutConstraint.activate(rowButtonConstraints)
+        }
+        if showsTitleEdges { NSLayoutConstraint.activate(titleEdgeConstraints) }
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let window
+        else { return }
+        let top = window.convert(frame, from: nil).minY
+        let newTop: CGFloat? = top < window.bounds.height - 1 ? top : nil
+        guard newTop != keyboardTop else { return }
+        keyboardTop = newTop
+        setNeedsLayout()
     }
 
     /// The row's glass pills that show, in the bar's coordinates, with their items for the search morph to borrow.
@@ -1506,6 +1588,25 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             lessThanOrEqualTo: safeAreaLayoutGuide.trailingAnchor,
             constant: -80,
         )
+        columnTitleLeadingConstraint = titlePlatter.leadingAnchor.constraint(
+            greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor,
+            constant: TelegramGlassPlatter.edgeInset,
+        )
+        columnTitleTrailingConstraint = titlePlatter.trailingAnchor.constraint(
+            lessThanOrEqualTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -TelegramGlassPlatter.edgeInset,
+        )
+        columnStack.axis = .vertical
+        columnStack.spacing = IPhoneDuoLayout.Metrics.columnSpacing
+        columnStack.alignment = .fill
+        columnStack.translatesAutoresizingMaskIntoConstraints = false
+        columnStack.isHidden = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+        )
         addLayoutGuide(titleSlotGuide)
         titleBandCenterConstraint = titlePlatter.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor)
         titleBandCenterConstraint.priority = .defaultHigh
@@ -1526,12 +1627,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             constant: -TelegramGlassPlatter.edgeInset,
         )
         searchTrailingConstraint = searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
+        rowButtonConstraints = [
             leadingPlatter.leadingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.leadingAnchor,
                 constant: TelegramGlassPlatter.edgeInset,
@@ -1541,6 +1637,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             rowTopConstraints[0],
             trailingEdgeConstraint,
             rowTopConstraints[1],
+        ]
+        NSLayoutConstraint.activate(rowButtonConstraints + [
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             selectionCancelEdgeConstraint,
             rowTopConstraints[2],
 
