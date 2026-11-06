@@ -138,7 +138,15 @@ final class MusicPlayerViewController: UIViewController {
         controlsView.onTogglePlayback = { Media.shared.togglePlayback() }
         controlsView.onPrevious = { Media.shared.playPreviousTrack() }
         controlsView.onNext = { Media.shared.playNextTrack() }
+        // OverlayAudioPlayerControlsNode cycles without a tooltip; its menu shows one.
         controlsView.onRate = { Media.shared.cyclePlaybackRate() }
+        controlsView.onRateMenu = { [weak self] source, gesture in
+            guard let self else { return }
+            AudioPlaybackRateMenu.present(from: self, sourceView: source, gesture: gesture) { [weak self] text in
+                guard let self else { return }
+                TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: nil)
+            }
+        }
         controlsView.onSeek = { Media.shared.seek(to: $0) }
         controlsView.onOrder = {
             VoicePlaylistContinuation.shared.setMusicOrder(Media.shared.musicSettings.order.following)

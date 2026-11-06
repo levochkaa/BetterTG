@@ -2818,7 +2818,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// another chat keeps the text its own chat gave it, and opens there (ChatControllerNode's media panel).
     private func configureVoicePlaybackHeader() {
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
-        voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
+        voicePlaybackHeader.onCycleRate = { [weak self] in
+            let change = Media.shared.cyclePlaybackRate()
+            if let text = AudioPlaybackRateMenu.tooltip(rate: Media.shared.playbackRate, change: change) {
+                self?.showChatToast(text)
+            }
+        }
+        voicePlaybackHeader.onRateMenu = { [weak self] source, gesture in
+            guard let self else { return }
+            AudioPlaybackRateMenu.present(from: self, sourceView: source, gesture: gesture) { [weak self] text in
+                self?.showChatToast(text)
+            }
+        }
         voicePlaybackHeader.onClose = { Media.shared.close() }
         voicePlaybackHeader.onPlayNext = { Media.shared.swipeTrack(toNext: true) }
         voicePlaybackHeader.onPlayPrevious = { Media.shared.swipeTrack(toNext: false) }

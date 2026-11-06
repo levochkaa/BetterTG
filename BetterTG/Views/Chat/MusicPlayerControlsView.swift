@@ -32,6 +32,8 @@ final class MusicPlayerControlsView: UIView {
     var onOrder: (() -> Void)?
     var onLooping: (() -> Void)?
     var onRate: (() -> Void)?
+    /// Holding the rate button opens the speed menu from it (rateButton.contextAction).
+    var onRateMenu: ((UIView, UIGestureRecognizer) -> Void)?
     var onSeek: ((TimeInterval) -> Void)?
     var onAlbumArt: (() -> Void)?
 
@@ -213,6 +215,10 @@ final class MusicPlayerControlsView: UIView {
         rateButton.accessibilityHint = L10n.telegram("VoiceOver.Media.PlaybackRateChange")
         rateButton.isHidden = true
         rateButton.addTarget(self, action: #selector(rateTapped), for: .touchUpInside)
+        rateButton.addGestureRecognizer(AudioPlaybackRateMenu.makePressRecognizer(
+            target: self,
+            action: #selector(rateHeld(_:)),
+        ))
         addSubview(rateButton)
     }
 
@@ -374,6 +380,11 @@ final class MusicPlayerControlsView: UIView {
 
     @objc private func loopingTapped() {
         onLooping?()
+    }
+
+    @objc private func rateHeld(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        onRateMenu?(rateButton, gesture)
     }
 
     @objc private func rateTapped() {

@@ -41,8 +41,8 @@ final class Media: ObservableObject {
     }
 
     static let shared = Media()
-    /// Telegram's playback speeds, cycled by the header's rate button (rateButtonPressed).
-    static let playbackRates: [Float] = [1, 1.5, 2]
+    /// speedList: Telegram's preset playback speeds; the rate menu's slider sets any tenth from 0.2 to 2.5.
+    static let playbackRates: [Float] = [0.5, 1, 1.5, 2]
 
     private static let playbackRateKey = "BetterTG.voicePlaybackRate"
 
@@ -61,7 +61,7 @@ final class Media: ObservableObject {
     let playbackFinished = PassthroughSubject<NowPlaying, Never>()
     @Published private(set) var playbackRate: Float = {
         let stored = UserDefaults.standard.float(forKey: playbackRateKey)
-        return playbackRates.contains(stored) ? stored : 1
+        return MediaPlaybackRate.range.contains(stored) ? (stored * 10).rounded() / 10 : 1
     }()
 
     /// The music playlist's order and looping (MusicPlaybackSettings), which the music player changes.
@@ -178,10 +178,27 @@ final class Media: ObservableObject {
         toggle()
     }
 
-    /// 1X → 1.5X → 2X → 1X, kept for later notes as Telegram keeps its voice playback rate.
-    func cyclePlaybackRate() {
-        let index = Self.playbackRates.firstIndex(of: playbackRate) ?? 0
-        playbackRate = Self.playbackRates[(index + 1) % Self.playbackRates.count]
+    /// rateButtonPressed: 1X → 1.5X → 2X → 1X and 0.5X → 1X; a rate the slider set goes up to the next preset, from
+    /// 2X or more back to 1X. Returns the change for the rate tooltip.
+    @discardableResult func cyclePlaybackRate() -> AudioPlaybackRateMenu.Change {
+        let current = playbackRate
+        let next: Float =
+            switch current {
+            case 0.5,
+                 2: 1
+            case 1: 1.5
+            case 1.5: 2
+            default: Self.playbackRates.first { current < $0 } ?? 1
+            }
+        setPlaybackRate(next)
+        return Self.playbackRates.contains(current) ? .preset : .sliderCommit(previous: current, new: next)
+    }
+
+    /// The voice and music rate, kept for later notes as Telegram keeps its voice playback rate.
+    func setPlaybackRate(_ rate: Float) {
+        let rate = (MediaPlaybackRate.clamped(rate) * 10).rounded() / 10
+        guard rate != playbackRate else { return }
+        playbackRate = rate
         UserDefaults.standard.set(playbackRate, forKey: Self.playbackRateKey)
         player.setRate(playbackRate)
         nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0

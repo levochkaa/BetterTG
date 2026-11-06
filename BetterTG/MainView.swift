@@ -898,7 +898,19 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func configureVoicePlaybackHeader() {
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
-        voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
+        voicePlaybackHeader.onCycleRate = { [weak self] in
+            let change = Media.shared.cyclePlaybackRate()
+            self?.showPlaybackRateTooltip(AudioPlaybackRateMenu.tooltip(
+                rate: Media.shared.playbackRate,
+                change: change,
+            ))
+        }
+        voicePlaybackHeader.onRateMenu = { [weak self] source, gesture in
+            guard let self else { return }
+            AudioPlaybackRateMenu.present(from: self, sourceView: source, gesture: gesture) { [weak self] text in
+                self?.showPlaybackRateTooltip(text)
+            }
+        }
         voicePlaybackHeader.onClose = { Media.shared.close() }
         voicePlaybackHeader.onPlayNext = { Media.shared.swipeTrack(toNext: true) }
         voicePlaybackHeader.onPlayPrevious = { Media.shared.swipeTrack(toNext: false) }
@@ -913,6 +925,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in self?.updateHeaderPanels(animated: true) }
         .store(in: &cancellables)
+    }
+
+    /// MediaPlaybackHeaderPanelComponent's rate tooltip at the bottom of the list.
+    private func showPlaybackRateTooltip(_ text: String?) {
+        guard let text else { return }
+        TelegramUndoToast.show(text: text, in: view, bottomInset: 66, undo: nil)
     }
 
     private func configureLiveLocationPanel() {

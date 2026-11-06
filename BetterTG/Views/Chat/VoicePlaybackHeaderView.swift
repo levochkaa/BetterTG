@@ -1,5 +1,6 @@
 // VoicePlaybackHeaderView.swift
 
+import Combine
 import UIKit
 
 // MARK: - VoicePlaybackHeaderView
@@ -24,6 +25,8 @@ final class VoicePlaybackHeaderView: UIView {
 
     var onTogglePlayback: (() -> Void)?
     var onCycleRate: (() -> Void)?
+    /// Holding the rate button opens the speed menu from it (rateButton.contextAction).
+    var onRateMenu: ((UIView, UIGestureRecognizer) -> Void)?
     var onClose: (() -> Void)?
     var onOpen: (() -> Void)?
     /// MediaNavigationAccessoryHeaderNode's horizontal swipe, which pulls in the track beside the current one: the
@@ -102,6 +105,10 @@ final class VoicePlaybackHeaderView: UIView {
         rateButton.accessibilityLabel = L10n.telegram("VoiceOver.Media.PlaybackRate")
         rateButton.accessibilityHint = L10n.telegram("VoiceOver.Media.PlaybackRateChange")
         rateButton.addTarget(self, action: #selector(rateTapped), for: .touchUpInside)
+        rateButton.addGestureRecognizer(AudioPlaybackRateMenu.makePressRecognizer(
+            target: self,
+            action: #selector(rateHeld(_:)),
+        ))
         rateButton.setContentHuggingPriority(.required, for: .horizontal)
         rateButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(rateButton)
@@ -219,6 +226,11 @@ final class VoicePlaybackHeaderView: UIView {
         onOpen?()
     }
 
+    @objc private func rateHeld(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        onRateMenu?(rateButton, gesture)
+    }
+
     @objc private func rateTapped() {
         onCycleRate?()
     }
@@ -245,9 +257,12 @@ private extension UIFont {
 }
 
 #if DEBUG
-    /// Shows the header in a playing and a paused state and cycles the rate through the real Media path.
-    /// Launch with `-ui-probe-voice-header`.
+    /// Shows the header in a playing and a paused state and cycles the rate through the real Media path. The playing
+    /// header's rate button then works as in the list: a tap cycles with the tooltip, a hold opens the speed menu, and
+    /// its title follows the rate. Launch with `-ui-probe-voice-header`.
     @MainActor enum VoicePlaybackHeaderProbe {
+        private static var rateCancellable: AnyCancellable?
+
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-voice-header") else { return }
             Task { @MainActor in
@@ -278,13 +293,31 @@ private extension UIFont {
             let start = Media.shared.playbackRate
             Media.shared.cyclePlaybackRate()
             let cycled = Media.shared.playbackRate
-            while Media.shared.playbackRate != start {
-                Media.shared.cyclePlaybackRate()
+            // A 0.5x or slider rate is left by the cycle for good, so the probe puts it back.
+            Media.shared.setPlaybackRate(start)
+            let showTooltip: (String?) -> Void = { [weak controller] text in
+                guard let text, let view = controller?.view else { return }
+                TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: nil)
             }
-            playing.configure(.init(
-                title: "Ada Lovelace", subtitle: L10n.telegram("MusicPlayer.VoiceNote"),
-                isPlaying: true, progress: 0.4, rate: 1.5,
-            ))
+            playing.onCycleRate = {
+                let change = Media.shared.cyclePlaybackRate()
+                showTooltip(AudioPlaybackRateMenu.tooltip(rate: Media.shared.playbackRate, change: change))
+            }
+            playing.onRateMenu = { [weak controller] source, gesture in
+                guard let controller else { return }
+                AudioPlaybackRateMenu.present(
+                    from: controller,
+                    sourceView: source,
+                    gesture: gesture,
+                    showTooltip: showTooltip,
+                )
+            }
+            rateCancellable = Media.shared.$playbackRate.sink { rate in
+                playing.configure(.init(
+                    title: "Ada Lovelace", subtitle: L10n.telegram("MusicPlayer.VoiceNote"),
+                    isPlaying: true, progress: 0.4, rate: rate,
+                ))
+            }
             paused.configure(.init(
                 title: "A very long author name that has to be truncated in the middle", subtitle: "Parity Group",
                 isPlaying: false, progress: 1, rate: 2,
