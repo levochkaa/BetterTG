@@ -61,6 +61,13 @@ final class SettingsViewController: UITableViewController {
             .changes
             .sink { [weak self] in self?.tableView.reloadData() }
             .store(in: &cancellables)
+        ProxyStatusStore.shared
+            .$state
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.tableView.reloadData() }
+            .store(in: &cancellables)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -153,6 +160,7 @@ final class SettingsViewController: UITableViewController {
              .powerSaving,
              .privacy,
              .privacyPolicy,
+             .proxy,
              .savedMessages,
              .support,
              .termsOfService,
@@ -192,6 +200,8 @@ final class SettingsViewController: UITableViewController {
             navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
             navigationController?.pushViewController(EditProfileViewController(), animated: true)
+        case .proxy:
+            navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
         case .savedMessages:
             openSavedMessages()
         case .devices:
@@ -243,6 +253,9 @@ final class SettingsViewController: UITableViewController {
             #endif
         case .apps:
             return appEntries().map { .app($0.bot.botUserId) }
+        case .proxy:
+            // PeerInfoSettingsItems shows the proxy once a server is saved.
+            return TDLib.shared.activeAccountID != nil && ProxyStatusStore.shared.state.hasProxy ? [.proxy] : []
         case .shortcuts:
             return TDLib.shared.activeAccountID == nil ? [] : [.savedMessages, .devices, .chatFolders]
         case .appearance:
@@ -282,8 +295,9 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
+    /// A section that shows only for some accounts, side menu bots or a saved proxy, leaves no gap when empty.
     private func isEmptyAppsSection(_ section: Int) -> Bool {
-        Section(rawValue: section) == .apps && rows(in: section).isEmpty
+        [.apps, .proxy].contains(Section(rawValue: section)) && rows(in: section).isEmpty
     }
 
     /// PeerInfoData's settings bots: the account's attachment menu bots shown in the side menu (`.showInSettings`),
@@ -447,6 +461,7 @@ private extension SettingsViewController {
         case profile
         case accounts
         case apps
+        case proxy
         case shortcuts
         case appearance
         case support
@@ -465,6 +480,7 @@ private extension SettingsViewController {
                  .appearance,
                  .apps,
                  .profile,
+                 .proxy,
                  .shortcuts,
                  .support: nil
             }
@@ -479,6 +495,7 @@ private extension SettingsViewController {
         case addTestServerAccount
         /// A side menu bot by its user ID.
         case app(Int64)
+        case proxy
         case savedMessages
         case devices
         case chatFolders
@@ -517,6 +534,8 @@ private extension SettingsViewController {
                 ""
             case .profile:
                 L10n.telegram("EditProfile.Title")
+            case .proxy:
+                L10n.telegram("Settings.Proxy")
             case .savedMessages:
                 L10n.telegram("Settings.SavedMessages")
             case .devices:
@@ -566,6 +585,8 @@ private extension SettingsViewController {
                 L10n.telegram(EnergyUsage.shared.isPowerSavingOn ? "Settings.PowerSavingOn" : "Settings.PowerSavingOff")
             case .language:
                 AppLocalization.shared.currentLanguage.nativeName
+            case .proxy:
+                ProxyStatusStore.shared.state.enabledTypeTitle ?? L10n.telegram("Settings.ProxyDisabled")
             case .animatedMedia:
                 L10n.betterTG("Settings.AnimatedMediaFormats")
             case .version:
@@ -597,7 +618,8 @@ private extension SettingsViewController {
             case .appearance,
                  .devices,
                  .language,
-                 .powerSaving: true
+                 .powerSaving,
+                 .proxy: true
             default: false
             }
         }
@@ -609,6 +631,7 @@ private extension SettingsViewController {
             case .addAccount: "plus.circle.fill"
             case .addTestServerAccount: "testtube.2"
             case .app: "square.grid.2x2.fill"
+            case .proxy: "shield.fill"
             case .savedMessages: "bookmark.fill"
             case .devices: "laptopcomputer.and.iphone"
             case .chatFolders: "folder.fill"
@@ -644,6 +667,7 @@ private extension SettingsViewController {
             case .devices: .systemOrange
             case .chatFolders: .systemCyan
             case .notifications: .systemRed
+            case .proxy: .systemBlue
             case .licenses,
                  .privacy,
                  .termsOfService: .systemGray

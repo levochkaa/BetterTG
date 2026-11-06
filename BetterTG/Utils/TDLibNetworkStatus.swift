@@ -68,6 +68,8 @@ extension TDLib {
     struct State: Equatable {
         var hasProxy = false
         var isEnabled = false
+        /// PeerInfoSettingsItems' proxy label: the enabled server's type, or Disabled.
+        var enabledTypeTitle: String?
     }
 
     static let shared = ProxyStatusStore()
@@ -89,7 +91,24 @@ extension TDLib {
         refreshTask = Task { [weak self] in
             let proxies = await (try? client.send(TDNativeRequests.getProxies()))?.proxies
             guard let self, !Task.isCancelled, let proxies, TDLib.shared.activeClient.id == client.id else { return }
-            state = State(hasProxy: !proxies.isEmpty, isEnabled: proxies.contains(where: \.isEnabled))
+            let enabled = proxies.first(where: \.isEnabled)
+            state = State(
+                hasProxy: !proxies.isEmpty,
+                isEnabled: enabled != nil,
+                enabledTypeTitle: enabled.map { Self.typeTitle($0.proxy) },
+            )
+        }
+    }
+}
+
+extension ProxyStatusStore {
+    /// PeerInfoSettingsItems' proxy row: MTProto, SOCKS5 or WEB; HTTP, which Telegram doesn't offer, by name.
+    static func typeTitle(_ proxy: TDNativeProxy) -> String {
+        switch proxy.type {
+        case .proxyTypeMtproto: L10n.telegram("SocksProxySetup.ProxyTelegram")
+        case .proxyTypeSocks5: L10n.telegram("SocksProxySetup.ProxySocks5")
+        case .proxyTypeWeb: L10n.telegram("SocksProxySetup.ProxyWeb")
+        case .proxyTypeHttp: "HTTP"
         }
     }
 }
