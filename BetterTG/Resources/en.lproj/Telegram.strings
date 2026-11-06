@@ -190,6 +190,7 @@
 "Conversation.ContextMenuSelectAll_1" = "Select All %@ Items";
 "Conversation.ContextMenuSelectAll_any" = "Select All %@ Items";
 "Chat.MessageContextMenu.Remove" = "Remove";
+"Gallery.VideoSettings.SpeedControlTitle" = "Speed";
 "Conversation.AudioRateTooltipSpeedUp" = "Audio will play two times faster.";
 "Conversation.AudioRateTooltipNormal" = "Audio will play at normal speed.";
 "Conversation.AudioRateTooltip15X" = "Audio will play at 1.5x speed.";

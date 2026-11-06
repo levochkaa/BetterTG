@@ -224,6 +224,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             BotButtonsProbe.runIfRequested(in: window)
             VideoEditProbe.runIfRequested(in: window)
             StoryViewerUIProbe.runIfRequested(in: window)
+            GalleryVideoPlaybackOwner.runRateMenuUIProbeIfRequested(in: window)
             StickerPeekProbe.runIfRequested(in: window)
             WebAppProbe.runIfRequested(in: window)
             WebAppLaunchProbe.runIfRequested(in: window)

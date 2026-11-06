@@ -253,6 +253,8 @@ struct TelegramContextMenuSlider {
     let minimumValue: CGFloat
     let maximumValue: CGFloat
     let value: () -> CGFloat
+    /// SliderContextItem's title, which puts the value at the trailing edge.
+    var title: String?
     /// The value as the row shows it, `%.1fx` for Telegram's speeds.
     var format: (CGFloat) -> String = { String(format: "%.1fx", $0) }
     /// VoiceOver's increment and decrement.
@@ -3814,13 +3816,16 @@ final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
 
     private let slider: TelegramContextMenuSlider
     private let backgroundLabel = UILabel()
+    /// SliderContextItem's title, such as the gallery's Speed, before the value at the trailing edge.
+    private let backgroundTitleLabel = UILabel()
     private let fillLayer = CALayer()
-    /// The value in the fill's inverse colour, drawn by `updateText`.
+    /// The title and the value in the fill's inverse colour, drawn by `drawForeground` across the row.
     private let foregroundLayer = CALayer()
-    /// The fill's shape in the foreground text's coordinates.
+    /// The fill's shape in the row's coordinates.
     private let foregroundMask = CALayer()
     private let feedback = UIImpactFeedbackGenerator(style: .soft)
     private var drawnStyle = UIUserInterfaceStyle.unspecified
+    private var drawnSize = CGSize.zero
 
     private var range: CGFloat {
         max(0.0001, slider.maximumValue - slider.minimumValue)
@@ -3834,12 +3839,17 @@ final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
         let font = UIFont.monospacedDigitSystemFont(ofSize: 17, weight: .regular)
         backgroundLabel.font = font
         backgroundLabel.textColor = .secondaryLabel
+        backgroundTitleLabel.font = font
+        backgroundTitleLabel.textColor = .secondaryLabel
+        backgroundTitleLabel.text = slider.title
+        backgroundTitleLabel.sizeToFit()
         fillLayer.cornerCurve = .continuous
         foregroundMask.cornerCurve = .continuous
         foregroundMask.backgroundColor = UIColor.black.cgColor
         foregroundLayer.mask = foregroundMask
         foregroundLayer.contentsGravity = .topLeft
         addSubview(backgroundLabel)
+        if slider.title != nil { addSubview(backgroundTitleLabel) }
         layer.addSublayer(fillLayer)
         layer.addSublayer(foregroundLayer)
 
@@ -3861,13 +3871,11 @@ final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         fillLayer.backgroundColor = TelegramContextMenuLayout.primaryColor.resolvedColor(with: traitCollection).cgColor
-        if traitCollection.userInterfaceStyle != drawnStyle {
-            drawnStyle = traitCollection.userInterfaceStyle
-            updateText()
-        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layoutFill()
+        placeText()
+        if traitCollection.userInterfaceStyle != drawnStyle || bounds.size != drawnSize { drawForeground() }
         CATransaction.commit()
     }
 
@@ -3909,20 +3917,51 @@ final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
         backgroundLabel.text = text
         accessibilityValue = text
         backgroundLabel.sizeToFit()
-        let size = backgroundLabel.bounds.size
-        let format = UIGraphicsImageRendererFormat(for: traitCollection)
-        let color = UIColor.systemBackground.resolvedColor(with: traitCollection)
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            (text as NSString).draw(at: .zero, withAttributes: [
-                .font: backgroundLabel.font as Any,
-                .foregroundColor: color,
-            ])
-        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        placeText()
+        drawForeground()
+        CATransaction.commit()
+    }
+
+    /// SliderContextItemNode's layout: the value 20 pt from the leading edge, or with a title, the title there and
+    /// the value 20 pt from the trailing edge.
+    private func placeText() {
+        let inset = Self.sideInset + Self.textInset
+        func centered(_ size: CGSize, x: CGFloat) -> CGRect {
+            CGRect(x: x, y: floor((bounds.height - size.height) / 2), width: size.width, height: size.height)
+        }
+        let valueSize = backgroundLabel.bounds.size
+        if slider.title != nil {
+            backgroundTitleLabel.frame = centered(backgroundTitleLabel.bounds.size, x: inset)
+            backgroundLabel.frame = centered(valueSize, x: bounds.width - inset - valueSize.width)
+        } else {
+            backgroundLabel.frame = centered(valueSize, x: inset)
+        }
+    }
+
+    /// The text again in the fill's inverse colour, as a picture the glass can't recolour.
+    private func drawForeground() {
+        drawnStyle = traitCollection.userInterfaceStyle
+        drawnSize = bounds.size
+        foregroundLayer.frame = bounds
+        guard bounds.width > 0, bounds.height > 0 else {
+            foregroundLayer.contents = nil
+            return
+        }
+        let format = UIGraphicsImageRendererFormat(for: traitCollection)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: backgroundLabel.font as Any,
+            .foregroundColor: UIColor.systemBackground.resolvedColor(with: traitCollection),
+        ]
+        let labels = slider.title == nil ? [backgroundLabel] : [backgroundTitleLabel, backgroundLabel]
+        let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in
+            for label in labels {
+                ((label.text ?? "") as NSString).draw(at: label.frame.origin, withAttributes: attributes)
+            }
+        }
         foregroundLayer.contents = image.cgImage
         foregroundLayer.contentsScale = image.scale
-        CATransaction.commit()
     }
 
     private func layoutFill() {
@@ -3943,16 +3982,7 @@ final class TelegramContextMenuSliderView: UIView, UIGestureRecognizerDelegate {
         )
         fillLayer.frame = fill
         fillLayer.cornerRadius = radius
-        let textSize = backgroundLabel.bounds.size
-        let textFrame = CGRect(
-            x: Self.sideInset + Self.textInset,
-            y: floor((bounds.height - textSize.height) / 2),
-            width: textSize.width,
-            height: textSize.height,
-        )
-        backgroundLabel.frame = textFrame
-        foregroundLayer.frame = textFrame
-        foregroundMask.frame = fill.offsetBy(dx: -textFrame.minX, dy: -textFrame.minY)
+        foregroundMask.frame = fill
         foregroundMask.cornerRadius = radius
     }
 

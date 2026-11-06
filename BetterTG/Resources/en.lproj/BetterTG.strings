@@ -471,7 +471,6 @@
 "Accessibility.SeekHint" = "Swipe up or down to seek";
 "Accessibility.MuteSound" = "Mute";
 "Accessibility.UnmuteSound" = "Unmute";
-"Accessibility.PlaybackSpeedHint" = "Cycles through available playback speeds";
 "Accessibility.VideoStatus" = "Video status";
 "Accessibility.PlayLivePhoto" = "Play Live Photo";
 "Accessibility.StopLivePhoto" = "Stop Live Photo";

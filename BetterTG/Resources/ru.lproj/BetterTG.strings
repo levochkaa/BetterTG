@@ -471,7 +471,6 @@
 "Accessibility.SeekHint" = "Смахните вверх или вниз для перемотки";
 "Accessibility.MuteSound" = "Выключить звук";
 "Accessibility.UnmuteSound" = "Включить звук";
-"Accessibility.PlaybackSpeedHint" = "Переключает скорость воспроизведения";
 "Accessibility.VideoStatus" = "Статус видео";
 "Accessibility.PlayLivePhoto" = "Воспроизвести Live Photo";
 "Accessibility.StopLivePhoto" = "Остановить Live Photo";

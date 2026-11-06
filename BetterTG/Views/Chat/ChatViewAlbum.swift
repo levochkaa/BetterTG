@@ -5189,6 +5189,8 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     let vodRanges: TDLibVODRangeCoordinator
     let deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never>
     let clientChanges: AnyPublisher<TdUpdateSource, Never>
+    /// GalleryController's shared playback rate: a speed picked on one video applies to every video shown here.
+    let playbackRate = CurrentValueSubject<Float, Never>(1)
 
     private let currentClientMatches: () -> Bool
     private var isRevoked = false
@@ -5403,12 +5405,88 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                     fileName: fileName,
                     supportsStreaming: supportsStreaming,
                     vodRanges: vodRanges,
+                    previewContext: self.playbackContext,
                     deferPlaybackUntilVisible: true,
                 )
             }
             configurePictureInPicture()
             observeMessageDeletion()
         }
+
+        /// `-ui-probe-gallery-rate`: a generated 30 s video plays full screen in the gallery's player, without an
+        /// account, so the speed menu behind its rate button can be driven on screen. Each change of the gallery's
+        /// shared rate goes to the log with the player's rate and position.
+        static func runRateMenuUIProbeIfRequested(in window: UIWindow) {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-gallery-rate") else { return }
+            Task { @MainActor in
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("bettertg-rate-probe.mp4")
+                try? FileManager.default.removeItem(at: url)
+                do {
+                    _ = try await VideoNoteAssetWriter.makeDebugSegment(outputURL: url, duration: 30, frameSeed: 931)
+                    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                    guard let size = (attributes[.size] as? NSNumber)?.int64Value else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    let backend = TDLibVODProbeBackend(
+                        fileURL: url,
+                        fileSize: size,
+                        network: TDLibVODProbeNetwork(available: true),
+                    )
+                    await backend.setAutoFulfill(true)
+                    let vodRanges = TDLibVODRangeCoordinator(
+                        accountID: "probe-gallery-rate",
+                        client: backend.client,
+                        requestTimeout: .seconds(3),
+                    )
+                    let videoFile = await backend.file(expectedSize: size)
+                    let owner = GalleryVideoPlaybackOwner(
+                        probeMessageID: 9020,
+                        videoFile: videoFile,
+                        vodRanges: vodRanges,
+                        supportsStreaming: true,
+                    )
+                    let controller = UIViewController()
+                    controller.view.backgroundColor = .black
+                    controller.modalPresentationStyle = .fullScreen
+                    var presenter = window.rootViewController
+                    while let presented = presenter?.presentedViewController {
+                        presenter = presented
+                    }
+                    presenter?.present(controller, animated: false)
+                    if let token = owner.attach(to: controller.view, context: .fullscreen) {
+                        owner.setPlaybackVisible(true, attachment: token)
+                    }
+                    rateProbeRetainer = (owner, backend)
+                    rateProbeCancellable = owner.playbackContext.playbackRate.sink { [weak owner] rate in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            guard let owner else { return }
+                            recordRateProbe(
+                                "Gallery rate probe: shared=\(rate) player=\(owner.mediaView.debugPlayerRate) "
+                                + "time=\(owner.mediaView.debugPlaybackTime)",
+                            )
+                        }
+                    }
+                    recordRateProbe("Gallery rate probe running")
+                } catch {
+                    recordRateProbe("Gallery rate probe failed: \(error)")
+                }
+            }
+        }
+
+        /// The probe's lines go to the log and to Documents/gallery-rate-probe.txt.
+        private static func recordRateProbe(_ line: String) {
+            log(line)
+            rateProbeLines.append(line)
+            guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            else { return }
+            try? Data(rateProbeLines.joined(separator: "\n").utf8)
+                .write(to: directory.appendingPathComponent("gallery-rate-probe.txt"), options: .atomic)
+        }
+
+        private static var rateProbeLines = [String]()
+
+        private static var rateProbeRetainer: (GalleryVideoPlaybackOwner, TDLibVODProbeBackend)?
+        private static var rateProbeCancellable: AnyCancellable?
 
         fileprivate func setDebugPictureInPictureState(pending: Bool, active: Bool) {
             isPictureInPictureStartRequested = pending
@@ -8104,6 +8182,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private var isUserPaused = false
     private var isMuted = false
     private var playbackRate: Float = 1
+    /// The gallery's shared rate (GalleryController.updateSharedPlaybackRate), which every video it shows follows.
+    private weak var rateContext: MediaGalleryPlaybackContext?
+    /// The controls stay while the speed menu is open over them.
+    private var isPlaybackRateMenuOpen = false
+    private var rateCancellable: AnyCancellable?
     private var currentPlaybackTime = TimeInterval.zero
     private var playbackDuration = TimeInterval.zero
     private var bufferedRanges = [LocalMediaPlayer.BufferedRange]()
@@ -8308,6 +8391,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
         var debugIsMuted: Bool {
             playbackIsMuted
+        }
+
+        /// The rate the player was given, and the time it has played, for the rate menu probe.
+        var debugPlayerRate: Float {
+            ffmpegPlayer != nil ? playbackRate : player.rate
         }
 
         var debugLoopPublisher: AnyPublisher<Void, Never> { player.loopPublisher }
@@ -8638,7 +8726,13 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         controlsView.isHidden = loops
         isUserPaused = false
         isMuted = loops
-        playbackRate = 1
+        playbackRate = loops ? 1 : previewContext?.playbackRate.value ?? 1
+        if !loops, let previewContext {
+            rateContext = previewContext
+            rateCancellable = previewContext.playbackRate
+                .dropFirst()
+                .sink { [weak self] rate in self?.applyPlaybackRate(rate) }
+        }
         isSeeking = false
         resumeAfterSeeking = false
         currentPlaybackTime = 0
@@ -8730,6 +8824,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         deferredPictureInPictureFailureResolution = nil
         sampleBufferPictureInPictureRenderSize = nil
         playbackRate = 1
+        rateContext = nil
+        rateCancellable = nil
         currentPlaybackTime = 0
         playbackDuration = 0
         bufferedRanges = []
@@ -9280,8 +9376,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         rateButton.setTitle("1×", for: .normal)
         rateButton.setTitleColor(.white, for: .normal)
         rateButton.accessibilityLabel = L10n.telegram("VoiceOver.Media.PlaybackRate")
-        rateButton.accessibilityHint = L10n.betterTG("Accessibility.PlaybackSpeedHint")
-        rateButton.addTarget(self, action: #selector(cyclePlaybackRate), for: .touchUpInside)
+        rateButton.accessibilityHint = L10n.telegram("VoiceOver.Media.PlaybackRateChange")
+        rateButton.addTarget(self, action: #selector(openPlaybackRateMenu), for: .touchUpInside)
         pictureInPictureButton.tintColor = .white
         pictureInPictureButton.isHidden = true
         pictureInPictureButton.accessibilityLabel = L10n.betterTG("Accessibility.StartPictureInPicture")
@@ -9747,20 +9843,63 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         updateControlIcons()
     }
 
-    @objc private func cyclePlaybackRate() {
+    /// UniversalVideoGalleryItem's settings menu (`contextMenuMainItems(isSettings: true)`) for a video without
+    /// quality options, which TDLib's videos don't have: SliderContextItem titled Speed from 0.2 to 2.5, then the
+    /// presets with a check on the playing one. Telegram puts the slider in a card of its own above them and titles
+    /// the presets' section; BetterTG's menu has one card and a separator. The rate is the gallery's, so the other
+    /// videos follow it. The slider sets it in tenths as it moves and clears the check; a preset closes the menu.
+    @objc private func openPlaybackRateMenu() {
         revealControlsAndReschedule()
-        playbackRate =
-            switch playbackRate {
-            case ..<1:
-                1
-            case ..<1.5:
-                1.5
-            case ..<2:
-                2
-            default:
-                0.5
-            }
-        playbackSetRate(playbackRate)
+        guard let controller = nearestViewController else { return }
+        isPlaybackRateMenuOpen = true
+        cancelControlsAutoHide()
+        let current = playbackRate
+        let sliderMoved = PassthroughSubject<Void, Never>()
+        let checkmark = UIImage(systemName: "checkmark")
+        let slider = TelegramContextMenuAction.slider(TelegramContextMenuSlider(
+            minimumValue: CGFloat(MediaPlaybackRate.range.lowerBound),
+            maximumValue: CGFloat(MediaPlaybackRate.range.upperBound),
+            value: { [weak self] in CGFloat(self?.playbackRate ?? 1) },
+            title: L10n.telegram("Gallery.VideoSettings.SpeedControlTitle"),
+            accessibilityLabel: L10n.telegram("PlaybackSpeed.Title"),
+            valueChanged: { [weak self] value, _ in
+                self?.setSharedPlaybackRate((Float(value) * 10).rounded() / 10)
+                sliderMoved.send()
+            },
+        ))
+        var presets = Media.playbackRates.map { rate in
+            var action = TelegramContextMenuAction(
+                title: StoryMoreMenu.speedTitle(Double(rate)),
+                image: abs(rate - current) < 0.01 ? checkmark : UIImage(),
+                handler: { [weak self] in self?.setSharedPlaybackRate(rate) },
+            )
+            action.imageUpdates = sliderMoved.map { UIImage() as UIImage? }.eraseToAnyPublisher()
+            return action
+        }
+        presets[0].startsNewSection = true
+        controller.presentTelegramContextMenu(
+            sourceView: rateButton,
+            actions: [slider] + presets,
+            presentationStyle: .menuOnly,
+            onDismiss: { [weak self] in
+                self?.isPlaybackRateMenuOpen = false
+                self?.scheduleControlsAutoHideIfNeeded()
+            },
+        )
+    }
+
+    private func setSharedPlaybackRate(_ rate: Float) {
+        if let rateContext {
+            rateContext.playbackRate.send(rate)
+        } else {
+            applyPlaybackRate(rate)
+        }
+    }
+
+    private func applyPlaybackRate(_ rate: Float) {
+        guard rate != playbackRate else { return }
+        playbackRate = rate
+        playbackSetRate(rate)
         updateControlIcons()
     }
 
@@ -9808,13 +9947,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             ? L10n.betterTG("Accessibility.Muted")
             : L10n.betterTG("Accessibility.SoundOn")
 
-        let rateTitle =
-            switch playbackRate {
-            case 0.5: "0.5×"
-            case 1.5: "1.5×"
-            case 2: "2×"
-            default: "1×"
-            }
+        // The settings button's speed: whole rates without a fraction, a slider's in tenths.
+        let rateTitle = playbackRate.rounded() == playbackRate
+            ? "\(Int(playbackRate))×"
+            : String(format: "%.1f×", playbackRate)
         rateButton.setTitle(rateTitle, for: .normal)
         rateButton.accessibilityValue = rateTitle
     }
@@ -9880,6 +10016,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         cancelControlsAutoHide()
         guard !hasBlockingStreamingStatus,
               !galleryChromeInteractionIsActive,
+              !isPlaybackRateMenuOpen,
               controlsAreVisible,
               Self.shouldAutoHideControls(
                   state: currentPlaybackState,
