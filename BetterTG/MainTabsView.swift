@@ -162,6 +162,7 @@ TelegramEmbeddedNavigationChrome {
             if archive == nil, let folder = rootVM.archive {
                 archive = ArchiveViewController(folder: folder, rootVM: rootVM, isTabRoot: true)
             }
+            archive?.onTabBarHiddenChange = { [weak self] hidden in self?.setTabBarHidden(hidden) }
             return archive
         }
     }
@@ -254,9 +255,11 @@ TelegramEmbeddedNavigationChrome {
                 width: size.width,
                 height: size.height,
             )
-            // The tab's content keeps 4 pt clear of the bar's top.
-            if !isTabBarHidden { reserved = max(0, bounds.height - tabBar.frame.minY + 4 - safe.bottom) }
+            // The tab's content keeps 4 pt clear of the bar's top; while the list edits, its toolbar takes the bar's
+            // place.
+            reserved = max(0, bounds.height - tabBar.frame.minY + 4 - safe.bottom)
         }
+        if isTabBarHidden, tabBar.axis == .vertical { reserved = ChatListSelectionToolbar.contentHeight }
         for controller in [chats, archive, settings].compactMap(\.self)
             where controller.additionalSafeAreaInsets.bottom != reserved
         {

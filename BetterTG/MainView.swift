@@ -23,11 +23,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// Telegram hides the tab bar while the list edits, for its toolbar.
     var onTabBarHiddenChange: ((Bool) -> Void)?
-
     /// Beside a tab bar standing in iPhone Duo's strip, the folder tabs keep to the band.
     var isBesideStandingTabBar = false {
         didSet { folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar }
     }
+
+    private var editingDone: (() -> Void)?
 
     // MARK: Private
 
@@ -602,15 +603,55 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     #endif
 
+    /// Telegram's Edit on the root list: Edit turns into Done, the right buttons go, the tab bar gives way to the
+    /// toolbar, the pages stay put and the folder tabs shake and can be dragged; Done saves their new order.
     private func setChatSelectionEditing(title: String?, done: (() -> Void)?) {
-        customNavigationBar.setEditing(title: title, done: done)
+        let wasSelecting = isSelectingChats
+        customNavigationBar.setEditing(title: title, done: done, showsDone: false)
         isSelectingChats = done != nil
+        editingDone = done
+        UIView.performWithoutAnimation {
+            customNavigationBar.setLeftTitle(
+                L10n.telegram(isSelectingChats ? "Common.Done" : "Common.Edit"),
+                isProminent: isSelectingChats,
+            )
+            customNavigationBar.layoutIfNeeded()
+        }
         onTabBarHiddenChange?(isSelectingChats)
         if let scrollView = pageController.view.subviews.compactMap({ $0 as? UIScrollView }).first {
             scrollView.isScrollEnabled = !isSelectingChats
         }
-        folderPicker.isUserInteractionEnabled = !isSelectingChats
-        folderPicker.alpha = isSelectingChats ? 0 : 1
+        guard wasSelecting != isSelectingChats else { return }
+        if !isSelectingChats, let order = folderPicker.reorderedIDs { saveFolderOrder(order) }
+        folderPicker.setEditingOrder(isSelectingChats)
+    }
+
+    /// ChatListControllerImpl.reorderingDonePressed: TDLib takes the dragged order, All Chats' place included.
+    private func saveFolderOrder(_ order: [Int]) {
+        let current = rootVM.folders.map(\.id)
+        guard order != current, Set(order) == Set(current) else { return }
+        let folderIDs = order.filter { $0 != 0 }
+        let mainPosition = order.firstIndex(of: 0) ?? 0
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        Task { @MainActor [weak self] in
+            do {
+                try await scope.perform {
+                    _ = try await client.reorderChatFolders(
+                        chatFolderIds: folderIDs,
+                        mainChatListPosition: mainPosition,
+                    )
+                }
+            } catch {
+                guard let self, scope.isCurrent else { return }
+                presentFolderError(error)
+                folderPicker.configure(
+                    folders: rootVM.folders,
+                    selectedID: rootVM.currentFolder,
+                    unreadStates: folderUnreadStates,
+                )
+            }
+        }
     }
 
     private func configurePageController() {
@@ -1094,6 +1135,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             controller.onSelectionEditingChange = { [weak self] title, done in
                 self?.setChatSelectionEditing(title: title, done: done)
             }
+            controller.selectionToolbarTakesTabBarPlace = true
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }
                 return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge
@@ -1144,8 +1186,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         )
     }
 
-    /// Telegram's Edit (ChatListControllerImpl.editPressed).
-    private func editPressed() {}
+    /// Telegram's Edit (ChatListControllerImpl.editPressed), and its Done.
+    private func editPressed() {
+        if isSelectingChats {
+            editingDone?()
+        } else {
+            currentFolderController?.beginEditing()
+        }
+    }
 
     /// The account's row in the switcher, and its photo for the switcher of whichever account is active later.
     private func loadAccountPeer() {
@@ -1440,6 +1488,10 @@ final class FolderPickerView: UIView {
         }
     }
 
+    private(set) var isEditingOrder = false
+    /// The tabs' ids in the order editing dragged them into; nil until a tab moved.
+    private(set) var reorderedIDs: [Int]?
+
     // MARK: Private
 
     private let blurView = TelegramBarBackgroundView(edge: .bottom)
@@ -1490,6 +1542,20 @@ final class FolderPickerView: UIView {
         return gesture
     }()
 
+    private var stashedConfiguration: (
+        folders: [CustomFolder],
+        selectedID: Int?,
+        unreadStates: [ChatList: FolderUnreadState],
+    )?
+    /// The dragged tab, where the finger started and where its slot was then.
+    private var reorder: (id: Int, startX: CGFloat, startSlotMinX: CGFloat)?
+    private lazy var reorderGesture: UILongPressGestureRecognizer = {
+        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(reorderPressed(_:)))
+        gesture.minimumPressDuration = 0.2
+        gesture.isEnabled = false
+        return gesture
+    }()
+
     /// The touched segment's frame and when the touch began, while a finger carries the lens.
     private var drag: (frame: CGRect, time: CFTimeInterval)?
     /// The lens's frame while a finger carries it.
@@ -1513,11 +1579,47 @@ final class FolderPickerView: UIView {
         layoutSelection(animated: false)
     }
 
+    /// HorizontalTabsComponent's `updateIsShaking`: a 1 pt jiggle over 0.4 s and a 2° rock over 0.3 s, both additive.
+    private static func addShake(to layer: CALayer, phase: CFTimeInterval) {
+        guard layer.animation(forKey: "shaking_position") == nil else { return }
+        let start = layer.convertTime(CACurrentMediaTime(), from: nil) + phase
+        let position = CAKeyframeAnimation(keyPath: "position")
+        position.duration = 0.4
+        position.values = [
+            CGPoint(x: -1, y: -1), CGPoint(x: 0, y: 0), CGPoint(x: -1, y: 0), CGPoint(x: 0, y: -1), CGPoint(
+                x: -1,
+                y: -1,
+            ),
+        ].map { NSValue(cgPoint: $0) }
+        position.calculationMode = .linear
+        position.isRemovedOnCompletion = false
+        position.repeatCount = .greatestFiniteMagnitude
+        position.isAdditive = true
+        position.beginTime = start
+        let rotation = CAKeyframeAnimation(keyPath: "transform")
+        rotation.duration = 0.3
+        rotation.valueFunction = CAValueFunction(name: .rotateZ)
+        let radians = CGFloat.pi * 2 / 180
+        rotation.values = [-radians, radians, -radians]
+        rotation.calculationMode = .linear
+        rotation.isRemovedOnCompletion = false
+        rotation.repeatCount = .greatestFiniteMagnitude
+        rotation.isAdditive = true
+        rotation.beginTime = start
+        layer.add(position, forKey: "shaking_position")
+        layer.add(rotation, forKey: "shaking_rotation")
+    }
+
     func configure(
         folders: [CustomFolder],
         selectedID: Int?,
         unreadStates: [ChatList: FolderUnreadState],
     ) {
+        // The order being dragged stays; the list's own updates wait for editing to end.
+        guard !isEditingOrder else {
+            stashedConfiguration = (folders, selectedID, unreadStates)
+            return
+        }
         let displayedUnreadStates: [FolderUnreadState] = folders.map { folder in
             if case .folder = folder.type {
                 unreadStates[folder.chatList] ?? FolderUnreadState.empty
@@ -1563,6 +1665,28 @@ final class FolderPickerView: UIView {
         interactiveSelection = (fromID, toID, min(max(0, fraction), 1))
         layoutSelection(animated: false)
         updateButtonAppearance()
+    }
+
+    // MARK: Editing
+
+    /// Telegram's editing tabs (HorizontalTabsComponent with `isEditing`): they shake, and a hold of 0.2 s lifts one,
+    /// which follows the finger along the strip while the others make way. Taps and menus wait until editing ends.
+    func setEditingOrder(_ editing: Bool) {
+        guard editing != isEditingOrder, !folders.isEmpty || !editing else { return }
+        isEditingOrder = editing
+        reorderGesture.isEnabled = editing
+        if editing {
+            reorderedIDs = nil
+        } else {
+            endReorder()
+        }
+        updateShaking()
+        guard !editing, let stash = stashedConfiguration else { return }
+        stashedConfiguration = nil
+        // A dragged order waits for TDLib to confirm it, which configures the strip again.
+        if reorderedIDs == nil {
+            configure(folders: stash.folders, selectedID: stash.selectedID, unreadStates: stash.unreadStates)
+        }
     }
 
     private func applyItems(_ items: [Item], selectedID: Int?, unreadStates: [FolderUnreadState]) {
@@ -1642,6 +1766,7 @@ final class FolderPickerView: UIView {
             ])
         }
         controlContainer.addGestureRecognizer(tabGesture)
+        controlContainer.addGestureRecognizer(reorderGesture)
         controlContainer.onViewportWidthChange = { [weak self] in
             self?.updateResolvedWidths()
             self?.layoutSelection(animated: false)
@@ -1745,7 +1870,135 @@ final class FolderPickerView: UIView {
         updateResolvedWidths()
         updateButtonAppearance()
         layoutSelection(animated: false)
-        scrollSelectedSegmentIntoView(animated: false)
+        if reorder == nil { scrollSelectedSegmentIntoView(animated: false) }
+        updateShaking()
+    }
+
+    private func updateShaking() {
+        for button in buttons {
+            for press in button.gestureRecognizers ?? [] where press is ContextMenuPressGestureRecognizer {
+                press.isEnabled = !isEditingOrder
+            }
+        }
+        for (index, button) in buttons.enumerated() {
+            let copies = [button] + (selectedButtons.indices.contains(index) ? [selectedButtons[index]] : [])
+            if isEditingOrder {
+                let phase = CFTimeInterval.random(in: 0...0.25)
+                for copy in copies {
+                    Self.addShake(to: copy.layer, phase: phase)
+                }
+            } else {
+                for copy in copies {
+                    copy.layer.removeAnimation(forKey: "shaking_position")
+                    copy.layer.removeAnimation(forKey: "shaking_rotation")
+                }
+            }
+        }
+    }
+
+    @objc private func reorderPressed(_ gesture: UILongPressGestureRecognizer) {
+        let x = gesture.location(in: stripView).x
+        switch gesture.state {
+        case .began:
+            let index = segmentIndex(at: x)
+            guard buttons.indices.contains(index) else { return }
+            // The strip stops scrolling under the lifted tab.
+            controlContainer.panGestureRecognizer.isEnabled = false
+            controlContainer.panGestureRecognizer.isEnabled = true
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            reorder = (items[index].id, x, segmentFrame(at: index).minX)
+            updateReorderedTab(fingerX: x, animated: true)
+        case .changed:
+            guard let reorder, let index = items.firstIndex(where: { $0.id == reorder.id }) else { return }
+            let center = segmentFrame(at: index).midX + (x - reorder.startX)
+                + (reorder.startSlotMinX - segmentFrame(at: index).minX)
+            let target = segmentIndex(at: center)
+            if target != index { moveTab(from: index, to: target) }
+            updateReorderedTab(fingerX: x, animated: false)
+            scrollToFollowReorder(fingerX: x)
+        default:
+            endReorder()
+        }
+    }
+
+    /// Moves the dragged tab's data to `target`; the other tabs slide from where they were.
+    private func moveTab(from index: Int, to target: Int) {
+        UISelectionFeedbackGenerator().selectionChanged()
+        var oldFrames = [Int: CGFloat]()
+        for (position, item) in items.enumerated() {
+            oldFrames[item.id] = segmentFrame(at: position).minX
+        }
+        items.insert(items.remove(at: index), at: target)
+        unreadStates.insert(unreadStates.remove(at: index), at: target)
+        if folders.indices.contains(index) { folders.insert(folders.remove(at: index), at: target) }
+        reorderedIDs = items.map(\.id)
+        rebuildControl()
+        for (position, item) in items.enumerated() where item.id != reorder?.id {
+            guard let oldX = oldFrames[item.id] else { continue }
+            let copies = [buttons[position]] + (selectedButtons.indices.contains(position)
+                ? [selectedButtons[position]]
+                : [])
+            let delta = oldX - segmentFrame(at: position).minX
+            for copy in copies {
+                copy.transform = CGAffineTransform(translationX: delta, y: 0)
+            }
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                for copy in copies {
+                    copy.transform = .identity
+                }
+            }
+        }
+    }
+
+    /// The lifted tab under the finger, grown as Telegram's (1.2) and a little clear.
+    private func updateReorderedTab(fingerX: CGFloat, animated: Bool) {
+        guard let reorder, let index = items.firstIndex(where: { $0.id == reorder.id }), buttons.indices.contains(index)
+        else { return }
+        let offset = fingerX - reorder.startX + reorder.startSlotMinX - segmentFrame(at: index).minX
+        let copies = [buttons[index]] + (selectedButtons.indices.contains(index) ? [selectedButtons[index]] : [])
+        let changes = {
+            for copy in copies {
+                copy.transform = CGAffineTransform(translationX: offset, y: 0).scaledBy(x: 1.2, y: 1.2)
+                copy.alpha = 0.9
+            }
+        }
+        if animated {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState], animations: changes)
+        } else {
+            changes()
+        }
+        for copy in copies {
+            copy.superview?.bringSubviewToFront(copy)
+        }
+        layoutSelection(animated: false)
+    }
+
+    /// Near an edge of the strip the strip scrolls with the dragged tab.
+    private func scrollToFollowReorder(fingerX: CGFloat) {
+        let visibleX = fingerX - controlContainer.contentOffset.x
+        let maxOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
+        var offset = controlContainer.contentOffset.x
+        if visibleX < 20 {
+            offset = max(0, offset - 3)
+        } else if visibleX > controlContainer.bounds.width - 20 {
+            offset = min(maxOffset, offset + 3)
+        }
+        if offset != controlContainer.contentOffset.x { controlContainer.contentOffset.x = offset }
+    }
+
+    private func endReorder() {
+        guard let reorder else { return }
+        self.reorder = nil
+        guard let index = items.firstIndex(where: { $0.id == reorder.id }),
+              buttons.indices.contains(index) else { return }
+        let copies = [buttons[index]] + (selectedButtons.indices.contains(index) ? [selectedButtons[index]] : [])
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState]) {
+            for copy in copies {
+                copy.transform = .identity
+                copy.alpha = 1
+            }
+        }
+        layoutSelection(animated: true)
     }
 
     private func updateButtonContents(animated: Bool) {
@@ -1947,7 +2200,7 @@ final class FolderPickerView: UIView {
     }
 
     @objc private func folderPressed(_ sender: FolderButton) {
-        guard items.indices.contains(sender.tag) else { return }
+        guard !isEditingOrder, items.indices.contains(sender.tag) else { return }
         let folder = items[sender.tag]
         if selectedID == folder.id {
             scrollSelectedSegmentIntoView(animated: true)
@@ -2039,7 +2292,7 @@ final class FolderPickerView: UIView {
     }
 
     @objc private func folderLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
-        guard gesture.state == .began,
+        guard gesture.state == .began, !isEditingOrder,
               let button = gesture.view as? FolderButton,
               folders.indices.contains(button.tag)
         else { return }

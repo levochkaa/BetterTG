@@ -313,7 +313,8 @@ final class TelegramListNavigationBar: UIView {
 
     /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
     /// regular one; a nil action ends editing.
-    func setEditing(title: String?, done: (() -> Void)?) {
+    /// `showsDone` false leaves Done to the caller, as the chat list's Edit turns into it.
+    func setEditing(title: String?, done: (() -> Void)?, showsDone: Bool = true) {
         let editing = done != nil
         doneAction = done
         editingTitle = editing ? title : nil
@@ -321,7 +322,7 @@ final class TelegramListNavigationBar: UIView {
         searchButton.isHidden = editing
         secondaryRightButton.isHidden = editing || secondaryRightButton.image(for: .normal) == nil
         proxyButton.isHidden = editing || proxyButton.status == nil
-        doneButton.isHidden = !editing
+        doneButton.isHidden = !editing || !showsDone
         refreshPlatters()
         updateTitle()
     }

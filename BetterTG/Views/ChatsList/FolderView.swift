@@ -13,6 +13,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         let viewport: ChatListViewportSnapshot
     }
 
+    /// Telegram hides the tab bar while the list edits, for its toolbar.
+    var onTabBarHiddenChange: ((Bool) -> Void)?
+
     // MARK: Private
 
     private let rootVM: RootVM
@@ -175,14 +178,20 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         )
     }
 
-    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, and How Does It Work? for an archive with chats.
-    /// BetterTG's list has no multiple selection, so Select Chats is left out.
+    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, Select Chats, and How Does It Work? for an
+    /// archive with chats.
     private func openArchiveMoreMenu() {
         let client = TDLib.shared.activeClient
         var actions = [TelegramContextMenuAction(
             title: L10n.telegram("ChatList.Archive.ContextSettings"),
             image: UIImage(systemName: "slider.horizontal.3"),
         ) { [weak self] in self?.openArchiveSettings() }]
+        if !folderController.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.ContextSelectChats"),
+                image: UIImage(systemName: "checkmark.circle"),
+            ) { [weak self] in self?.folderController.beginEditing() })
+        }
         if !folderController.isEmpty {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.Archive.ContextInfo"),
@@ -247,7 +256,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
         folderController.onSelectionEditingChange = { [weak self] title, done in
             self?.navigationBarView.setEditing(title: title, done: done)
+            self?.onTabBarHiddenChange?(done != nil)
         }
+        folderController.selectionToolbarTakesTabBarPlace = isTabRoot
         folderController.onListInteractionEnded = { [weak self] in self?.scheduleRestorationRetry() }
         addChild(folderController)
         folderController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -453,6 +464,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// The selection's title for the screen's bar and its Done, or nil and nil once selection ends.
     var onSelectionEditingChange: ((String?, (() -> Void)?) -> Void)?
 
+    /// Where the selection toolbar goes: under the safe area, in the place of the hidden tab bar, rather than over it.
+    var selectionToolbarTakesTabBarPlace = false
+
     private let showsStandaloneSearch: Bool
     private let rootVM: RootVM
     private let actionAuthority: ChatListActionAuthority
@@ -486,7 +500,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private let pressGestureDelegate = ChatRowPressGestureDelegate()
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
     private var isReorderingPinnedChats = false
-    private var reorderDoneButton: UIButton?
     /// Telegram's chat selection (selectPeerThread); nil outside it.
     private var selectedChatIDs: Set<Int64>?
     private var selectionToolbar: ChatListSelectionToolbar?
@@ -502,6 +515,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         return tableView.isDragging || tableView.isDecelerating
     }
 
+    // MARK: Chat selection
+
+    /// Whether the list edits: Telegram's Edit, which selects chats and reorders the pinned ones.
+    var isEditingList: Bool { selectedChatIDs != nil }
+
     private var orderedChats: [CustomChat] {
         folder.chats.sortedByListOrder()
     }
@@ -512,9 +530,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     /// The screen that owns this page: overlays sit there, above the folder picker on the main list.
+    /// The screen that holds this list: a tab keeps its overlays clear of the tab bar, as its safe area does.
     private var overlayHost: UIViewController {
         var host: UIViewController = self
-        while let parent = host.parent, !(parent is UINavigationController) {
+        while let parent = host.parent, !(parent is UINavigationController), !(parent is MainTabsViewController) {
             host = parent
         }
         return host
@@ -864,6 +883,21 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         menu(for: chat, inSearch: true)
     }
 
+    /// Telegram's Edit (ChatListControllerImpl.editPressed): every row gets a check, the pinned ones their grips too,
+    /// and
+    /// the toolbar offers Read All until a chat is selected.
+    func beginEditing() {
+        guard actionAuthority.scope(owner: self).isCurrent, selectedChatIDs == nil, !isReorderingPinnedChats,
+              isSearchActive?() != true else { return }
+        isReorderingPinnedChats = true
+        beginChatSelection(with: [])
+    }
+
+    /// Telegram's donePressed.
+    func endEditing() {
+        endChatSelection()
+    }
+
     /// The scroll indicator runs beside the rows, under the navigation bar and above the folder tabs. UIKit's own
     /// adjustment would leave it across iPhone Duo's strip, away from the rows, so all of it is set here.
     private func updateIndicatorInsets() {
@@ -923,10 +957,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
             return chat(for: id)?.position.isPinned == true
         }
+        // Every row edits while the list selects, so that each gets its check.
         dataSource.canSwipeRow = { [weak self] indexPath in
-            guard let self, !isReorderingPinnedChats, let id = dataSource.itemIdentifier(for: indexPath) else {
-                return false
-            }
+            guard let self, selectedChatIDs != nil || !isReorderingPinnedChats,
+                  let id = dataSource.itemIdentifier(for: indexPath)
+            else { return false }
             return chat(for: id) != nil
         }
         dataSource.didMoveRow = { [weak self] movedID, referenceID, movedDown in
@@ -1325,16 +1360,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         ) { [weak self] in
             self?.setPinned(chat, !pinned, in: searchPinList, scope: scope, client: client)
         })
-        // Telegram offers Reorder on a pinned item (ChatContextMenus, Chat.InlineTopicMenu.Reorder); BetterTG has no
-        // Edit mode, so this is the way into reordering pinned chats.
-        if !inSearch, pinned, folder.chats.filter(\.position.isPinned).count > 1, isSearchActive?() != true {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Chat.InlineTopicMenu.Reorder"),
-                image: UIImage(systemName: "arrow.up.arrow.down"),
-            ) { [weak self] in
-                self?.beginPinnedReorder()
-            })
-        }
         if !isSavedMessages {
             actions.append(TelegramContextMenuAction(
                 title: muted
@@ -1355,16 +1380,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         ) { [weak self] in
             self?.deleteChat(chat, scope: scope, client: client)
         })
-        // ChatContextMenus' Select: the list starts selecting with this chat.
-        if !inSearch, isSearchActive?() != true {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("ChatList.Context.Select"),
-                image: UIImage(systemName: "checkmark.circle"),
-                startsNewSection: true,
-            ) { [weak self] in
-                self?.beginChatSelection(with: chat.id)
-            })
-        }
+        // Selecting and reordering pinned chats belong to Edit, as in Telegram's root list.
         return actions
     }
 
@@ -1616,14 +1632,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
-    // MARK: Chat selection
-
-    /// Telegram's selectPeerThread: the list edits with the chat selected, Done takes the bar's right side, the count
-    /// titles the list and the toolbar offers Read (Read All with nothing selected), Archive or Unarchive, and Delete.
-    private func beginChatSelection(with chatID: Int64) {
-        guard actionAuthority.scope(owner: self).isCurrent, selectedChatIDs == nil, !isReorderingPinnedChats,
-              isSearchActive?() != true else { return }
-        selectedChatIDs = [chatID]
+    /// Telegram's selectPeerThread: the list edits with the chats selected, Done ends it, the count titles the list
+    /// and the toolbar offers Read (Read All with nothing selected), Archive or Unarchive, and Delete.
+    private func beginChatSelection(with chatIDs: Set<Int64>) {
+        guard actionAuthority.scope(owner: self).isCurrent, selectedChatIDs == nil, isSearchActive?() != true
+        else { return }
+        selectedChatIDs = chatIDs
         pressGesture?.isEnabled = false
         tableView.allowsMultipleSelectionDuringEditing = true
         tableView.setEditing(true, animated: true)
@@ -1640,7 +1654,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             toolbar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
             toolbar.topAnchor.constraint(
                 equalTo: host.safeAreaLayoutGuide.bottomAnchor,
-                constant: -ChatListSelectionToolbar.contentHeight,
+                constant: selectionToolbarTakesTabBarPlace ? 0 : -ChatListSelectionToolbar.contentHeight,
             ),
         ])
         selectionToolbar = toolbar
@@ -1651,6 +1665,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private func endChatSelection() {
         guard selectedChatIDs != nil else { return }
         selectedChatIDs = nil
+        let wasReordering = isReorderingPinnedChats
+        isReorderingPinnedChats = false
         pressGesture?.isEnabled = true
         selectionToolbar?.removeFromSuperview()
         selectionToolbar = nil
@@ -1661,6 +1677,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
         tableView.setEditing(false, animated: true)
         tableView.allowsMultipleSelectionDuringEditing = false
+        // The list shows TDLib's order again, with what changed meanwhile.
+        if wasReordering { updateSnapshot(animated: true) }
     }
 
     /// Keeps the checks, the title and the toolbar in step with the selection (chatListSelectionOptions): Read needs
@@ -1774,42 +1792,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         deleteChat(chat, scope: scope, client: client)
     }
 
-    private func beginPinnedReorder() {
-        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, isSearchActive?() != true
-        else { return }
-        isReorderingPinnedChats = true
-        pressGesture?.isEnabled = false
-        tableView.setEditing(true, animated: true)
-
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = L10n.telegram("Common.Done")
-        configuration.cornerStyle = .capsule
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 28, bottom: 10, trailing: 28)
-        let button = UIButton(
-            configuration: configuration,
-            primaryAction: UIAction { [weak self] _ in self?.endPinnedReorder() },
-        )
-        button.translatesAutoresizingMaskIntoConstraints = false
-        let host: UIView = overlayHost.view
-        host.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.centerXAnchor.constraint(equalTo: host.centerXAnchor),
-            button.bottomAnchor.constraint(
-                equalTo: host.safeAreaLayoutGuide.bottomAnchor,
-                constant: -overlayBottomInset,
-            ),
-        ])
-        reorderDoneButton = button
-        UIAccessibility.post(notification: .layoutChanged, argument: button)
-    }
-
     /// Leaves reorder mode and shows the list as TDLib now orders it.
     private func endPinnedReorder() {
         guard isReorderingPinnedChats else { return }
+        // Edit reorders while it selects; both end together.
+        if selectedChatIDs != nil { return endChatSelection() }
         isReorderingPinnedChats = false
         pressGesture?.isEnabled = true
-        reorderDoneButton?.removeFromSuperview()
-        reorderDoneButton = nil
         guard isViewLoaded else { return }
         tableView.setEditing(false, animated: true)
         updateSnapshot(animated: true)

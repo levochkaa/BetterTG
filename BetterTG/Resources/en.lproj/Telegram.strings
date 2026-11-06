@@ -10,6 +10,7 @@
 "Common.TakePhoto" = "Take Photo";
 "Common.ChoosePhoto" = "Choose Photo";
 "Common.Search" = "Search";
+"DialogList.Title" = "Chats";
 
 "Presence.online" = "online";
 "LastSeen.JustNow" = "last seen just now";
@@ -2521,6 +2522,7 @@
 "NotificationsSound.Telegraph" = "Telegraph";
 "UserInfo.NotificationsDefault" = "Default";
 "ChatList.Context.Select" = "Select";
+"ChatList.ContextSelectChats" = "Select Chats";
 "ChatList.Read" = "Read";
 "ChatList.SelectedTopics_1" = "%@ Topic Selected";
 "ChatList.SelectedTopics_any" = "%@ Topics Selected";
