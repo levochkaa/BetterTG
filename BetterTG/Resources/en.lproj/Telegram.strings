@@ -3348,3 +3348,5 @@
 "TwoStepAuth.EmailInvalid" = "Invalid e-mail address. Please try again.";
 "TwoStepAuth.EmailSkipAlert" = "No, seriously.\n\nIf you forget your password, you will lose access to your Telegram account. There will be no way to restore it.";
 "TwoStepAuth.EmailCodeExpired" = "This confirmation code has expired. Please try again.";
+"DeleteAccount.Options.SetTwoStepAuthTitle" = "Enable Two-Step Verification";
+"DeleteAccount.Options.SetTwoStepAuthText" = "Set a password that will be required each time you log in.";

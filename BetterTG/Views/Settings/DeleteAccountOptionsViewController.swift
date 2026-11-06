@@ -6,7 +6,8 @@ import UIKit
 
 /// Telegram's DeleteAccountOptionsController: the alternatives to deleting the account, then Delete My Account,
 /// in a modal over Privacy and Security. An alternative closes the modal and opens its screen there. Change Phone
-/// Number and Enable Two-Step Verification are left out: BetterTG has neither flow.
+/// Number is left out: BetterTG has no such flow. Enable Two-Step Verification opens its settings, as Telegram's
+/// does for a pending email; Telegram opens its intro splash otherwise, which BetterTG doesn't have.
 final class DeleteAccountOptionsViewController: SettingsListViewController {
     private static let deleteMessagesFaq = "https://telegram.org/faq#q-can-i-delete-my-messages"
 
@@ -48,6 +49,11 @@ final class DeleteAccountOptionsViewController: SettingsListViewController {
             // Privacy and Security is under the modal already.
             self?.dismiss(animated: true)
         }]
+        if !hasPassword {
+            privacyRows.append(option("SetTwoStepAuth", symbol: "key.fill", tint: .systemOrange) { [weak self] in
+                self?.leave { $0.pushViewController(TwoStepVerificationViewController(), animated: true) }
+            })
+        }
         if !AppPasscode.shared.isSet {
             privacyRows.append(option("SetPasscode", symbol: "faceid", tint: .systemGreen) { [weak self] in
                 self?.leave { $0.pushViewController(PasscodeOptionsViewController(), animated: true) }
