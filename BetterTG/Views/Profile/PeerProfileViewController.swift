@@ -23,10 +23,13 @@ ClientRestorableNavigationEntry {
         case groupsInCommon = 6
         case similarChannels = 8
         case similarBots = 9
+        /// PeerInfoStoryPaneNode's archive scope on My Profile: the account's stories no longer shown to anyone.
+        case archivedPosts = 11
 
         var title: String {
             switch self {
             case .posts: L10n.telegram("PeerInfo.PaneStories")
+            case .archivedPosts: L10n.telegram("PeerInfo.PaneArchivedStories")
             case .media: L10n.telegram("PeerInfo.PaneMedia")
             case .files: L10n.telegram("PeerInfo.PaneFiles")
             case .audio: L10n.telegram("PeerInfo.PaneAudio")
@@ -42,7 +45,8 @@ ClientRestorableNavigationEntry {
 
         var loadFailedText: String {
             switch self {
-            case .posts: L10n.betterTG("Profile.PostsLoadFailed")
+            case .archivedPosts,
+                 .posts: L10n.betterTG("Profile.PostsLoadFailed")
             case .media: L10n.betterTG("Profile.SharedMediaLoadFailed")
             case .files: L10n.betterTG("Profile.SharedFilesLoadFailed")
             case .audio: L10n.betterTG("Profile.SharedAudioLoadFailed")
@@ -58,7 +62,8 @@ ClientRestorableNavigationEntry {
 
         var emptyText: String {
             switch self {
-            case .posts: L10n.betterTG("Profile.PostsEmpty")
+            case .archivedPosts,
+                 .posts: L10n.betterTG("Profile.PostsEmpty")
             case .media: L10n.betterTG("Profile.SharedMediaEmpty")
             case .files: L10n.betterTG("Profile.SharedFilesEmpty")
             case .audio: L10n.betterTG("Profile.SharedAudioEmpty")
@@ -81,12 +86,18 @@ ClientRestorableNavigationEntry {
             case .voice: .searchMessagesFilterVoiceAndVideoNote
             case .links: .searchMessagesFilterUrl
             case .gifs: .searchMessagesFilterAnimation
-            case .groupsInCommon,
+            case .archivedPosts,
+                 .groupsInCommon,
                  .members,
                  .posts,
                  .similarBots,
                  .similarChannels: nil
             }
+        }
+
+        /// The panes of stories, which share their grid and their pages.
+        var isStories: Bool {
+            self == .posts || self == .archivedPosts
         }
 
         /// PeerInfoRecommendedPeersPane: the recommendations TDLib returns at once.
@@ -315,6 +326,7 @@ ClientRestorableNavigationEntry {
     private var postsByID = [Int64: Story]()
     private var pinnedPostIDs = Set<Int>()
     private var postsCount: Int?
+    private var archivedPostsCount: Int?
     private var postsCountTask: Task<Void, Never>?
     private var postsTask: Task<Void, Never>?
     private var postsHasMore = true
@@ -929,7 +941,7 @@ ClientRestorableNavigationEntry {
             NavigationStorage.shared.push(.customChat(chat))
             return
         }
-        if currentSharedTab == .posts {
+        if currentSharedTab.isStories {
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
             openPost(Int(id), sourceView: collectionView.cellForItem(at: indexPath))
             return
@@ -964,7 +976,8 @@ ClientRestorableNavigationEntry {
         let itemCount =
             switch currentSharedTab {
             case .groupsInCommon: groupsInCommon.count
-            case .posts: posts.count
+            case .archivedPosts,
+                 .posts: posts.count
             case .members: membersPane?.items.count ?? 0
             case .similarBots,
                  .similarChannels: similarChats.count
@@ -1603,7 +1616,7 @@ ClientRestorableNavigationEntry {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, environment in
-            if self?.currentSharedTab == .posts {
+            if self?.currentSharedTab.isStories == true {
                 // PeerInfoStoryPaneNode: three tiles to a row, 0.81 as wide as they are tall, a point apart.
                 let width = environment.container.effectiveContentSize.width
                 let columns = telegramGridColumns(phoneColumns: 3, width: width)
@@ -1691,7 +1704,7 @@ ClientRestorableNavigationEntry {
                 cell.configure(chat: chat, subtitle: Self.similarSubtitle(chat), accountID: accountID, client: client)
                 return cell
             }
-            if currentSharedTab == .posts {
+            if currentSharedTab.isStories {
                 guard let story = postsByID[id],
                       let cell = collectionView.dequeueReusableCell(
                           withReuseIdentifier: ProfileStoryGridCell.reuseIdentifier, for: indexPath,
@@ -2691,7 +2704,7 @@ ClientRestorableNavigationEntry {
                 if membersPane.rows.isEmpty { applySnapshot() }
             } else if currentSharedTab.isSimilar {
                 loadSimilar()
-            } else if currentSharedTab == .posts {
+            } else if currentSharedTab.isStories {
                 loadMorePosts()
             } else {
                 loadMoreGroupsInCommon()
@@ -2784,7 +2797,7 @@ ClientRestorableNavigationEntry {
             applySimilarSnapshot(animated: animated, completion: completion)
             return
         }
-        if currentSharedTab == .posts {
+        if currentSharedTab.isStories {
             var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
             snapshot.appendSections([.messages])
             snapshot.appendItems(posts)
@@ -3260,13 +3273,22 @@ ClientRestorableNavigationEntry {
         guard listsPosts, postsCountTask == nil, postsCount == nil, contextIsCurrent else { return }
         let client = client
         let chatID = customChat.id
+        let readsArchive = isMyProfile
         postsCountTask = Task { [weak self] in
             let page = try? await client.send(TDNativeRequests.getChatPostedToChatPageStories(
                 chatId: chatID, fromStoryId: 0, limit: 1,
             ))
+            let archive = readsArchive
+                ? try? await client.send(TDNativeRequests.getChatArchivedStories(
+                    chatId: chatID,
+                    fromStoryId: 0,
+                    limit: 1,
+                ))
+                : nil
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             postsCountTask = nil
             postsCount = page?.totalCount ?? 0
+            if readsArchive { archivedPostsCount = archive?.totalCount ?? 0 }
             updateSharedTabAvailability()
         }
     }
@@ -3278,12 +3300,15 @@ ClientRestorableNavigationEntry {
         let chatID = customChat.id
         let fromStoryID = posts.last.map(Int.init) ?? 0
         let generation = postsGeneration
+        let isArchive = currentSharedTab == .archivedPosts
         historyError = nil
         postsTask = Task { [weak self] in
             do {
-                let page = try await client.send(TDNativeRequests.getChatPostedToChatPageStories(
-                    chatId: chatID, fromStoryId: fromStoryID, limit: 30,
-                ))
+                let page = try await client.send(isArchive
+                    ? TDNativeRequests.getChatArchivedStories(chatId: chatID, fromStoryId: fromStoryID, limit: 30)
+                    : TDNativeRequests.getChatPostedToChatPageStories(
+                        chatId: chatID, fromStoryId: fromStoryID, limit: 30,
+                    ))
                 guard let self, postsGeneration == generation, contextIsCurrent else { return }
                 postsTask = nil
                 pinnedPostIDs.formUnion(page.pinnedStoryIds)
@@ -3293,7 +3318,7 @@ ClientRestorableNavigationEntry {
                     posts.append(Int64(story.id))
                     added += 1
                 }
-                postsCount = page.totalCount
+                if isArchive { archivedPostsCount = page.totalCount } else { postsCount = page.totalCount }
                 postsHasMore = added > 0 && posts.count < page.totalCount
                 applySnapshot()
             } catch {
@@ -3452,6 +3477,7 @@ ClientRestorableNavigationEntry {
         if listsGroups, groupsInCommonCount == nil { return }
         // Posts come first, so the panes wait for TDLib's count of them.
         if listsPosts, postsCount == nil { return }
+        if isMyProfile, archivedPostsCount == nil { return }
         // A group's Members pane comes first, so the panes wait for the member count in its full info.
         if listsMembers, !membersInfoLoaded { return }
         let showsMembers = showsMembersPane
@@ -3461,7 +3487,9 @@ ClientRestorableNavigationEntry {
             case .groupsInCommon: listsGroups && (groupsInCommonCount ?? 0) > 0
             case .similarChannels: listsSimilarChannels && (similarCount ?? 0) > 0
             case .similarBots: customChat.bot != nil && (similarCount ?? 0) > 0
-            case .posts: (postsCount ?? 0) > 0
+            // PeerInfoData always lists My Profile's posts and adds the archive once it has stories.
+            case .posts: isMyProfile || (postsCount ?? 0) > 0
+            case .archivedPosts: isMyProfile && (archivedPostsCount ?? 0) > 0
             case .audio,
                  .files,
                  .gifs,

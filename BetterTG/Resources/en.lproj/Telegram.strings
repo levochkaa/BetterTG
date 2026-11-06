@@ -3361,3 +3361,4 @@
 "ChannelProfile.ToastAboutCopied" = "Copied to clipboard.";
 "ChannelProfile.AboutActionCopy" = "Copy";
 "PeerInfo.PaneStories" = "Stories";
+"PeerInfo.PaneArchivedStories" = "Archived Posts";

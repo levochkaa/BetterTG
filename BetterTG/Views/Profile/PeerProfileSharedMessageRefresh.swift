@@ -305,7 +305,8 @@ private extension PeerProfileViewController.SharedTab {
             } else {
                 false
             }
-        case .groupsInCommon,
+        case .archivedPosts,
+             .groupsInCommon,
              .members,
              .posts,
              .similarBots,
