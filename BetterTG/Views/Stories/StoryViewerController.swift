@@ -833,6 +833,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 letters: chat.title.telegramAvatarFirstLetter.map { [$0] } ?? [],
                 isDeleted: false,
             ),
+            // StoryItemSetContainerComponent shows the account's own photo over its stories, not Saved Messages.
+            usesPeerPhotoForSavedMessages: true,
             client: session.client,
         )
         updateAccessibilityLabel()
