@@ -1,6 +1,6 @@
 # Story playback speed: source checkpoint — 2026-10-30
 
-Status: reviewed, implementation pending. Base `c83affe3` on `t3/refresh-goal-prompt`.
+Status: implemented 2026-11-07 (`fc04cfc4`, `a631cb9f`); see the checkpoint row "Story speed slider, 11-07". Base `c83affe3` on `t3/refresh-goal-prompt`.
 The user requested the nearest checkpoint before implementation began. No application code changed
 in this slice. The preceding channel-interactions implementation and its proof remain in
 [the channel audit](2026-10-30-channel-story-viewers.md). Full parity remains open.
