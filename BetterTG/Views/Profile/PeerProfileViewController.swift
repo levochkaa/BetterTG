@@ -1263,6 +1263,16 @@ ClientRestorableNavigationEntry {
 
     /// Telegram's list items keep View in Chat in their context menu.
     @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        if currentSharedTab.isStories {
+            guard gesture.state == .began, contextIsCurrent,
+                  let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: path), let story = postsByID[id],
+                  let cell = collectionView.cellForItem(at: path) else { return }
+            let actions = postMenuActions(story)
+            guard !actions.isEmpty else { return }
+            presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
+            return
+        }
         if currentSharedTab == .members {
             // PeerInfoScreenNode.openMemberContextMenu.
             guard gesture.state == .began, contextIsCurrent,
@@ -2801,6 +2811,9 @@ ClientRestorableNavigationEntry {
             var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
             snapshot.appendSections([.messages])
             snapshot.appendItems(posts)
+            // A pin that changes redraws its tile.
+            let shown = Set(dataSource.snapshot().itemIdentifiers)
+            snapshot.reconfigureItems(posts.filter(shown.contains))
             dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
             updateEmptyBackground(isEmpty: posts.isEmpty, isLoading: postsTask != nil)
             return
@@ -3329,6 +3342,128 @@ ClientRestorableNavigationEntry {
             }
         }
         if posts.isEmpty { applySnapshot() }
+    }
+
+    /// PeerInfoStoryPaneNode.openContextMenu for a story the account may manage: Archive or Unarchive, Pin or Unpin
+    /// on Posts (three at most), and Delete after a confirmation. Telegram's albums, Edit, Forward, Reorder and Select
+    /// are left out.
+    private func postMenuActions(_ story: Story) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        let isArchive = currentSharedTab == .archivedPosts
+        if story.canToggleIsPostedToChatPage {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isArchive ? "StoryList.ItemAction.Unarchive" : "StoryList.ItemAction.Archive"),
+                image: UIImage(systemName: isArchive ? "tray.and.arrow.up" : "archivebox"),
+            ) { [weak self] in self?.setPostArchived(story, archived: !isArchive) })
+            if !isArchive {
+                let isPinned = pinnedPostIDs.contains(story.id)
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram(isPinned ? "StoryList.ItemAction.Unpin" : "StoryList.ItemAction.Pin"),
+                    image: UIImage(systemName: isPinned ? "pin.slash" : "pin"),
+                ) { [weak self] in self?.setPostPinned(story, pinned: !isPinned) })
+            }
+        }
+        if story.canBeDeleted {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("StoryList.ItemAction.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDeletePost(story) })
+        }
+        return actions
+    }
+
+    /// updateStoriesArePinned: Archive takes the story off the profile; Unarchive puts it back.
+    private func setPostArchived(_ story: Story, archived: Bool) {
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleStoryIsPostedToChatPage(
+                    storyPosterChatId: chatID, storyId: story.id, isPostedToChatPage: !archived,
+                ))
+                guard let self, contextIsCurrent else { return }
+                if archived, currentSharedTab == .posts { removePost(story.id) }
+                postsCount = nil
+                showInfoToast(L10n.telegramPlural(
+                    archived ? "StoryList.ToastArchived.Text" : "StoryList.ToastUnarchived.Text",
+                    count: 1,
+                ))
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
+    /// updatePinnedToTopStories: at most three, pinned ones first.
+    private func setPostPinned(_ story: Story, pinned: Bool) {
+        var ids = posts.map(Int.init).filter { pinnedPostIDs.contains($0) }
+        if pinned {
+            guard ids.count < 3 else {
+                showInfoToast(L10n.telegramPlural("StoryList.ToastPinLimit.Text", count: 3))
+                return
+            }
+            ids.insert(story.id, at: 0)
+        } else {
+            ids.removeAll { $0 == story.id }
+        }
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setChatPinnedStories(chatId: chatID, storyIds: ids))
+                guard let self, contextIsCurrent, currentSharedTab == .posts else { return }
+                pinnedPostIDs = Set(ids)
+                let pinnedOrder = ids.map(Int64.init)
+                posts = pinnedOrder + posts.filter { !pinnedOrder.contains($0) }
+                    .sorted { lhs, rhs in lhs > rhs }
+                applySnapshot()
+                showInfoToast(pinned
+                    ? L10n.telegramPlural("StoryList.ToastPinned.Title", count: 1)
+                        + ". " + L10n.telegramPlural("StoryList.ToastPinned.Text", count: 1)
+                    : L10n.telegramPlural("StoryList.ToastUnpinned.Text", count: 1))
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
+    /// presentDeleteConfirmation: an action sheet, then deleteStories.
+    private func confirmDeletePost(_ story: Story) {
+        let sheet = UIAlertController(
+            title: L10n.telegramPlural("StoryList.DeleteConfirmation.Title", count: 1),
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        sheet
+            .addAction(UIAlertAction(title: L10n.telegram("StoryList.DeleteConfirmation.Action"), style: .destructive) {
+                [weak self] _ in
+                guard let self else { return }
+                let client = client
+                let chatID = customChat.id
+                Task { [weak self] in
+                    do {
+                        _ = try await client.send(TDNativeRequests.deleteStory(
+                            storyPosterChatId: chatID,
+                            storyId: story.id,
+                        ))
+                        guard let self, contextIsCurrent else { return }
+                        removePost(story.id)
+                    } catch {
+                        self?.presentChatListActionFailure()
+                    }
+                }
+            })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(sheet, animated: true)
+    }
+
+    private func removePost(_ storyID: Int) {
+        let id = Int64(storyID)
+        posts.removeAll { $0 == id }
+        postsByID[id] = nil
+        pinnedPostIDs.remove(storyID)
+        applySnapshot()
     }
 
     /// PeerInfoStoryPaneNode opens the story among the pane's stories (PeerStoryListContentContextImpl).
