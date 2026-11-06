@@ -37,15 +37,6 @@ final class TelegramListNavigationBar: UIView {
         didSet { rightLongPress.isEnabled = onRightLongPress != nil }
     }
 
-    /// How far the bar's background stays from each side: beside a tab bar standing in iPhone Duo's strip it covers
-    /// only the list's band.
-    var backgroundSideInsets = (left: CGFloat.zero, right: CGFloat.zero) {
-        didSet {
-            blurLeftConstraint?.constant = backgroundSideInsets.left
-            blurRightConstraint?.constant = -backgroundSideInsets.right
-        }
-    }
-
     // MARK: Private
 
     private let blurView = TelegramBarBackgroundView(edge: .top)
@@ -91,8 +82,6 @@ final class TelegramListNavigationBar: UIView {
     private let searchClipView = UIView()
     private var leadingRowConstraints = [NSLayoutConstraint]()
     private var leadingOnlyRowConstraints = [NSLayoutConstraint]()
-    private var blurLeftConstraint: NSLayoutConstraint!
-    private var blurRightConstraint: NSLayoutConstraint!
 
     private var titleLeadingRowConstraint: NSLayoutConstraint?
     private var titleLeadingColumnConstraint: NSLayoutConstraint!
@@ -636,8 +625,6 @@ final class TelegramListNavigationBar: UIView {
         )
         addLayoutGuide(titleSlotGuide)
         activateLeadingRowConstraints()
-        blurLeftConstraint = blurView.leftAnchor.constraint(equalTo: leftAnchor)
-        blurRightConstraint = blurView.rightAnchor.constraint(equalTo: rightAnchor)
         titleBandCenterConstraint = titleControl.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor)
         titleBetweenButtonsConstraint = titleControl.centerXAnchor.constraint(equalTo: titleSlotGuide.centerXAnchor)
         let trailingTop = trailingStack.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor)
@@ -646,8 +633,8 @@ final class TelegramListNavigationBar: UIView {
         NSLayoutConstraint.activate([
             titleSlotGuide.trailingAnchor.constraint(equalTo: trailingStack.leadingAnchor),
             blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurLeftConstraint,
-            blurRightConstraint,
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             searchClipView.topAnchor.constraint(equalTo: topAnchor),
             searchClipView.leadingAnchor.constraint(equalTo: leadingAnchor),

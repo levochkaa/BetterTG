@@ -25,10 +25,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     var onTabBarHiddenChange: ((Bool) -> Void)?
 
     /// Beside a tab bar standing in iPhone Duo's strip, the folder tabs keep to the band and stand as low as the tab
-    /// bar, and the backgrounds cover only the band.
+    /// bar; the backgrounds still span the screen.
     private var isBesideStandingTabBar = false
-    private var navigationBackgroundLeftConstraint: NSLayoutConstraint?
-    private var navigationBackgroundRightConstraint: NSLayoutConstraint?
 
     private var editingDone: (() -> Void)?
 
@@ -230,14 +228,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         return lastName.isEmpty ? chat.title : lastName
     }
 
-    func setStandingTabBar(bandInsets: (left: CGFloat, right: CGFloat)?) {
-        isBesideStandingTabBar = bandInsets != nil
-        let insets = bandInsets ?? (0, 0)
-        folderPicker.spansIPhoneDuoStrip = !isBesideStandingTabBar
-        folderPicker.backgroundSideInsets = insets
-        customNavigationBar.backgroundSideInsets = insets
-        navigationBackgroundLeftConstraint?.constant = insets.left
-        navigationBackgroundRightConstraint?.constant = -insets.right
+    func setStandingTabBar(_ standing: Bool) {
+        isBesideStandingTabBar = standing
+        folderPicker.spansIPhoneDuoStrip = !standing
         applyFolderTabsLowering()
     }
 
@@ -887,18 +880,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         headerPanelsHeightConstraint = height
         let headerPanelsTop = headerPanels.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor)
         headerPanelsTopConstraint = headerPanelsTop
-        let backgroundLeft = navigationBackground.leftAnchor.constraint(equalTo: view.leftAnchor)
-        let backgroundRight = navigationBackground.rightAnchor.constraint(equalTo: view.rightAnchor)
-        navigationBackgroundLeftConstraint = backgroundLeft
-        navigationBackgroundRightConstraint = backgroundRight
         NSLayoutConstraint.activate([
             headerPanelsTop,
             headerPanels.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerPanels.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             height,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
-            backgroundLeft,
-            backgroundRight,
+            navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBackground.bottomAnchor.constraint(equalTo: headerPanels.bottomAnchor),
         ])
     }
@@ -1489,14 +1478,6 @@ final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
-    /// How far the blur stays from each side: beside a tab bar standing in iPhone Duo's strip it covers only the band.
-    var backgroundSideInsets = (left: CGFloat.zero, right: CGFloat.zero) {
-        didSet {
-            blurLeftConstraint?.constant = backgroundSideInsets.left
-            blurRightConstraint?.constant = -backgroundSideInsets.right
-        }
-    }
-
     /// Whether the strip draws its own blur; under the chat list's bar the bar's background covers it.
     var showsBackground = true {
         didSet { blurView.isHidden = !showsBackground }
@@ -1535,9 +1516,6 @@ final class FolderPickerView: UIView {
     private(set) var isEditingOrder = false
     /// The tabs' ids in the order editing dragged them into; nil until a tab moved.
     private(set) var reorderedIDs: [Int]?
-
-    private var blurLeftConstraint: NSLayoutConstraint!
-    private var blurRightConstraint: NSLayoutConstraint!
 
     // MARK: Private
 
@@ -1831,12 +1809,10 @@ final class FolderPickerView: UIView {
             equalTo: safeAreaLayoutGuide.trailingAnchor,
             constant: -controlHorizontalInset,
         )
-        blurLeftConstraint = blurView.leftAnchor.constraint(equalTo: leftAnchor)
-        blurRightConstraint = blurView.rightAnchor.constraint(equalTo: rightAnchor)
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurLeftConstraint,
-            blurRightConstraint,
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
             liftedContainer.topAnchor.constraint(equalTo: topAnchor),
             liftedContainer.leadingAnchor.constraint(equalTo: leadingAnchor),

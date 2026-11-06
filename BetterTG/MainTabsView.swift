@@ -266,12 +266,7 @@ TelegramEmbeddedNavigationChrome {
         {
             controller.additionalSafeAreaInsets.bottom = reserved
         }
-        let band = tabBar.axis == .vertical && !isTabBarHidden
-            ? (left: view.safeAreaInsets.left, right: view.safeAreaInsets.right)
-            : nil
-        chats.setStandingTabBar(bandInsets: band)
-        archive?.setBackgroundSideInsets(band ?? (0, 0))
-        settingsChrome?.bar.backgroundSideInsets = band ?? (0, 0)
+        chats.setStandingTabBar(tabBar.axis == .vertical && !isTabBarHidden)
     }
 }
 

@@ -209,11 +209,6 @@ final class TelegramSideColumnView: UIView {
     let columnView = TelegramSideColumnView()
     /// iPhone Duo's status island beside the row.
     var trailingButtonsInset: CGFloat = 0
-    /// How far the background stays from each side: beside a tab bar standing in iPhone Duo's strip it covers only the
-    /// screen's band.
-    var backgroundSideInsets = (left: CGFloat.zero, right: CGFloat.zero) {
-        didSet { setNeedsLayout() }
-    }
 
     /// How far the row stands from the top safe area beside the island, where the search under it starts below it.
     private var rowTopOffset: CGFloat = 0
@@ -281,12 +276,7 @@ final class TelegramSideColumnView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        background.frame = bounds.inset(by: UIEdgeInsets(
-            top: 0,
-            left: backgroundSideInsets.left,
-            bottom: 0,
-            right: backgroundSideInsets.right,
-        ))
+        background.frame = bounds
         promptLabel.frame = CGRect(x: 16, y: topInset, width: max(0, bounds.width - 32), height: promptHeight)
         let contentY = topInset + promptHeight
         let rowY = contentY + rowTopOffset
