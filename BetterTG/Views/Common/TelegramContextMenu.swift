@@ -736,9 +736,18 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private static let previewReadinessTimeout: TimeInterval = 0.5
     /// A chat preview's corners.
     private static let chatPreviewCornerRadius: CGFloat = 24
-    /// The spring a chat preview grows out of its row on.
-    private static let growthDuration: TimeInterval = 0.5
-    private static let growthBounce: CGFloat = 0.12
+    /// The spring a chat preview grows out of its row on: the menu's own (`addTelegramSpring`), as a UIKit spring,
+    /// so that the preview and the menu move as one.
+    private static let growthSpring: (response: TimeInterval, bounce: CGFloat) = {
+        let spring = CASpringAnimation(keyPath: nil)
+        spring.mass = CALayer.telegramSpringMass
+        spring.stiffness = CALayer.telegramSpringStiffness
+        spring.damping = CALayer.telegramSpringDamping
+        let speed = spring.settlingDuration / CALayer.telegramSpringDuration
+        let dampingRatio = spring.damping / (2 * (spring.mass * spring.stiffness).squareRoot())
+        return (2 * .pi / ((spring.stiffness / spring.mass).squareRoot() * speed), 1 - dampingRatio)
+    }()
+
     /// `-[_UIContextMenuView _setAutoNavigationTimerIfNecessaryForElement:isTrackpadHover:]`: a finger resting this
     /// long on a row with a submenu opens it, and on an open submenu's header closes it, in the stacked hierarchy
     /// (0.1 s in the cascaded one; iOS 26.5).
@@ -1411,6 +1420,16 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
     }
 
+    /// A chat's preview takes half the screen's height, and a menu too tall for the rest scrolls; media keeps its
+    /// aspect instead (nil).
+    private func chatPreviewHeight(maximumBottom: CGFloat, verticalInset: CGFloat) -> CGFloat? {
+        if let contentSize = previewController?.preferredContentSize, contentSize.width > 0, contentSize.height > 0 {
+            return nil
+        }
+        let menuRoom = TelegramContextMenuLayout.contentVerticalInset * 2 + 2 * TelegramContextMenuLayout.actionHeight
+        return max(220, min(floor(view.bounds.height / 2), maximumBottom - verticalInset - 10 - menuRoom))
+    }
+
     private func layoutPreviewAndMenu() {
         guard let sourceView else { return }
         sourceFrame = view.convert(sourceView.convert(sourceView.bounds, to: nil), from: nil)
@@ -1438,7 +1457,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             case .sourceMorph: maximumBottom - min(verticalInset, sourceFrame.minY)
             case .menuOnly: maximumBottom - verticalInset
             case .avatar: maximumBottom - verticalInset - Self.minimumPreviewHeight
-            case .chatPreview: maximumBottom - verticalInset - Self.minimumChatPreviewHeight
+            case .chatPreview: maximumBottom - verticalInset
+                - (chatPreviewHeight(maximumBottom: maximumBottom, verticalInset: verticalInset).map { $0 + 10 }
+                    ?? Self.minimumChatPreviewHeight)
             }
         let menuHeight = presentationStyle == .message
             ? contentHeight
@@ -1523,12 +1544,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                     height: fitted.height,
                 )
             } else {
-                let preferredHeight = view.bounds.height * 0.48
                 targetPreviewFrame = CGRect(
                     x: menuMinX,
                     y: verticalInset,
                     width: availableWidth,
-                    height: max(220, min(preferredHeight, maximumHeight)),
+                    height: chatPreviewHeight(maximumBottom: maximumBottom, verticalInset: verticalInset)
+                        ?? max(220, maximumHeight),
                 )
             }
             targetMenuFrame = CGRect(
@@ -1917,10 +1938,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fading.forEach { $0.alpha = 0 }
             layOutExpansion(expansion, collapsedInto: sourceFrame)
         }
-        // Slower than the menu, as the concept's growth, so that the messages are seen travelling in.
         UIView.animate(
-            springDuration: Self.growthDuration,
-            bounce: reducesMotion ? 0 : Self.growthBounce,
+            springDuration: reducesMotion ? Self.reducedMotionDuration : Self.growthSpring.response,
+            bounce: reducesMotion ? 0 : Self.growthSpring.bounce,
             initialSpringVelocity: 0,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
@@ -2965,18 +2985,24 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 // MARK: - Telegram layer animations
 
 extension CALayer {
+    /// Telegram's context menu spring (`animateSpring`).
+    static let telegramSpringMass: CGFloat = 5
+    static let telegramSpringStiffness: CGFloat = 900
+    static let telegramSpringDamping: CGFloat = 104
+    static let telegramSpringDuration: CFTimeInterval = 0.42
+
     /// Telegram's `animateSpring`: a mass-5, stiffness-900 spring sped up to settle within `duration`.
     func addTelegramSpring(
         keyPath: String,
         from: Any,
         to: Any,
-        duration: CFTimeInterval = 0.42,
-        damping: CGFloat = 104,
+        duration: CFTimeInterval = CALayer.telegramSpringDuration,
+        damping: CGFloat = CALayer.telegramSpringDamping,
         isAdditive: Bool = false,
     ) {
         let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 5
-        animation.stiffness = 900
+        animation.mass = Self.telegramSpringMass
+        animation.stiffness = Self.telegramSpringStiffness
         animation.damping = damping
         animation.duration = animation.settlingDuration
         animation.speed = Float(animation.duration / duration)
