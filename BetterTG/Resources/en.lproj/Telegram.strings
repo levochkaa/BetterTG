@@ -3386,3 +3386,8 @@
 "TwoFactorSetup.Intro.Title" = "Additional Password";
 "TwoFactorSetup.Intro.Text" = "You can set a password that will be\nrequired when you log in on a new device in addition to the code you get via SMS.";
 "TwoFactorSetup.Intro.Action" = "Set Additional Password";
+"StoryList.ActionPanel.Pin" = "Pin";
+"StoryList.ActionPanel.Unpin" = "Unpin";
+"StoryList.ActionPanel.Archive" = "Archive";
+"StoryList.ActionPanel.Unarchive" = "Unarchive";
+"StoryList.ActionPanel.Delete" = "Delete";

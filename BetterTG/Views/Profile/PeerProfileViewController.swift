@@ -331,6 +331,9 @@ ClientRestorableNavigationEntry {
     private var postsTask: Task<Void, Never>?
     private var postsHasMore = true
     private var postsGeneration = UInt64.zero
+    /// PeerInfoStoryPaneNode's selectedIds: the stories picked while the grid selects; nil otherwise.
+    private var selectedPostIDs: Set<Int64>?
+    private var postSelectionToolbar: StickerSelectionToolbar?
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
     private var membersPane: PeerProfileMembersPane?
     private var currentSupergroupMemberCount = 0
@@ -943,6 +946,12 @@ ClientRestorableNavigationEntry {
         }
         if currentSharedTab.isStories {
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
+            if var selected = selectedPostIDs {
+                if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+                selectedPostIDs = selected
+                updatePostSelection()
+                return
+            }
             openPost(Int(id), sourceView: collectionView.cellForItem(at: indexPath))
             return
         }
@@ -1264,7 +1273,7 @@ ClientRestorableNavigationEntry {
     /// Telegram's list items keep View in Chat in their context menu.
     @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
         if currentSharedTab.isStories {
-            guard gesture.state == .began, contextIsCurrent,
+            guard gesture.state == .began, contextIsCurrent, selectedPostIDs == nil,
                   let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
                   let id = dataSource.itemIdentifier(for: path), let story = postsByID[id],
                   let cell = collectionView.cellForItem(at: path) else { return }
@@ -1721,6 +1730,10 @@ ClientRestorableNavigationEntry {
                       ) as? ProfileStoryGridCell
                 else { return UICollectionViewCell() }
                 cell.configure(story: story, isPinned: pinnedPostIDs.contains(story.id), client: client)
+                cell.setSelection(
+                    isSelecting: selectedPostIDs != nil,
+                    isSelected: selectedPostIDs?.contains(id) == true,
+                )
                 return cell
             }
             if currentSharedTab == .groupsInCommon {
@@ -3262,6 +3275,7 @@ ClientRestorableNavigationEntry {
         groupsByID = [:]
         groupsInCommonOffset = 0
         groupsInCommonHasMore = true
+        if selectedPostIDs != nil { setPostSelection(nil) }
         postsGeneration &+= 1
         postsTask?.cancel()
         postsTask = nil
@@ -3377,6 +3391,14 @@ ClientRestorableNavigationEntry {
                 isDestructive: true,
             ) { [weak self] in self?.confirmDeletePost(story) })
         }
+        if story.canToggleIsPostedToChatPage || story.canBeDeleted {
+            var select = TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuSelect"),
+                image: UIImage(systemName: "checkmark.circle"),
+            ) { [weak self] in self?.setPostSelection([Int64(story.id)]) }
+            select.startsNewSection = true
+            actions.append(select)
+        }
         return actions
     }
 
@@ -3482,6 +3504,153 @@ ClientRestorableNavigationEntry {
             }
         }) else { return }
         present(picker, animated: true)
+    }
+
+    /// PeerInfoStoryPaneNode's selection: Cancel in the bar, a check on each tile and BottomActionsPanelComponent's
+    /// Pin or Unpin (on Posts), Archive or Unarchive and Delete in the bottom bar. Nil ends it.
+    private func setPostSelection(_ ids: Set<Int64>?) {
+        selectedPostIDs = ids
+        if ids != nil, postSelectionToolbar == nil {
+            let isArchive = currentSharedTab == .archivedPosts
+            let toolbar = StickerSelectionToolbar(titles: [
+                isArchive ? "" : L10n.telegram("StoryList.ActionPanel.Pin"),
+                L10n.telegram(isArchive ? "StoryList.ActionPanel.Unarchive" : "StoryList.ActionPanel.Archive"),
+                L10n.telegram("StoryList.ActionPanel.Delete"),
+            ])
+            toolbar.deleteButton.addAction(UIAction { [weak self] _ in self?.pinSelectedPosts() }, for: .touchUpInside)
+            toolbar.archiveButton.addAction(UIAction { [weak self] _ in
+                self?.archiveSelectedPosts(archived: !isArchive)
+            }, for: .touchUpInside)
+            toolbar.shareButton.addAction(
+                UIAction { [weak self] _ in self?.deleteSelectedPosts() },
+                for: .touchUpInside,
+            )
+            toolbar.shareButton.setTitleColor(.systemRed, for: .normal)
+            toolbar.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(toolbar)
+            NSLayoutConstraint.activate([
+                toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                toolbar.topAnchor.constraint(
+                    equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                    constant: -StickerSelectionToolbar.contentHeight,
+                ),
+            ])
+            postSelectionToolbar = toolbar
+            additionalSafeAreaInsets.bottom += StickerSelectionToolbar.contentHeight
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Cancel"),
+                primaryAction: UIAction { [weak self] _ in self?.setPostSelection(nil) },
+            )
+        } else if ids == nil, let toolbar = postSelectionToolbar {
+            postSelectionToolbar = nil
+            additionalSafeAreaInsets.bottom -= StickerSelectionToolbar.contentHeight
+            toolbar.removeFromSuperview()
+            updateActionAvailability()
+        }
+        updatePostSelection()
+    }
+
+    private func updatePostSelection() {
+        let selected = selectedPostIDs ?? []
+        postSelectionToolbar?.update(hasSelection: !selected.isEmpty)
+        if currentSharedTab == .posts {
+            // Unpin when every selected story is pinned, as Telegram's panel offers.
+            let allPinned = !selected.isEmpty && selected.allSatisfy { pinnedPostIDs.contains(Int($0)) }
+            postSelectionToolbar?.deleteButton.setTitle(
+                L10n.telegram(allPinned ? "StoryList.ActionPanel.Unpin" : "StoryList.ActionPanel.Pin"),
+                for: .normal,
+            )
+        }
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
+    private func pinSelectedPosts() {
+        guard let selected = selectedPostIDs, !selected.isEmpty else { return }
+        let ids = selected.map(Int.init)
+        let unpins = ids.allSatisfy(pinnedPostIDs.contains)
+        var pinned = posts.map(Int.init).filter { pinnedPostIDs.contains($0) }
+        if unpins {
+            pinned.removeAll(where: ids.contains)
+        } else {
+            let added = ids.filter { !pinnedPostIDs.contains($0) }
+            guard pinned.count + added.count <= 3 else {
+                showInfoToast(L10n.telegramPlural("StoryList.ToastPinLimit.Text", count: 3))
+                return
+            }
+            pinned = added + pinned
+        }
+        let client = client
+        let chatID = customChat.id
+        let count = ids.count
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setChatPinnedStories(chatId: chatID, storyIds: pinned))
+                guard let self, contextIsCurrent else { return }
+                pinnedPostIDs = Set(pinned)
+                let order = pinned.map(Int64.init)
+                posts = order + posts.filter { !order.contains($0) }.sorted(by: >)
+                setPostSelection(nil)
+                applySnapshot()
+                showInfoToast(unpins
+                    ? L10n.telegramPlural("StoryList.ToastUnpinned.Text", count: count)
+                    : L10n.telegramPlural("StoryList.ToastPinned.Title", count: count))
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
+    private func archiveSelectedPosts(archived: Bool) {
+        guard let selected = selectedPostIDs, !selected.isEmpty else { return }
+        let client = client
+        let chatID = customChat.id
+        let ids = selected.map(Int.init)
+        Task { [weak self] in
+            for id in ids {
+                _ = try? await client.send(TDNativeRequests.toggleStoryIsPostedToChatPage(
+                    storyPosterChatId: chatID, storyId: id, isPostedToChatPage: !archived,
+                ))
+            }
+            guard let self, contextIsCurrent else { return }
+            if archived, currentSharedTab == .posts { ids.forEach(removePost) }
+            postsCount = nil
+            setPostSelection(nil)
+            showInfoToast(L10n.telegramPlural(
+                archived ? "StoryList.ToastArchived.Text" : "StoryList.ToastUnarchived.Text",
+                count: ids.count,
+            ))
+        }
+    }
+
+    private func deleteSelectedPosts() {
+        guard let selected = selectedPostIDs, !selected.isEmpty else { return }
+        let ids = selected.map(Int.init)
+        let sheet = UIAlertController(
+            title: L10n.telegramPlural("StoryList.DeleteConfirmation.Title", count: ids.count),
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        sheet
+            .addAction(UIAlertAction(title: L10n.telegram("StoryList.DeleteConfirmation.Action"), style: .destructive) {
+                [weak self] _ in
+                guard let self else { return }
+                let client = client
+                let chatID = customChat.id
+                Task { [weak self] in
+                    for id in ids {
+                        _ = try? await client.send(TDNativeRequests.deleteStory(storyPosterChatId: chatID, storyId: id))
+                    }
+                    guard let self, contextIsCurrent else { return }
+                    ids.forEach(removePost)
+                    setPostSelection(nil)
+                }
+            })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(sheet, animated: true)
     }
 
     private func removePost(_ storyID: Int) {

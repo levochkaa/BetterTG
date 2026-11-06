@@ -3,7 +3,8 @@
 import UIKit
 
 /// ItemListControllerNode's GlassControlPanel: three separate 44 pt text capsules. BetterTG adds its shared
-/// full-width bar background, 16 pt side margins and 10 pt below the buttons, as on its other bars.
+/// full-width bar background, 16 pt side margins and 10 pt below the buttons, as on its other bars. The profile's
+/// story grid uses it for its selection panel with titles of its own; an empty title hides that capsule.
 final class StickerSelectionToolbar: UIView {
     static let contentHeight = TelegramGlassPlatter.height + TelegramGlassPlatter.barBottomInset
 
@@ -18,6 +19,25 @@ final class StickerSelectionToolbar: UIView {
         TelegramGlassPlatter(role: .title),
         TelegramGlassPlatter(role: .trailing(0)),
     ]
+
+    convenience init(titles: [String]) {
+        self.init(frame: .zero)
+        for (button, title) in zip([deleteButton, archiveButton, shareButton], titles) {
+            button.setTitle(title, for: .normal)
+        }
+        for (platter, title) in zip(platters, titles) {
+            platter.isHidden = title.isEmpty
+            if let width = platter.constraints
+                .first(where: { $0.firstAttribute == .width && $0.priority == .defaultHigh }),
+               let button = platter.customContent as? UIButton
+            {
+                width.constant = max(
+                    TelegramGlassPlatter.height,
+                    ceil(button.intrinsicContentSize.width) + TelegramGlassPlatter.textInset * 2,
+                )
+            }
+        }
+    }
 
     override init(frame: CGRect) {
         let effect = UIGlassContainerEffect()

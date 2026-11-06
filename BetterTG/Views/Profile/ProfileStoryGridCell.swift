@@ -21,6 +21,8 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold),
     ))
     private let shade = CAGradientLayer()
+    /// SparseItemGrid's selection check, at the top right while the grid selects.
+    private let checkView = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -47,6 +49,8 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         pinView.tintColor = .white
         contentView.addSubview(durationLabel)
         contentView.addSubview(pinView)
+        checkView.isHidden = true
+        contentView.addSubview(checkView)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -66,6 +70,7 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         viewsLabel.frame.origin = CGPoint(x: 6, y: contentView.bounds.height - viewsLabel.bounds.height - 5)
         pinView.sizeToFit()
         pinView.frame.origin = CGPoint(x: contentView.bounds.width - pinView.bounds.width - 6, y: 6)
+        checkView.frame = CGRect(x: contentView.bounds.width - 28, y: 6, width: 22, height: 22)
     }
 
     override func prepareForReuse() {
@@ -95,6 +100,23 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         }
         result.append(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: UIColor.white]))
         return result
+    }
+
+    /// The selection check: an empty ring, or the accent check on a selected story; the pin gives way to it.
+    func setSelection(isSelecting: Bool, isSelected: Bool) {
+        checkView.isHidden = !isSelecting
+        guard isSelecting else { return }
+        pinView.isHidden = true
+        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        checkView.image =
+            if isSelected {
+                UIImage(systemName: "checkmark.circle.fill", withConfiguration: configuration)?
+                    .applyingSymbolConfiguration(.init(paletteColors: [.white, .tintColor]))
+            } else {
+                UIImage(systemName: "circle", withConfiguration: configuration)?
+                    .withTintColor(.white, renderingMode: .alwaysOriginal)
+            }
+        accessibilityTraits = isSelected ? [.button, .selected] : .button
     }
 
     func configure(story: Story, isPinned: Bool, client: TDLibClient) {
