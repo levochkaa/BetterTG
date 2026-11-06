@@ -6,7 +6,8 @@ import UIKit
 // MARK: - ProfileStoryGridCell
 
 /// PeerInfoStoryPaneNode's tile: the story's photo, or its video's thumbnail, filling a tile 0.81 as wide as it is
-/// tall, with a video's duration at the bottom left and a pin at the top right on a story pinned to the profile's top.
+/// tall, with the view count at the bottom left when TDLib reports it (the account's own stories), a video's duration
+/// at the bottom right and a pin at the top right on a story pinned to the profile's top.
 final class ProfileStoryGridCell: UICollectionViewCell {
     static let reuseIdentifier = "ProfileStoryGridCell"
     /// PeerInfoStoryPaneNode's `aspectRatio: 0.81`.
@@ -14,6 +15,7 @@ final class ProfileStoryGridCell: UICollectionViewCell {
 
     private let imageView = TDImageLoadingView()
     private let durationLabel = UILabel()
+    private let viewsLabel = UILabel()
     private let pinView = UIImageView(image: UIImage(
         systemName: "pin.fill",
         withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold),
@@ -40,6 +42,8 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         contentView.layer.addSublayer(shade)
         durationLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         durationLabel.textColor = .white
+        viewsLabel.textColor = .white
+        contentView.addSubview(viewsLabel)
         pinView.tintColor = .white
         contentView.addSubview(durationLabel)
         contentView.addSubview(pinView)
@@ -52,8 +56,14 @@ final class ProfileStoryGridCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         shade.frame = contentView.bounds
+        // DurationLayer: the duration 3 pt from the right, the views 7 pt from the left, both 4 pt above the bottom.
         durationLabel.sizeToFit()
-        durationLabel.frame.origin = CGPoint(x: 6, y: contentView.bounds.height - durationLabel.bounds.height - 5)
+        durationLabel.frame.origin = CGPoint(
+            x: contentView.bounds.width - durationLabel.bounds.width - 5,
+            y: contentView.bounds.height - durationLabel.bounds.height - 5,
+        )
+        viewsLabel.sizeToFit()
+        viewsLabel.frame.origin = CGPoint(x: 6, y: contentView.bounds.height - viewsLabel.bounds.height - 5)
         pinView.sizeToFit()
         pinView.frame.origin = CGPoint(x: contentView.bounds.width - pinView.bounds.width - 6, y: 6)
     }
@@ -62,6 +72,29 @@ final class ProfileStoryGridCell: UICollectionViewCell {
         super.prepareForReuse()
         imageView.cancel()
         imageView.image = nil
+    }
+
+    /// DurationLayer's view count: Peer Info/MediaGridViewCount's eye, then the count in thousands or millions.
+    private static func viewsText(_ count: Int) -> NSAttributedString {
+        let text = count > 1_000_000 ? "\(count / 1_000_000)M" : count > 1000 ? "\(count / 1000)K" : "\(count)"
+        let font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let result = NSMutableAttributedString()
+        if let eye = UIImage(
+            systemName: "eye.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold),
+        )?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+            let attachment = NSTextAttachment(image: eye)
+            attachment.bounds = CGRect(
+                x: 0,
+                y: (font.capHeight - eye.size.height) / 2,
+                width: eye.size.width,
+                height: eye.size.height,
+            )
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " "))
+        }
+        result.append(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: UIColor.white]))
+        return result
     }
 
     func configure(story: Story, isPinned: Bool, client: TDLibClient) {
@@ -89,6 +122,12 @@ final class ProfileStoryGridCell: UICollectionViewCell {
             imageView.image = nil
         }
         pinView.isHidden = !isPinned
+        if let views = story.interactionInfo?.viewCount {
+            viewsLabel.attributedText = Self.viewsText(views)
+            viewsLabel.isHidden = false
+        } else {
+            viewsLabel.isHidden = true
+        }
         accessibilityLabel = L10n.telegram("PeerInfo.PaneStories")
         isAccessibilityElement = true
         accessibilityTraits = .button
