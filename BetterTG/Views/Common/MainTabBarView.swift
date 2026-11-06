@@ -42,12 +42,34 @@ final class MainTabBarView: UIView {
         }
     }
 
+    /// A finger holding the standing bar; positions are along the bar, in its coordinates.
+    private struct Hold {
+        let startIndex: Int
+        let touchStart: CGFloat
+        var touch: CGFloat
+        let time: CFTimeInterval
+        var lastTime: CFTimeInterval
+        var press: TabBarHoldSpring
+        var expand: TabBarHoldSpring
+        /// The lens's centre along the bar, in the resting capsule's coordinates.
+        var lens: TabBarHoldSpring
+    }
+
     // MARK: Private
 
     private static let springDuration: TimeInterval = 0.4
     /// The least time the lens stays lifted after a tap, so that it crosses the bar as a lens.
     private static let liftDuration: TimeInterval = 0.3
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
+
+    /// A held standing bar widens after this long, or as soon as the finger moves this far.
+    private static let holdExpandDelay: TimeInterval = 0.2
+    private static let holdExpandDistance: CGFloat = 4
+    private static let holdTitleFont = UIFont.systemFont(ofSize: 10, weight: .medium)
+    /// Keeps a held title off the widened capsule's sides.
+    private static let holdTitleInset: CGFloat = 6
+    /// The titles fade out this fast on release, before the narrowing capsule passes them.
+    private static let holdTitleFadeDuration: TimeInterval = 0.15
 
     var onSelect: ((Int) -> Void)?
     var onReselect: ((Int) -> Void)?
@@ -91,6 +113,12 @@ final class MainTabBarView: UIView {
         return gesture
     }()
 
+    private var hold: Hold?
+    private var holdLink: CADisplayLink?
+    /// The names a hold shows under the icons: over the tabs, and under the lens in the accent colour.
+    private var titleLabels = [UILabel]()
+    private var selectedTitleLabels = [UILabel]()
+
     /// The touched tab's frame and when the touch began, while a finger carries the lens.
     private var drag: (frame: CGRect, time: CFTimeInterval)?
     private var heldFrame: CGRect?
@@ -109,18 +137,7 @@ final class MainTabBarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        liftedContainer.frame = bounds
-        glassView.frame = bounds
-        let inset = Metrics.innerInset
-        stripView.frame = glassView.contentView.bounds.insetBy(dx: inset, dy: inset)
-        selectedLayer.frame = stripView.bounds
-        normalLayer.frame = stripView.bounds
-        restingTintView.frame = selectedLayer.bounds
-        itemFrames = Self.itemFrames(axis: axis, isCompact: isCompact, count: items.count, size: bounds.size)
-        for (index, frame) in itemFrames.enumerated() where normalViews.indices.contains(index) {
-            normalViews[index].frame = frame
-            selectedViews[index].frame = frame
-        }
+        layoutCapsule()
         layoutSelection(animated: false)
     }
 
@@ -164,6 +181,26 @@ final class MainTabBarView: UIView {
         }
     }
 
+    private static func makeTitleLabel(_ title: String?, color: UIColor, in container: UIView) -> UILabel {
+        let label = UILabel()
+        label.text = title
+        label.textColor = color
+        label.font = holdTitleFont
+        label.textAlignment = .center
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        label.alpha = 0
+        label.isAccessibilityElement = false
+        label.bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: TabBarHold.expandedWidth(forItems: 3) - 2 * holdTitleInset,
+            height: ceil(holdTitleFont.lineHeight),
+        )
+        container.addSubview(label)
+        return label
+    }
+
     func configure(items: [Item], selectedIndex: Int) {
         let changed = items != self.items
         self.items = items
@@ -192,6 +229,94 @@ final class MainTabBarView: UIView {
     /// The tab's view, for a menu that comes out of it.
     func itemView(at index: Int) -> UIView? {
         normalViews.indices.contains(index) ? normalViews[index] : nil
+    }
+
+    /// Steps the springs on real time, so a slow frame does not slow the motion down, and lays the bar out from them.
+    fileprivate func stepHold() {
+        guard var hold, let rest = holdRest() else {
+            holdLink?.invalidate()
+            holdLink = nil
+            return
+        }
+        let now = CACurrentMediaTime()
+        let time = CGFloat(min(now - hold.lastTime, 1.0 / 15.0))
+        hold.lastTime = now
+        if now - hold.time >= Self.holdExpandDelay { hold.expand.target = 1 }
+        hold.press.advance(by: time)
+        hold.expand.advance(by: time)
+        let held = TabBarHold(press: hold.press.value, expand: hold.expand.value, rest: rest)
+        if let first = held.itemCenters.first, let last = held.itemCenters.last {
+            // The capsule's growth carries the lens with the pressed tab; from there it follows the finger.
+            let start = held.itemCenters[min(hold.startIndex, held.itemCenters.count - 1)]
+            hold.lens.target = held.capsuleFrame.minY + min(max(start + hold.touch - hold.touchStart, first), last)
+        }
+        hold.lens.advance(by: time)
+        self.hold = hold
+        layoutCapsule()
+        layoutSelection(animated: false)
+    }
+
+    /// Lays out the capsule and its tabs: at rest, or as the hold has them (ArtWorkout's `layoutCapsule`).
+    private func layoutCapsule() {
+        liftedContainer.frame = bounds
+        let held = heldStrip()
+        glassView.frame = held?.capsuleFrame ?? bounds
+        stripView.frame = glassView.contentView.bounds
+        selectedLayer.frame = stripView.bounds
+        normalLayer.frame = stripView.bounds
+        restingTintView.frame = selectedLayer.bounds
+        let inset = Metrics.innerInset
+        itemFrames = Self.itemFrames(axis: axis, isCompact: isCompact, count: items.count, size: bounds.size)
+            .map { $0.offsetBy(dx: inset, dy: inset) }
+        let itemScale = hold.map { 1 + (TabBarHold.liftedItemScale - 1) * $0.press.value } ?? 1
+        let titleAlpha = hold.map { min(1, max(0, $0.expand.value * 2.5)) } ?? 0
+        for (index, frame) in itemFrames.enumerated() where normalViews.indices.contains(index) {
+            var center = CGPoint(x: frame.midX, y: frame.midY)
+            var transform = CGAffineTransform.identity
+            if let held, held.itemCenters.indices.contains(index) {
+                center = CGPoint(x: held.capsuleFrame.width / 2, y: held.itemCenters[index])
+                // The icon grows on top of the tab's scale and rises; the name keeps its place under the tab's centre,
+                // so the two rise together as the system's do.
+                let scale = itemScale * held.iconScale
+                transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: held.iconOffset * itemScale)
+            }
+            for view in [normalViews[index], selectedViews[index]] {
+                view.bounds = CGRect(origin: .zero, size: frame.size)
+                view.center = center
+                view.transform = transform
+            }
+            guard titleLabels.indices.contains(index), selectedTitleLabels.indices.contains(index) else { continue }
+            for label in [titleLabels[index], selectedTitleLabels[index]] {
+                label.center = CGPoint(x: center.x, y: center.y + TabBarHold.titleOffset * itemScale)
+                label.transform = CGAffineTransform(scaleX: itemScale, y: itemScale)
+                // UIKit adds a second animation of the alpha to the first, so the release's fade stays its only one.
+                if label.alpha != titleAlpha { label.alpha = titleAlpha }
+            }
+        }
+    }
+
+    /// The resting bar a hold widens; nil along the bottom, which keeps its tabs as they are.
+    private func holdRest() -> TabBarHold.Rest? {
+        guard axis == .vertical, let first = itemFrames.first else { return nil }
+        return TabBarHold.Rest(
+            size: bounds.size,
+            itemCenters: itemFrames.map(\.midY),
+            lensSize: lensFrame(for: first).size,
+            hasAccessoryBelow: false,
+        )
+    }
+
+    private func heldStrip() -> TabBarHold? {
+        guard let hold, let rest = holdRest() else { return nil }
+        return TabBarHold(press: hold.press.value, expand: hold.expand.value, rest: rest)
+    }
+
+    private func holdLensFrame() -> CGRect? {
+        guard let hold, let held = heldStrip() else { return nil }
+        return held.lensFrame(
+            center: hold.lens.value - held.capsuleFrame.minY,
+            liftedOutset: lens == nil ? 0 : LiquidLens.liftedOutset,
+        )
     }
 
     private func configureViews() {
@@ -238,6 +363,13 @@ final class MainTabBarView: UIView {
         for view in normalViews + selectedViews {
             view.showsTitle = !isCompact
         }
+        for label in titleLabels + selectedTitleLabels {
+            label.removeFromSuperview()
+        }
+        titleLabels = items.map { Self.makeTitleLabel($0.title, color: .label, in: normalLayer) }
+        selectedTitleLabels = items.map {
+            Self.makeTitleLabel(lens == nil ? nil : $0.title, color: .tintColor, in: selectedLayer)
+        }
         // A fallback without the lens shows the selection by colour.
         if lens == nil {
             for view in selectedViews {
@@ -257,6 +389,7 @@ final class MainTabBarView: UIView {
     /// The lens over the selected tab, or under the finger while it carries the lens. Standing, the lens is the
     /// system's 44 x 58: the tab grown by the bar's ends.
     private func selectionFrame() -> CGRect? {
+        if let frame = holdLensFrame() { return frame }
         if let heldFrame { return heldFrame }
         guard itemFrames.indices.contains(selectedIndex) else { return nil }
         return lensFrame(for: itemFrames[selectedIndex])
@@ -278,7 +411,11 @@ final class MainTabBarView: UIView {
                     self.restingTintView.alpha = restingAlpha
                 }
             }
-            lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
+            if hold != nil, !animated, let frame {
+                lens.follow(frame)
+            } else {
+                lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
+            }
             return
         }
         guard let frame else { return }
@@ -307,8 +444,117 @@ final class MainTabBarView: UIView {
         return max(0, itemFrames.count - 1)
     }
 
+    // MARK: Holding
+
+    /// The standing bar held as the system's on iPhone Duo (ArtWorkout's `GlassSegmentedPicker.held`): the touch lifts
+    /// the lens and grows the capsule, after 0.2 s or once the finger moves the capsule widens and shows the names,
+    /// and letting go selects the tab under the lens.
+    private func held(by gesture: LiquidLensTabRecognizer) {
+        let position = gesture.location(in: self).y
+        switch gesture.state {
+        case .began:
+            guard let rest = holdRest() else { return }
+            let index = rest.itemCenters.indices.min {
+                abs(rest.itemCenters[$0] - position) < abs(rest.itemCenters[$1] - position)
+            } ?? 0
+            let now = CACurrentMediaTime()
+            var press = TabBarHoldSpring.press()
+            press.target = 1
+            let lensStart = rest.itemCenters.indices.contains(selectedIndex)
+                ? rest.itemCenters[selectedIndex]
+                : rest.itemCenters[index]
+            hold = Hold(
+                startIndex: index,
+                touchStart: position,
+                touch: position,
+                time: now,
+                lastTime: now,
+                press: press,
+                expand: .expand(),
+                lens: .lens(at: lensStart),
+            )
+            // The hold drives the capsule from what is on screen; a release still running would add to it.
+            for view in [glassView, stripView] + normalViews + selectedViews + titleLabels + selectedTitleLabels {
+                view.layer.removeAllAnimations()
+            }
+            lowering?.cancel()
+            lowering = nil
+            isLifted = lens != nil
+            layoutCapsule()
+            layoutSelection(animated: true)
+            startHoldLink()
+        case .changed:
+            guard var hold else { return }
+            hold.touch = position
+            if abs(position - hold.touchStart) > Self.holdExpandDistance { hold.expand.target = 1 }
+            self.hold = hold
+        case .ended:
+            guard let hold, let rest = holdRest() else { return cancelHold() }
+            let index = TabBarHold.expanded(rest)
+                .itemIndex(startIndex: hold.startIndex, translation: hold.touch - hold.touchStart)
+            endHold()
+            isLifted = false
+            if index != selectedIndex {
+                UISelectionFeedbackGenerator().selectionChanged()
+                selectedIndex = index
+                updateAccessibility()
+                layoutSelection(animated: true)
+                onSelect?(index)
+            } else {
+                layoutSelection(animated: true)
+                onReselect?(index)
+            }
+        default:
+            cancelHold()
+        }
+    }
+
+    private func cancelHold() {
+        guard hold != nil else { return }
+        endHold()
+        isLifted = false
+        layoutSelection(animated: true)
+    }
+
+    private func startHoldLink() {
+        guard holdLink == nil else { return }
+        let link = CADisplayLink(
+            target: MainTabBarHoldLinkTarget(bar: self),
+            selector: #selector(MainTabBarHoldLinkTarget.step(_:)),
+        )
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        holdLink = link
+    }
+
+    /// Lets the bar spring back to rest in Core Animation; the caller lowers and places the lens.
+    private func endHold() {
+        holdLink?.invalidate()
+        holdLink = nil
+        hold = nil
+        // The names fade first, on their own curve, as the system's do; the spring below leaves their alpha alone.
+        UIView.animate(
+            withDuration: Self.holdTitleFadeDuration,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
+        ) {
+            for label in self.titleLabels + self.selectedTitleLabels {
+                label.alpha = 0
+            }
+        }
+        UIView.animate(
+            springDuration: Self.springDuration,
+            bounce: 0,
+            initialSpringVelocity: 0,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: layoutCapsule,
+        )
+    }
+
     @objc private func stripTouched(_ gesture: LiquidLensTabRecognizer) {
         guard !itemFrames.isEmpty else { return }
+        if axis == .vertical { return held(by: gesture) }
         switch gesture.state {
         case .began:
             let index = index(at: gesture.location(in: stripView))
@@ -322,14 +568,9 @@ final class MainTabBarView: UIView {
             guard let drag else { return }
             let translation = gesture.translation
             var frame = drag.frame
-            if axis == .horizontal {
-                let maxX = max(0, stripView.bounds.width - frame.width)
-                frame.origin.x = min(max(frame.minX + translation.x, 0), maxX)
-            } else {
-                let minY = -Metrics.verticalExtraEndInset - 2
-                let maxY = stripView.bounds.height - frame.height - minY
-                frame.origin.y = min(max(frame.minY + translation.y, minY), maxY)
-            }
+            let inset = Metrics.innerInset
+            let maxX = max(inset, stripView.bounds.width - inset - frame.width)
+            frame.origin.x = min(max(frame.minX + translation.x, inset), maxX)
             heldFrame = frame
             let index = index(at: CGPoint(x: frame.midX, y: frame.midY))
             if index != heldIndex {
@@ -365,7 +606,8 @@ final class MainTabBarView: UIView {
     /// A hold opens the tab's menu, as Settings' account switcher in Telegram, and the lens goes back to the selected
     /// tab.
     @objc private func held(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
+        // Standing, a hold widens the bar with the names instead, as the system's does.
+        guard gesture.state == .began, axis == .horizontal else { return }
         let index = index(at: gesture.location(in: stripView))
         guard holdableIndices.contains(index), normalViews.indices.contains(index) else { return }
         tabGesture.isEnabled = false
@@ -398,7 +640,26 @@ final class MainTabBarView: UIView {
     }
 }
 
-// MARK: UIGestureRecognizerDelegate
+// MARK: - MainTabBarHoldLinkTarget
+
+/// Holds the bar weakly: a display link keeps its target alive until it is invalidated.
+@MainActor private final class MainTabBarHoldLinkTarget: NSObject {
+    private weak var bar: MainTabBarView?
+
+    init(bar: MainTabBarView) {
+        self.bar = bar
+    }
+
+    @objc func step(_ link: CADisplayLink) {
+        guard let bar else {
+            link.invalidate()
+            return
+        }
+        bar.stepHold()
+    }
+}
+
+// MARK: - MainTabBarView + UIGestureRecognizerDelegate
 
 extension MainTabBarView: UIGestureRecognizerDelegate {
     func gestureRecognizer(

@@ -15,6 +15,9 @@ import UIKit
 /// The lens draws no background of its own at rest: the selected segment's background belongs in
 /// `liftedContent`, where the lens shows it in its shape.
 @MainActor final class LiquidLens {
+    /// How far a lifted lens grows past its frame on each side.
+    static let liftedOutset: CGFloat = 6
+
     // MARK: Private
 
     private static let className = "_UILiquidLensView"
@@ -28,9 +31,6 @@ import UIKit
         "setWarpsContentBelow:",
         "setLifted:animated:alongsideAnimations:completion:",
     ]
-
-    /// How far a lifted lens grows past its frame on each side.
-    private static let liftedOutset: CGFloat = 6
 
     // MARK: Internal
 
@@ -109,6 +109,15 @@ import UIKit
             move()
         }
         updateDisplayLink()
+    }
+
+    /// Moves a placed lens to `frame` at once and leaves UIKit's own animations of it running, as its lift: a hold
+    /// steps the lens frame by frame.
+    func follow(_ frame: CGRect) {
+        guard self.frame != nil, frame != self.frame else { return }
+        self.frame = frame
+        applyBounds()
+        applyCenter()
     }
 
     fileprivate func step() {
