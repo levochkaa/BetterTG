@@ -4,6 +4,18 @@ import AVFoundation
 import Combine
 import UIKit
 
+// MARK: - MediaPlaybackRate
+
+/// The speeds BetterTG plays media at: Telegram's SliderContextItem offers 0.2–2.5 for stories, gallery videos and
+/// the audio player, and its presets lie inside. AVFoundation's default time-domain pitch keeps voices at these rates.
+enum MediaPlaybackRate {
+    static let range: ClosedRange<Float> = 0.2...2.5
+
+    static func clamped(_ rate: Float) -> Float {
+        min(range.upperBound, max(range.lowerBound, rate))
+    }
+}
+
 // MARK: - LocalMediaPlayer
 
 final class LocalMediaPlayer {
@@ -381,7 +393,7 @@ final class LocalMediaPlayer {
     }
 
     func setRate(_ rate: Float) {
-        let boundedRate = min(2, max(0.5, rate))
+        let boundedRate = MediaPlaybackRate.clamped(rate)
         guard playbackRate != boundedRate else { return }
         playbackRate = boundedRate
         player.defaultRate = boundedRate
@@ -830,7 +842,7 @@ final class LocalMediaPlayer {
 
     private func update(externalRate rate: Float) {
         guard isExternalPlaybackControlActive, rate.isFinite, rate > 0 else { return }
-        let boundedRate = min(2, max(0.5, rate))
+        let boundedRate = MediaPlaybackRate.clamped(rate)
         playbackRate = boundedRate
         if rate != boundedRate {
             player.rate = boundedRate
@@ -840,7 +852,7 @@ final class LocalMediaPlayer {
 
     private func update(externalPreferredRate rate: Float) {
         guard isExternalPlaybackControlActive, rate.isFinite, rate > 0 else { return }
-        let boundedRate = min(2, max(0.5, rate))
+        let boundedRate = MediaPlaybackRate.clamped(rate)
         playbackRate = boundedRate
         if rate != boundedRate {
             player.defaultRate = boundedRate

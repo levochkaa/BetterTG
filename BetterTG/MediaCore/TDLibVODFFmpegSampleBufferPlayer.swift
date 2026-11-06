@@ -266,7 +266,7 @@ import UIKit
     }
 
     func setRate(_ rate: Float) {
-        playbackRate = min(2, max(0.5, rate))
+        playbackRate = MediaPlaybackRate.clamped(rate)
         if stateSubject.value == .playing,
            !isStalledForBuffering,
            isPlaybackRequested,

@@ -408,7 +408,7 @@ final class FFmpegSampleBufferRenderer: @unchecked Sendable {
             !isInvalidated && failedGeneration != currentGeneration
         }
         guard canPlay else { return }
-        let boundedRate = min(2, max(0.5, rate))
+        let boundedRate = MediaPlaybackRate.clamped(rate)
         synchronizer.delaysRateChangeUntilHasSufficientMediaData = waitForSufficientMediaData
         synchronizer.setRate(boundedRate, time: .invalid)
         publishSnapshot()
