@@ -3412,3 +3412,4 @@
 "Stories.AddStoriesEmpty" = "Add Stories";
 "Stories.AddStories_1" = "Add %@ Story";
 "Stories.AddStories_any" = "Add %@ Stories";
+"BotPreviews.MenuReorder" = "Reorder";

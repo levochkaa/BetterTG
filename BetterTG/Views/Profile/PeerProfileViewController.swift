@@ -337,6 +337,15 @@ ClientRestorableNavigationEntry {
     /// PeerInfoStoryPaneNode's selectedIds: the stories picked while the grid selects; nil otherwise.
     private var selectedPostIDs: Set<Int64>?
     private var postSelectionToolbar: StickerSelectionToolbar?
+    /// PeerInfoStoryPaneNode's reordering: pinned stories in All Stories, or an album's stories, follow the finger.
+    private var isReorderingPosts = false
+    private lazy var reorderGesture: UILongPressGestureRecognizer = {
+        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(reorderPanned(_:)))
+        gesture.minimumPressDuration = 0.15
+        gesture.isEnabled = false
+        return gesture
+    }()
+
     /// BottomButtonPanelComponent's Add Stories under an album the account manages.
     private var albumAddButton: UIButton?
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
@@ -865,6 +874,22 @@ ClientRestorableNavigationEntry {
         [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    private static func saveStoryOrder(
+        client: TDLibClient,
+        chatID: Int64,
+        albumID: Int?,
+        ids: [Int],
+        pinned: [Int],
+    ) async throws {
+        guard let albumID else {
+            _ = try await client.send(TDNativeRequests.setChatPinnedStories(chatId: chatID, storyIds: pinned))
+            return
+        }
+        _ = try await client.send(TDNativeRequests.reorderStoryAlbumStories(
+            chatId: chatID, storyAlbumId: albumID, storyIds: ids,
+        ))
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -1064,6 +1089,20 @@ ClientRestorableNavigationEntry {
         opensChatItself = true
         onOpenMessage = { [weak self] messageID in self?.openChat(targetMessageID: messageID) }
         onSearch = { [weak self] in self?.openChatSearch() }
+    }
+
+    func collectionView(
+        _: UICollectionView,
+        targetIndexPathForMoveOfItemFromOriginalIndexPath _: IndexPath,
+        atCurrentIndexPath current: IndexPath,
+        toProposedIndexPath proposed: IndexPath,
+    ) -> IndexPath {
+        let range = reorderableRange()
+        guard !range.isEmpty else { return current }
+        return IndexPath(
+            item: min(max(proposed.item, range.lowerBound), range.upperBound - 1),
+            section: proposed.section,
+        )
     }
 
     /// The folder tab's view with its handlers.
@@ -1480,7 +1519,7 @@ ClientRestorableNavigationEntry {
     /// Telegram's list items keep View in Chat in their context menu.
     @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
         if currentSharedTab.isStories {
-            guard gesture.state == .began, contextIsCurrent, selectedPostIDs == nil,
+            guard gesture.state == .began, contextIsCurrent, selectedPostIDs == nil, !isReorderingPosts,
                   let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
                   let id = dataSource.itemIdentifier(for: path), let story = postsByID[id],
                   let cell = collectionView.cellForItem(at: path) else { return }
@@ -1765,6 +1804,7 @@ ClientRestorableNavigationEntry {
             target: self, action: #selector(sharedRowLongPressed(_:)),
         ))
         collectionView.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(mediaPinched(_:))))
+        collectionView.addGestureRecognizer(reorderGesture)
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(
@@ -2034,6 +2074,10 @@ ClientRestorableNavigationEntry {
             cell?.configure(message: message)
             cell?.setDownloadProgress(sharedItemProgress[message.id])
             return cell ?? UICollectionViewCell()
+        }
+        dataSource.reorderingHandlers.canReorderItem = { [weak self] _ in self?.isReorderingPosts == true }
+        dataSource.reorderingHandlers.didReorder = { [weak self] transaction in
+            self?.posts = transaction.finalSnapshot.itemIdentifiers
         }
         dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
             let view = collectionView.dequeueReusableSupplementaryView(
@@ -3514,6 +3558,7 @@ ClientRestorableNavigationEntry {
         groupsInCommonOffset = 0
         groupsInCommonHasMore = true
         if selectedPostIDs != nil { setPostSelection(nil) }
+        if isReorderingPosts { setReorderingPosts(false) }
         selectedAlbumID = nil
         updateAlbumAddButton()
         postsGeneration &+= 1
@@ -3558,8 +3603,8 @@ ClientRestorableNavigationEntry {
             postsCount = page?.totalCount ?? 0
             storyAlbums = albums?.albums.map { (id: $0.id, name: $0.name) } ?? []
             #if DEBUG
-                // `-ui-probe-story-albums` names two made-up albums so the folder tab shows on any profile; the
-                // stories of a made-up album fail to load.
+                // `-ui-probe-story-albums` names two made-up albums so the folder tab shows on any profile; a
+                // made-up album shows the first six posts, and changing it fails in TDLib.
                 if storyAlbums.isEmpty, ProcessInfo.processInfo.arguments.contains("-ui-probe-story-albums") {
                     storyAlbums = [(id: 9_000_001, name: "Travel"), (id: 9_000_002, name: "Cats")]
                 }
@@ -3582,8 +3627,19 @@ ClientRestorableNavigationEntry {
         historyError = nil
         postsTask = Task { [weak self] in
             do {
+                var probeAlbum = false
+                #if DEBUG
+                    // A made-up album of `-ui-probe-story-albums` shows the first six posts.
+                    probeAlbum = (albumID ?? 0) >= 9_000_001
+                #endif
                 let page: TDNativeStories =
-                    if let albumID {
+                    if probeAlbum {
+                        offset > 0
+                            ? TDNativeStories(totalCount: 6, stories: [], pinnedStoryIds: [])
+                            : try await client.send(TDNativeRequests.getChatPostedToChatPageStories(
+                                chatId: chatID, fromStoryId: 0, limit: 6,
+                            ))
+                    } else if let albumID {
                         try await client.send(TDNativeRequests.getStoryAlbumStories(
                             chatId: chatID, storyAlbumId: albumID, offset: offset, limit: 30,
                         ))
@@ -3664,6 +3720,12 @@ ClientRestorableNavigationEntry {
                     image: UIImage(systemName: "folder.badge.minus"),
                 ) { [weak self] in self?.removePostFromAlbum(story.id, albumID: albumID) })
             }
+        }
+        if canReorderPost(story) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("BotPreviews.MenuReorder"),
+                image: UIImage(systemName: "arrow.up.arrow.down"),
+            ) { [weak self] in self?.setReorderingPosts(true) })
         }
         if story.canToggleIsPostedToChatPage || story.canBeDeleted {
             var select = TelegramContextMenuAction(
@@ -3936,6 +3998,73 @@ ClientRestorableNavigationEntry {
         applySnapshot()
     }
 
+    /// canReorder: an album with two stories or more, or in All Stories a pinned story among two pinned or more.
+    private func canReorderPost(_ story: Story) -> Bool {
+        guard managesStories, currentSharedTab == .posts else { return false }
+        if selectedAlbumID != nil { return posts.count > 1 }
+        return pinnedPostIDs.contains(story.id) && pinnedPostIDs.count > 1
+    }
+
+    /// The items a finger may move: all of an album's, or the pinned ones at the top of All Stories.
+    private func reorderableRange() -> Range<Int> {
+        if selectedAlbumID != nil { return 0..<posts.count }
+        return 0..<posts.prefix { pinnedPostIDs.contains(Int($0)) }.count
+    }
+
+    /// beginReordering and endReordering: Done in the bar while it lasts; ending saves the new order,
+    /// reorderStoryAlbumStories in an album and setChatPinnedStories for the pinned ones.
+    private func setReorderingPosts(_ reordering: Bool) {
+        guard reordering != isReorderingPosts else { return }
+        isReorderingPosts = reordering
+        reorderGesture.isEnabled = reordering
+        updateAlbumAddButton()
+        if reordering {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Done"),
+                style: .prominent,
+                target: self,
+                action: #selector(finishReorderingPosts),
+            )
+            return
+        }
+        updateActionAvailability()
+        let ids = posts.map(Int.init)
+        let client = client
+        let chatID = customChat.id
+        let albumID = selectedAlbumID
+        let pinned = Array(ids.prefix(reorderableRange().count))
+        Task { [weak self] in
+            do {
+                try await Self.saveStoryOrder(
+                    client: client, chatID: chatID, albumID: albumID, ids: ids, pinned: pinned,
+                )
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
+    @objc private func finishReorderingPosts() {
+        setReorderingPosts(false)
+    }
+
+    /// SparseItemGrid's reordering: the held tile follows the finger within the movable range.
+    @objc private func reorderPanned(_ gesture: UILongPressGestureRecognizer) {
+        let point = gesture.location(in: collectionView)
+        switch gesture.state {
+        case .began:
+            guard let path = collectionView.indexPathForItem(at: point),
+                  reorderableRange().contains(path.item) else { return }
+            collectionView.beginInteractiveMovementForItem(at: path)
+        case .changed:
+            collectionView.updateInteractiveMovementTargetPosition(point)
+        case .ended:
+            collectionView.endInteractiveMovement()
+        default:
+            collectionView.cancelInteractiveMovement()
+        }
+    }
+
     /// The shown album again, after stories join it.
     private func reloadAlbum() {
         let id = selectedAlbumID
@@ -3946,6 +4075,7 @@ ClientRestorableNavigationEntry {
     /// Add Stories stands at the bottom of an album the account manages while the grid doesn't select.
     private func updateAlbumAddButton() {
         let shows = currentSharedTab == .posts && selectedAlbumID != nil && managesStories && selectedPostIDs == nil
+            && !isReorderingPosts
         if shows, albumAddButton == nil {
             var configuration = UIButton.Configuration.prominentGlass()
             configuration.title = L10n.telegram("Stories.AddStoriesEmpty")
@@ -3986,7 +4116,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func selectAlbum(_ id: Int?) {
-        guard id != selectedAlbumID, selectedPostIDs == nil else { return }
+        guard id != selectedAlbumID, selectedPostIDs == nil, !isReorderingPosts else { return }
         selectedAlbumID = id
         updateAlbumAddButton()
         postsGeneration &+= 1
