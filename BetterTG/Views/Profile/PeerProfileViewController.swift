@@ -1554,20 +1554,123 @@ ClientRestorableNavigationEntry {
             presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
             return
         }
-        guard gesture.state == .began, currentSharedTab != .media, contextIsCurrent,
+        guard gesture.state == .began, currentSharedTab.filter != nil, contextIsCurrent,
               let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
-              let id = dataSource.itemIdentifier(for: path), messagesByID[id] != nil,
+              let id = dataSource.itemIdentifier(for: path), let message = messagesByID[id],
               sharedMessageRefresh?.allows(id) == true,
               let cell = collectionView.cellForItem(at: path) else { return }
-        presentTelegramContextMenu(sourceView: cell, actions: [
-            TelegramContextMenuAction(
-                title: L10n.telegram("SharedMedia.ViewInChat"),
-                image: UIImage(systemName: "bubble.left"),
-            ) { [weak self] in
-                guard let self, contextIsCurrent, sharedMessageRefresh?.allows(id) == true else { return }
-                onOpenMessage?(id)
-            },
-        ], tracking: gesture)
+        // PeerInfoScreen's shared media menu waits for chatAvailableMessageActions, here the message's properties.
+        let client = client
+        Task { [weak self, weak cell] in
+            let properties = try? await client.getMessageProperties(chatId: message.chatId, messageId: message.id)
+            guard let self, let cell, contextIsCurrent, sharedMessageRefresh?.allows(id) == true else { return }
+            presentTelegramContextMenu(sourceView: cell, actions: sharedItemActions(message, properties: properties))
+        }
+    }
+
+    /// PeerInfoScreen's shared media item menu: View in Chat, Forward unless the content is protected, and Delete
+    /// with presentDeleteMessageOptions' choices as its submenu.
+    private func sharedItemActions(_ message: Message, properties: MessageProperties?) -> [TelegramContextMenuAction] {
+        let id = message.id
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram("SharedMedia.ViewInChat"),
+            image: UIImage(systemName: "bubble.left"),
+        ) { [weak self] in
+            guard let self, contextIsCurrent, sharedMessageRefresh?.allows(id) == true else { return }
+            onOpenMessage?(id)
+        }]
+        if properties?.canBeForwarded == true, !customChat.chat.hasProtectedContent {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuForward"),
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak self] in self?.forwardSharedMessages([id]) })
+        }
+        var deleteOptions = [TelegramContextMenuAction]()
+        if properties?.canBeDeletedForAllUsers == true {
+            let title =
+                switch customChat.type {
+                case .bot(let user),
+                     .user(let user): L10n.telegram("Conversation.DeleteMessagesFor", user.compactDisplayTitle)
+                case .group,
+                     .supergroup: L10n.telegram("Conversation.DeleteMessagesForEveryone")
+                }
+            deleteOptions.append(TelegramContextMenuAction(title: title, isDestructive: true) { [weak self] in
+                self?.deleteSharedMessages([id], revoke: true)
+            })
+        }
+        if properties?.canBeDeletedOnlyForSelf == true {
+            let title = L10n.telegram(isSavedMessagesProfile
+                ? "Chat.ConfirmationDeleteFromSavedMessages"
+                : "Conversation.DeleteMessagesForMe")
+            deleteOptions.append(TelegramContextMenuAction(title: title, isDestructive: true) { [weak self] in
+                self?.deleteSharedMessages([id], revoke: false)
+            })
+        }
+        if !deleteOptions.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuDelete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+                children: deleteOptions,
+            ))
+        }
+        return actions
+    }
+
+    /// forwardMessages: the chat picker, then the chat with the messages waiting to be sent, as the gallery does.
+    private func forwardSharedMessages(_ messageIDs: [Int64]) {
+        guard contextIsCurrent, presentedViewController == nil,
+              let request = try? MessageForwardRequest(sourceChatID: customChat.id, messageIDs: messageIDs)
+        else { return }
+        let client = client
+        let accountID = accountID
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared.allFolders.flatMap(\.chats).map(\.chat).filter { seen.insert($0.id).inserted }
+        let picker = ForwardMessagesViewController(
+            request: request,
+            client: client,
+            accountID: accountID,
+            seedChats: seedChats,
+        )
+        picker.onSelect = { [weak self] chat, topic, draft in
+            self?.dismiss(animated: true) {
+                guard TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id else { return }
+                let destination = ChatLocation.current(
+                    chatID: chat.id,
+                    topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                    client: client,
+                )
+                ChatViewController.openForward(
+                    draft,
+                    in: chat,
+                    topic: topic,
+                    destination: destination,
+                    navigationController: NavigationStorage.shared.activeNavigationController,
+                )
+            }
+        }
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .fullScreen
+        present(navigation, animated: true)
+    }
+
+    /// deleteMessages; the pane drops them at once, and TDLib's update confirms it.
+    private func deleteSharedMessages(_ messageIDs: [Int64], revoke: Bool) {
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            do {
+                _ = try await client.deleteMessages(chatId: chatID, messageIds: messageIDs, revoke: revoke)
+                guard let self, contextIsCurrent else { return }
+                for id in messageIDs {
+                    messagesByID[id] = nil
+                }
+                applySnapshot()
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
     }
 
     private func restoreViewportIfNeeded() {
