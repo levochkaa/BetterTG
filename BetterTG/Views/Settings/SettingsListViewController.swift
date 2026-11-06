@@ -129,6 +129,9 @@ struct SettingsSection {
     var header: String?
     var footer: String?
     var rows: [SettingsRow]
+    /// ItemListTextItem's `.markdown` footer with `linkAction`: each `[text](id)` in `footer` is a link that runs the
+    /// action stored under its id.
+    var footerLinks = [String: () -> Void]()
 }
 
 // MARK: - SettingsTextInput
@@ -144,7 +147,13 @@ struct SettingsTextInput {
     var autocapitalization = UITextAutocapitalizationType.sentences
     var autocorrection = true
     var keyboardType = UIKeyboardType.default
+    /// ItemListSingleLineInputItem's `.password` type: the text stays hidden.
+    var isSecure = false
+    var textContentType: UITextContentType?
+    var returnKeyType = UIReturnKeyType.default
     var onChange: (String) -> Void
+    /// The return key's action, such as checking a password.
+    var onReturn: (() -> Void)?
 }
 
 // MARK: - SettingsListViewController
@@ -183,6 +192,10 @@ class SettingsListViewController: UITableViewController {
         tableView.register(SettingsPeerCell.self, forCellReuseIdentifier: SettingsPeerCell.reuseIdentifier)
         tableView.register(SettingsInputCell.self, forCellReuseIdentifier: SettingsInputCell.reuseIdentifier)
         tableView.register(SettingsStickerSetCell.self, forCellReuseIdentifier: SettingsStickerSetCell.reuseIdentifier)
+        tableView.register(
+            SettingsMarkdownFooterView.self,
+            forHeaderFooterViewReuseIdentifier: SettingsMarkdownFooterView.reuseIdentifier,
+        )
         tableView.keyboardDismissMode = .interactive
         reload()
     }
@@ -207,7 +220,18 @@ class SettingsListViewController: UITableViewController {
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        sections[safe: section]?.footer
+        guard let section = sections[safe: section], section.footerLinks.isEmpty else { return nil }
+        return section.footer
+    }
+
+    override func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        guard let section = sections[safe: section], !section.footerLinks.isEmpty, let footer = section.footer,
+              let view = tableView.dequeueReusableHeaderFooterView(
+                  withIdentifier: SettingsMarkdownFooterView.reuseIdentifier,
+              ) as? SettingsMarkdownFooterView
+        else { return nil }
+        view.configure(markdown: footer, links: section.footerLinks)
+        return view
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -315,6 +339,12 @@ class SettingsListViewController: UITableViewController {
         let configuration = UISwipeActionsConfiguration(actions: [action])
         configuration.performsFirstActionWithFullSwipe = false
         return configuration
+    }
+
+    /// Puts the cursor in the input row at `indexPath`, as ItemListController's `focusItemTag` does.
+    func focusInput(at indexPath: IndexPath) {
+        tableView.layoutIfNeeded()
+        (tableView.cellForRow(at: indexPath) as? SettingsInputCell)?.focus()
     }
 
     /// The screen's rows for its current state.
@@ -691,6 +721,9 @@ final class SettingsInputCell: UITableViewCell, UITextFieldDelegate, UITextViewD
         textField.autocapitalizationType = input.autocapitalization
         textField.autocorrectionType = input.autocorrection ? .default : .no
         textField.keyboardType = input.keyboardType
+        textField.isSecureTextEntry = input.isSecure
+        textField.textContentType = input.textContentType
+        textField.returnKeyType = input.returnKeyType
         textView.autocapitalizationType = input.autocapitalization
         textView.autocorrectionType = input.autocorrection ? .default : .no
         if input.isMultiline {
@@ -702,6 +735,20 @@ final class SettingsInputCell: UITableViewCell, UITextFieldDelegate, UITextViewD
             placeholderLabel.text = nil
         }
         updateDecorations()
+    }
+
+    func focus() {
+        if input?.isMultiline == true {
+            textView.becomeFirstResponder()
+        } else {
+            textField.becomeFirstResponder()
+        }
+    }
+
+    func textFieldShouldReturn(_: UITextField) -> Bool {
+        guard let onReturn = input?.onReturn else { return true }
+        onReturn()
+        return false
     }
 
     func textField(
@@ -744,6 +791,85 @@ final class SettingsInputCell: UITableViewCell, UITextFieldDelegate, UITextViewD
         } else {
             counterLabel.isHidden = true
         }
+    }
+}
+
+// MARK: - SettingsMarkdownFooterView
+
+/// ItemListTextItem with `.markdown` text under a section: the footnote in the secondary colour, its `[text](id)`
+/// parts in the accent colour, each running its link action.
+final class SettingsMarkdownFooterView: UITableViewHeaderFooterView, UITextViewDelegate {
+    static let reuseIdentifier = "SettingsMarkdownFooterView"
+
+    private static let scheme = "bettertg-footer"
+
+    private let textView = UITextView()
+    private var links = [String: () -> Void]()
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        textView.isEditable = false
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.adjustsFontForContentSizeCategory = true
+        textView.linkTextAttributes = [.foregroundColor: UIColor.tintColor]
+        textView.delegate = self
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 7),
+            textView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -7),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The footnote with each `[text](id)` turned into a link to `bettertg-footer://id`; an empty id is `default`.
+    static func attributedText(_ markdown: String) -> NSAttributedString {
+        let font = UIFont.preferredFont(forTextStyle: .footnote)
+        let result = NSMutableAttributedString()
+        var rest = Substring(markdown)
+        let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.secondaryLabel]
+        while let match = rest.firstMatch(of: /\[([^\]]*)\]\(([^)]*)\)/) {
+            result.append(NSAttributedString(
+                string: String(rest[rest.startIndex..<match.range.lowerBound]),
+                attributes: plain,
+            ))
+            let id = match.output.2.isEmpty ? "default" : String(match.output.2)
+            var attributes = plain
+            attributes[.link] = URL(string: "\(scheme)://\(id)")
+            result.append(NSAttributedString(string: String(match.output.1), attributes: attributes))
+            rest = rest[match.range.upperBound...]
+        }
+        result.append(NSAttributedString(string: String(rest), attributes: plain))
+        return result
+    }
+
+    func configure(markdown: String, links: [String: () -> Void]) {
+        self.links = links
+        textView.attributedText = Self.attributedText(markdown)
+    }
+
+    func textView(
+        _: UITextView,
+        primaryActionFor textItem: UITextItem,
+        defaultAction _: UIAction,
+    ) -> UIAction? {
+        guard case .link(let url) = textItem.content, url.scheme == Self.scheme else { return nil }
+        let id = url.host() ?? ""
+        return UIAction { [weak self] _ in self?.links[id]?() }
+    }
+
+    func textView(_: UITextView, menuConfigurationFor _: UITextItem, defaultMenu _: UIMenu) -> UITextItem
+        .MenuConfiguration?
+    {
+        nil
     }
 }
 
