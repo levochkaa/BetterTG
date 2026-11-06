@@ -125,8 +125,10 @@ import UIKit
 
 /// ListMessageFileItemNode for a file: its preview or the extension icon at the left, the name, the caption on a
 /// line, and the size with the full date; a global search result puts the date at the right instead.
-final class SharedFileRowCell: UICollectionViewCell {
+final class SharedFileRowCell: UICollectionViewCell, SharedSelectableRow {
     static let reuseIdentifier = "SharedFileRowCell"
+
+    var selectionLeadingConstraints = [(constraint: NSLayoutConstraint, base: CGFloat)]()
 
     private let iconView = UIImageView()
     private let extensionLabel = UILabel()
@@ -177,7 +179,7 @@ final class SharedFileRowCell: UICollectionViewCell {
         contentView.addSubview(separator)
         let scale = UITraitCollection.current.displayScale
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            selectionLeading(iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)),
             iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
             iconView.widthAnchor.constraint(equalToConstant: 40),
             iconView.heightAnchor.constraint(equalToConstant: 40),
@@ -188,12 +190,12 @@ final class SharedFileRowCell: UICollectionViewCell {
             previewView.topAnchor.constraint(equalTo: iconView.topAnchor),
             previewView.widthAnchor.constraint(equalToConstant: 40),
             previewView.heightAnchor.constraint(equalToConstant: 40),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-            separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             separator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / max(scale, 1)),

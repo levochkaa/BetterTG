@@ -8,8 +8,10 @@ import UIKit
 /// ListMessageFileItemNode for music, voice and round videos: the album cover, the round video's frame or the play
 /// button on the accent colour at the left; a track's title with its length and performer, or a voice message's
 /// sender with its length and date. A global search result moves the date to the right.
-final class SharedAudioRowCell: UICollectionViewCell {
+final class SharedAudioRowCell: UICollectionViewCell, SharedSelectableRow {
     static let reuseIdentifier = "SharedAudioRowCell"
+
+    var selectionLeadingConstraints = [(constraint: NSLayoutConstraint, base: CGFloat)]()
 
     private let playBackground = UIView()
     private let playGlyph = UIImageView(image: UIImage(
@@ -59,7 +61,7 @@ final class SharedAudioRowCell: UICollectionViewCell {
         contentView.addSubview(separator)
         let scale = UITraitCollection.current.displayScale
         NSLayoutConstraint.activate([
-            playBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            selectionLeading(playBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)),
             playBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
             playBackground.widthAnchor.constraint(equalToConstant: 40),
             playBackground.heightAnchor.constraint(equalToConstant: 40),
@@ -69,12 +71,12 @@ final class SharedAudioRowCell: UICollectionViewCell {
             coverView.heightAnchor.constraint(equalToConstant: 40),
             playGlyph.centerXAnchor.constraint(equalTo: playBackground.centerXAnchor, constant: 1.5),
             playGlyph.centerYAnchor.constraint(equalTo: playBackground.centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-            separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             separator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / max(scale, 1)),

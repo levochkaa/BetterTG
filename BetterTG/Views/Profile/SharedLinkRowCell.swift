@@ -117,8 +117,10 @@ struct SharedLinkSnippet {
 
 /// ListMessageSnippetItemNode: a 40 pt picture or the host's letter on orange at the left, the title with the date
 /// beside it, the description and the address in the accent colour, and the chat for a global search result.
-final class SharedLinkRowCell: UICollectionViewCell {
+final class SharedLinkRowCell: UICollectionViewCell, SharedSelectableRow {
     static let reuseIdentifier = "SharedLinkRowCell"
+
+    var selectionLeadingConstraints = [(constraint: NSLayoutConstraint, base: CGFloat)]()
 
     private let iconImageView = TDImageLoadingView()
     private let letterLabel = UILabel()
@@ -176,7 +178,7 @@ final class SharedLinkRowCell: UICollectionViewCell {
         contentView.addSubview(separator)
         let scale = UITraitCollection.current.displayScale
         NSLayoutConstraint.activate([
-            letterLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            selectionLeading(letterLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)),
             letterLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             letterLabel.widthAnchor.constraint(equalToConstant: 40),
             letterLabel.heightAnchor.constraint(equalToConstant: 40),
@@ -184,12 +186,12 @@ final class SharedLinkRowCell: UICollectionViewCell {
             iconImageView.topAnchor.constraint(equalTo: letterLabel.topAnchor),
             iconImageView.widthAnchor.constraint(equalToConstant: 40),
             iconImageView.heightAnchor.constraint(equalToConstant: 40),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-            separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65),
+            selectionLeading(separator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 65)),
             separator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / max(scale, 1)),

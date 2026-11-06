@@ -5621,8 +5621,10 @@ final class SharedMediaPendingCell: UICollectionViewCell {
 
 // MARK: - SharedMediaRowCell
 
-final class SharedMediaRowCell: UICollectionViewCell {
+final class SharedMediaRowCell: UICollectionViewCell, SharedSelectableRow {
     static let reuseIdentifier = "SharedMediaRowCell"
+
+    var selectionLeadingConstraints = [(constraint: NSLayoutConstraint, base: CGFloat)]()
 
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
@@ -5648,7 +5650,7 @@ final class SharedMediaRowCell: UICollectionViewCell {
         labels.spacing = 2
         contentView.addSubview(labels)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            selectionLeading(iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8)),
             iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 40),
             iconView.heightAnchor.constraint(equalToConstant: 40),
@@ -5814,9 +5816,31 @@ private final class TopInsetBackgroundView: UIView {
     }
 }
 
-// MARK: - UICollectionViewCell + Shared selection
+// MARK: - SharedSelectableRow
+
+/// A shared list row that steps aside for PeerInfoScreen's selection check, as ListMessageItem's leading check does.
+@MainActor protocol SharedSelectableRow: UICollectionViewCell {
+    var selectionLeadingConstraints: [(constraint: NSLayoutConstraint, base: CGFloat)] { get set }
+}
+
+extension SharedSelectableRow {
+    /// Records a constraint that holds the row's content to its leading edge.
+    func selectionLeading(_ constraint: NSLayoutConstraint) -> NSLayoutConstraint {
+        selectionLeadingConstraints.append((constraint, constraint.constant))
+        return constraint
+    }
+
+    func setSelectionInset(_ inset: CGFloat) {
+        for (constraint, base) in selectionLeadingConstraints {
+            constraint.constant = base + inset
+        }
+    }
+}
 
 extension UICollectionViewCell {
+    /// The room a row's content moves aside for its leading check.
+    static let sharedSelectionRowInset: CGFloat = 40
+
     private static let selectionMarkTag = 0x5E1EC7
 
     /// PeerInfoScreen's selection check over a shared item: at a grid tile's top right, at a row's trailing edge.
@@ -5828,6 +5852,17 @@ extension UICollectionViewCell {
             return view
         }()
         mark.isHidden = !isSelecting
+        if !isGrid, let row = self as? SharedSelectableRow {
+            let inset = isSelecting ? Self.sharedSelectionRowInset : 0
+            if row.selectionLeadingConstraints.first?.constraint
+                .constant != (row.selectionLeadingConstraints.first?.base ?? 0) + inset
+            {
+                row.setSelectionInset(inset)
+                if window != nil {
+                    UIView.animate(withDuration: 0.25) { self.contentView.layoutIfNeeded() }
+                }
+            }
+        }
         guard isSelecting else { return }
         contentView.bringSubviewToFront(mark)
         let configuration = UIImage.SymbolConfiguration(pointSize: isGrid ? 20 : 22, weight: .regular)
@@ -5836,15 +5871,11 @@ extension UICollectionViewCell {
                 .applyingSymbolConfiguration(.init(paletteColors: [.white, .tintColor]))
             : UIImage(systemName: "circle", withConfiguration: configuration)?
                 .withTintColor(isGrid ? .white : .tertiaryLabel, renderingMode: .alwaysOriginal)
-        let side: CGFloat = isGrid ? 22 : 26
+        let side: CGFloat = isGrid ? 22 : 24
+        // A tile's check at its top right; a row's at its leading edge, the content moved aside for it.
         mark.frame = isGrid
             ? CGRect(x: contentView.bounds.width - side - 4, y: 4, width: side, height: side)
-            : CGRect(
-                x: contentView.bounds.width - side - 12,
-                y: (contentView.bounds.height - side) / 2,
-                width: side,
-                height: side,
-            )
+            : CGRect(x: 12, y: (contentView.bounds.height - side) / 2, width: side, height: side)
         accessibilityTraits = isSelected
             ? accessibilityTraits.union(.selected)
             : accessibilityTraits.subtracting(.selected)
