@@ -6,7 +6,7 @@ import UIKit
 // MARK: - PrivacySettingsViewController
 
 /// Telegram's Privacy and Security (PrivacyAndSecurityController): Blocked Users, Active Websites while there are
-/// any, Two-Step Verification (status only),
+/// any, Two-Step Verification,
 /// Auto-Delete Messages, the privacy rules with their summaries, and the inactivity period before account deletion,
 /// whose menu also deletes the account now. Premium-only rules are not offered.
 final class PrivacySettingsViewController: SettingsListViewController {
@@ -73,7 +73,8 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 detail: passwordText ?? loading,
                 symbol: "key.fill",
                 symbolTint: .systemOrange,
-            ),
+                accessory: .disclosure,
+            ) { [weak self] in self?.openTwoStepVerification() },
             SettingsRow(
                 title: L10n.telegram("Settings.AutoDeleteTitle"),
                 detail: autoDeleteText ?? loading,
@@ -155,6 +156,12 @@ final class PrivacySettingsViewController: SettingsListViewController {
             phoneNumber = me?.phoneNumber ?? ""
             reload()
         }
+    }
+
+    /// openTwoStepVerification: TwoStepVerificationUnlockSettingsController, which reads the password's state.
+    private func openTwoStepVerification() {
+        guard contextIsCurrent else { return }
+        navigationController?.pushViewController(TwoStepVerificationViewController(), animated: true)
     }
 
     /// Telegram asks for the passcode before its settings open.
