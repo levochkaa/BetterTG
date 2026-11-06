@@ -13,13 +13,15 @@ import UIKit
 /// the menu and shows its tooltip at once. MediaPlaybackHeaderPanelComponent's tooltip names the new speed: normal,
 /// 1.5x, two times faster, or a slider's value, and none for 0.5x or a slider that ends where it began.
 @MainActor enum AudioPlaybackRateMenu {
-    // MARK: Internal
-
     /// MediaNavigationAccessoryPanel.ChangeType without `.sliderChange`, which shows no tooltip.
     enum Change: Equatable {
         case preset
         case sliderCommit(previous: Float, new: Float)
     }
+
+    // MARK: Internal
+
+    static let optionsTipKey = "BetterTG.audioRateOptionsTip"
 
     /// Opens the menu from the rate button, with the finger that held it.
     static func present(
@@ -74,6 +76,22 @@ import UIKit
                 else { return }
                 showTooltip(text)
             },
+        )
+    }
+
+    /// MediaNavigationAccessoryHeaderNode.rateButtonPressed's incrementAudioRateOptionsTip: the counter is the app's,
+    /// and the tap that finds it at 2, the third ever, points at the button with "Long tap for more speed values."
+    /// for three seconds.
+    static func noteHeaderRateTap(on button: UIView) {
+        let previous = UserDefaults.standard.integer(forKey: optionsTipKey)
+        UserDefaults.standard.set(previous + 1, forKey: optionsTipKey)
+        guard previous == 2, let window = button.window else { return }
+        TelegramTextTooltipView.show(
+            L10n.telegram("Conversation.AudioRateOptionsTooltip"),
+            source: button.convert(button.bounds, to: window).offsetBy(dx: 0, dy: 4),
+            in: window,
+            topInset: window.safeAreaInsets.top,
+            duration: 3,
         )
     }
 

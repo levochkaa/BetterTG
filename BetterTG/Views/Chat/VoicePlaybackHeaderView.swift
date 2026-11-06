@@ -232,6 +232,7 @@ final class VoicePlaybackHeaderView: UIView {
     }
 
     @objc private func rateTapped() {
+        AudioPlaybackRateMenu.noteHeaderRateTap(on: rateButton)
         onCycleRate?()
     }
 
