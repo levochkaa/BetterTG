@@ -83,6 +83,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var restoresSearchFocus = false
     private var isRestoringSearchFocus = false
     private var restorationViewports = [Int: ChatListViewportSnapshot]()
+    private var folderPickerBottomConstraints = [NSLayoutConstraint]()
+    private var folderPickerTopConstraints = [NSLayoutConstraint]()
+    private var headerPanelsTopConstraint: NSLayoutConstraint?
+    private var folderTabsAtTop = false
+    private var appliedFolderTabsAtTop: Bool?
     /// While a list selects chats, Telegram's toolbar takes the folder tabs' place and the pages stay put.
     private var isSelectingChats = false
 
@@ -111,6 +116,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         return liveLocationBroadcasts.map(\.chatID).filter { seen.insert($0).inserted }
     }
 
+    /// The folder tabs' height under the bar with the tabs at the top.
+    private var topFolderTabsHeight: CGFloat {
+        folderTabsAtTop ? FolderPickerView.barHeight - FolderPickerView.controlTopInset : 0
+    }
+
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isClientRestoration = restoration != nil
@@ -136,6 +146,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureHeaderPanels()
         configureVoicePlaybackHeader()
         configureLiveLocationPanel()
+        applyFolderTabsPosition()
 
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -160,6 +171,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .changes
             .sink { [weak self] in
                 guard let self, actionAuthority.isCurrent else { return }
+                applyFolderTabsPosition()
                 folderPicker.configure(
                     folders: rootVM.folders,
                     selectedID: rootVM.currentFolder,
@@ -690,17 +702,45 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             self?.performFolderAction(action, for: folder)
         }
         view.addSubview(folderPicker)
-        NSLayoutConstraint.activate([
-            folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            folderPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        folderPickerBottomConstraints = [
             folderPicker.topAnchor.constraint(
                 equalTo: view.safeAreaLayoutGuide.bottomAnchor,
                 constant: -FolderPickerView.barHeight,
             ),
             folderPicker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ]
+        // Under the bar the capsule keeps UIKit's space under the bar's row above it, as Telegram's tabs in its header.
+        folderPickerTopConstraints = [
+            folderPicker.topAnchor.constraint(
+                equalTo: customNavigationBar.bottomAnchor,
+                constant: -FolderPickerView.controlTopInset,
+            ),
+            folderPicker.heightAnchor.constraint(equalToConstant: FolderPickerView.barHeight),
+        ]
+        NSLayoutConstraint.activate([
+            folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            folderPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         view.bringSubviewToFront(customNavigationBar)
         view.bringSubviewToFront(folderPicker)
+    }
+
+    /// Puts the folder tabs where the setting has them: above the tab bar, or under the bar, where the header panels
+    /// follow them.
+    private func applyFolderTabsPosition() {
+        let atTop = !FolderTabAppearance.shared.tabsAtBottom
+        guard atTop != appliedFolderTabsAtTop else { return }
+        appliedFolderTabsAtTop = atTop
+        folderTabsAtTop = atTop
+        NSLayoutConstraint.deactivate(atTop ? folderPickerBottomConstraints : folderPickerTopConstraints)
+        NSLayoutConstraint.activate(atTop ? folderPickerTopConstraints : folderPickerBottomConstraints)
+        headerPanelsTopConstraint?.constant = topFolderTabsHeight
+        folderPicker.showsBackground = !atTop
+        for controller in folderControllers {
+            controller.setAccessoryTopInset(headerPanels.contentHeight + topFolderTabsHeight)
+            controller.setAccessoryBottomInset(atTop ? 0 : FolderPickerView.barHeight)
+        }
+        view.setNeedsLayout()
     }
 
     private func configureSearchResults() {
@@ -773,8 +813,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         view.insertSubview(headerPanels, belowSubview: customNavigationBar)
         let height = headerPanels.heightAnchor.constraint(equalToConstant: 0)
         headerPanelsHeightConstraint = height
+        let headerPanelsTop = headerPanels.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor)
+        headerPanelsTopConstraint = headerPanelsTop
         NSLayoutConstraint.activate([
-            headerPanels.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            headerPanelsTop,
             headerPanels.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerPanels.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             height,
@@ -850,7 +892,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         heightConstraint.constant = headerPanels.contentHeight
         let changes = {
             for folderController in self.folderControllers {
-                folderController.setAccessoryTopInset(self.headerPanels.contentHeight)
+                folderController.setAccessoryTopInset(self.headerPanels.contentHeight + self.topFolderTabsHeight)
             }
             self.view.layoutIfNeeded()
         }
@@ -1046,7 +1088,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
-            controller.setAccessoryTopInset(headerPanels.contentHeight)
+            controller.setAccessoryTopInset(headerPanels.contentHeight + topFolderTabsHeight)
+            controller.setAccessoryBottomInset(folderTabsAtTop ? 0 : FolderPickerView.barHeight)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSelectionEditingChange = { [weak self] title, done in
                 self?.setChatSelectionEditing(title: title, done: done)
@@ -1347,6 +1390,9 @@ final class FolderPickerView: UIView {
     /// The strip's height above the bottom inset: the blur above the capsule, the capsule and the same gap under it.
     static let barHeight: CGFloat = 58
 
+    /// The blur above the folder strip.
+    static let controlTopInset: CGFloat = 8
+
     // MARK: Private
 
     private static let springDuration: TimeInterval = 0.4
@@ -1355,12 +1401,15 @@ final class FolderPickerView: UIView {
     private static let liftDuration: TimeInterval = 0.3
     private static let restingTintFadeDuration: TimeInterval = 0.2
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
-    /// The blur above the folder strip.
-    private static let controlTopInset: CGFloat = 8
 
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+    /// Whether the strip draws its own blur; under the chat list's bar the bar's background covers it.
+    var showsBackground = true {
+        didSet { blurView.isHidden = !showsBackground }
+    }
+
     /// Whether the strip spans iPhone Duo's side strip, as a panel at the bottom edge does; beside a tab bar standing
     /// there it keeps to the band.
     var spansIPhoneDuoStrip = true {

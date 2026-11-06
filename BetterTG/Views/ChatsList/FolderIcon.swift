@@ -168,7 +168,20 @@ enum FolderTabStyle: String, CaseIterable {
 @MainActor final class FolderTabAppearance {
     static let shared = FolderTabAppearance()
 
+    private static let tabsAtBottomKey = "BetterTG.folderTabsAtBottom"
+
     let changes = PassthroughSubject<Void, Never>()
+
+    /// Swiftgram's Folder Tabs at Bottom: the folder tabs above the tab bar, or under the chat list's bar as
+    /// Telegram's. On this device for every account; at the bottom until changed.
+    var tabsAtBottom: Bool {
+        get { UserDefaults.standard.object(forKey: Self.tabsAtBottomKey) as? Bool ?? true }
+        set {
+            guard newValue != tabsAtBottom else { return }
+            UserDefaults.standard.set(newValue, forKey: Self.tabsAtBottomKey)
+            changes.send()
+        }
+    }
 
     private static func stylesKey(_ accountID: UUID) -> String {
         "BetterTG.folderTabStyles.\(accountID.uuidString)"

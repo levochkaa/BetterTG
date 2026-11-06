@@ -459,6 +459,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var searchActive = false
     /// The height of the header panels under the navigation bar (the playback header), which the rows sit below.
     private var accessoryTopInset = CGFloat.zero
+    /// The folder tabs' room at the bottom of a page of the chat list; none with the tabs at the top.
+    private var accessoryBottomInset = FolderPickerView.barHeight
     private var didPlaceInitialViewport = false
     /// Where the page was before the shared search began. Search covers every page, as Telegram's search overlay
     /// does, and ending it returns each page there instead of scrolling it to the top with search revealed.
@@ -568,7 +570,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
         tableView.contentInset.top = TelegramListNavigationBar.rowContentHeight + accessoryTopInset
-        tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
+        tableView.contentInset.bottom = showsStandaloneSearch ? 0 : accessoryBottomInset
         tableView.automaticallyAdjustsScrollIndicatorInsets = false
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
@@ -815,6 +817,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         updateIndicatorInsets()
     }
 
+    func setAccessoryBottomInset(_ inset: CGFloat) {
+        guard abs(inset - accessoryBottomInset) > 0.5 else { return }
+        accessoryBottomInset = inset
+        guard isViewLoaded, !showsStandaloneSearch else { return }
+        tableView.contentInset.bottom = inset
+        updateIndicatorInsets()
+    }
+
     func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
         if active { endPinnedReorder() }
         let wasActive = searchActive
@@ -861,7 +871,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let insets = UIEdgeInsets(
             top: safeArea.top + TelegramListNavigationBar.rowContentHeight + accessoryTopInset,
             left: 0,
-            bottom: safeArea.bottom + (showsStandaloneSearch ? 0 : 58),
+            bottom: safeArea.bottom + (showsStandaloneSearch ? 0 : accessoryBottomInset),
             right: safeArea.right,
         )
         let current = tableView.verticalScrollIndicatorInsets

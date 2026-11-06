@@ -62,6 +62,9 @@
 "Folders.Icon.MainFooter" = "Автоматически показывается иконка «Все чаты». Иконка сохраняется только на этом устройстве.";
 "Folders.Icon.TabHeader" = "Вкладка";
 "Folders.Icon.TabFooter" = "Вид вкладки сохраняется только на этом устройстве.";
+"Folders.TabsSection" = "Вкладки папок";
+"Folders.TabsAtBottom" = "Вкладки внизу";
+"Folders.TabsAtBottomFooter" = "Внизу вкладки стоят над панелью вкладок, вверху — под заголовком.";
 "Folders.Icon.IconAndName" = "Иконка и название";
 "Folders.Icon.IconOnly" = "Только иконка";
 "Folders.Icon.NameOnly" = "Только название";

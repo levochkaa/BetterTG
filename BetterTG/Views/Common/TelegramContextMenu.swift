@@ -1567,12 +1567,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             let anchorFrame = menuAnchorView.map { anchor in
                 view.convert(anchor.convert(anchor.bounds, to: nil), from: nil)
             } ?? sourceFrame
-            targetMenuFrame = CGRect(
-                x: menuX,
-                y: max(verticalInset, anchorFrame.minY - menuSpacing - menuHeight),
-                width: menuWidth,
-                height: menuHeight,
-            )
+            // Above an anchor in the lower half, such as the folder tabs at the bottom; below one in the upper half.
+            let menuY = menuAnchorView != nil && anchorFrame.midY < view.bounds.midY
+                ? min(anchorFrame.maxY + menuSpacing, maximumBottom - menuHeight)
+                : max(verticalInset, anchorFrame.minY - menuSpacing - menuHeight)
+            targetMenuFrame = CGRect(x: menuX, y: menuY, width: menuWidth, height: menuHeight)
         case .sourceMorph:
             // Telegram f44a25a649: a morphing menu takes the button's place, its top edge on the button's top edge
             // (bottom on bottom for a button in the lower half) and its left or right edge on the button's edge in
