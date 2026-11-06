@@ -1402,6 +1402,12 @@ ClientRestorableNavigationEntry {
         detailsLabel.textAlignment = .center
         detailsLabel.numberOfLines = 3
         detailsLabel.isHidden = true
+        // PeerInfoScreenOpenBio, OpenUsername and OpenPhone: a tap on the bio or on a username or the phone number in
+        // the details line opens its menu.
+        for label in [bioLabel, detailsLabel] {
+            label.isUserInteractionEnabled = true
+            label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(infoTapped(_:))))
+        }
         headerStack.addArrangedSubview(detailsLabel)
         for label in [statusLabel, bioLabel, detailsLabel] {
             label.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
@@ -3505,6 +3511,140 @@ ClientRestorableNavigationEntry {
     @objc private func administratorsPressed() {
         guard contextIsCurrent, let source = membersSource(administrators: true) else { return }
         pushMembers(source)
+    }
+
+    @objc private func infoTapped(_ gesture: UITapGestureRecognizer) {
+        guard contextIsCurrent, let label = gesture.view as? UILabel else { return }
+        if label === bioLabel {
+            openBioMenu()
+        } else if let detail = detailText(at: gesture.location(in: label)) {
+            if detail.hasPrefix("@") {
+                openUsernameMenu(String(detail.dropFirst()))
+            } else if detail.hasPrefix("+") {
+                openPhoneMenu(detail)
+            }
+        }
+    }
+
+    /// The part of the details line under a point: the line is laid out as the label draws it, and the separators
+    /// belong to neither side.
+    private func detailText(at point: CGPoint) -> String? {
+        guard let text = detailsLabel.text, !text.isEmpty else { return nil }
+        let storage = NSTextStorage(attributedString: NSAttributedString(string: text, attributes: [
+            .font: detailsLabel.font as Any,
+            .paragraphStyle: {
+                let style = NSMutableParagraphStyle()
+                style.alignment = detailsLabel.textAlignment
+                return style
+            }(),
+        ]))
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: detailsLabel.bounds.size)
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = detailsLabel.numberOfLines
+        container.lineBreakMode = detailsLabel.lineBreakMode
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        let used = layout.usedRect(for: container)
+        let offset = CGPoint(x: 0, y: (detailsLabel.bounds.height - used.height) / 2)
+        let location = CGPoint(x: point.x - offset.x, y: point.y - offset.y)
+        var fraction = CGFloat.zero
+        let index = layout.characterIndex(
+            for: location,
+            in: container,
+            fractionOfDistanceBetweenInsertionPoints: &fraction,
+        )
+        var start = 0
+        for detail in currentDetailTexts {
+            let length = (detail as NSString).length
+            if index >= start, index < start + length { return detail }
+            start += length + (" · " as NSString).length
+        }
+        return nil
+    }
+
+    /// openBioContextMenu: Edit Bio on My Profile, Copy, and Translate for a bio in a language the user doesn't read.
+    private func openBioMenu() {
+        let bio = currentBioText
+        guard !bio.isEmpty else { return }
+        var actions = [TelegramContextMenuAction]()
+        if isMyProfile {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("MyProfile.BioActionEdit"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in self?.editPressed() })
+        }
+        let isUser = customChat.user != nil
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram(isUser ? "MyProfile.BioActionCopy" : "ChannelProfile.AboutActionCopy"),
+            image: UIImage(systemName: "doc.on.doc"),
+        ) { [weak self] in
+            UIPasteboard.general.string = bio
+            self?.showInfoToast(L10n.telegram(isUser ? "MyProfile.ToastBioCopied" : "ChannelProfile.ToastAboutCopied"))
+        })
+        if let language = MessageTranslation.translatableLanguage(of: bio) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuTranslate"),
+                image: UIImage(systemName: "translate"),
+            ) { [weak self] in
+                guard let self else { return }
+                MessageTranslationViewController.present(
+                    text: FormattedText(entities: [], text: bio),
+                    sourceLanguage: language,
+                    canCopy: true,
+                    from: self,
+                    onCopied: { [weak self] in self?.showInfoToast(L10n.telegram("Conversation.TextCopied")) },
+                )
+            })
+        }
+        presentTelegramContextMenu(sourceView: bioLabel, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// openUsernameContextMenu: Edit Username on My Profile, then Copy Username.
+    private func openUsernameMenu(_ username: String) {
+        var actions = [TelegramContextMenuAction]()
+        if isMyProfile {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("MyProfile.UsernameActionEdit"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in
+                self?.navigationController?.pushViewController(UsernameSetupViewController(), animated: true)
+            })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("MyProfile.UsernameActionCopy"),
+            image: UIImage(systemName: "doc.on.doc"),
+        ) { [weak self] in
+            UIPasteboard.general.string = "@\(username)"
+            self?.showInfoToast(L10n.telegram("Conversation.UsernameCopied"))
+        })
+        presentTelegramContextMenu(sourceView: detailsLabel, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// openPhone: Phone Call for someone else's number (BetterTG has no Telegram calls), then Copy Number. Telegram's
+    /// Change Number on My Profile is left out: BetterTG has no flow for it.
+    private func openPhoneMenu(_ phone: String) {
+        var actions = [TelegramContextMenuAction]()
+        let digits = phone.filter { $0.isNumber || $0 == "+" }
+        if !isSelfProfile, !phone.hasPrefix("+888"), let url = URL(string: "tel:\(digits)") {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("UserInfo.PhoneCall"),
+                image: UIImage(systemName: "phone"),
+            ) { UIApplication.shared.open(url) })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("MyProfile.PhoneActionCopy"),
+            image: UIImage(systemName: "doc.on.doc"),
+        ) { [weak self] in
+            UIPasteboard.general.string = phone
+            self?.showInfoToast(L10n.telegram("Conversation.PhoneCopied"))
+        })
+        presentTelegramContextMenu(sourceView: detailsLabel, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// UndoOverlayController's `.copy` toast.
+    private func showInfoToast(_ text: String) {
+        TelegramUndoToast.show(text: text, in: view, bottomInset: 12, undo: nil)
     }
 
     @objc private func editPressed() {

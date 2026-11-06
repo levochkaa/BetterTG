@@ -3350,3 +3350,13 @@
 "TwoStepAuth.EmailCodeExpired" = "This confirmation code has expired. Please try again.";
 "DeleteAccount.Options.SetTwoStepAuthTitle" = "Enable Two-Step Verification";
 "DeleteAccount.Options.SetTwoStepAuthText" = "Set a password that will be required each time you log in.";
+"Conversation.PhoneCopied" = "Phone copied to clipboard";
+"UserInfo.PhoneCall" = "Phone Call";
+"MyProfile.UsernameActionEdit" = "Edit Username";
+"MyProfile.UsernameActionCopy" = "Copy Username";
+"MyProfile.BioActionEdit" = "Edit Bio";
+"MyProfile.BioActionCopy" = "Copy Bio";
+"MyProfile.ToastBioCopied" = "Bio copied to clipboard.";
+"MyProfile.PhoneActionCopy" = "Copy Number";
+"ChannelProfile.ToastAboutCopied" = "Copied to clipboard.";
+"ChannelProfile.AboutActionCopy" = "Copy";
