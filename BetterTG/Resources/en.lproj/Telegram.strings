@@ -3382,3 +3382,4 @@
 "StoryList.DeleteConfirmation.Title_1" = "Delete 1 story?";
 "StoryList.DeleteConfirmation.Title_any" = "Delete %d stories?";
 "StoryList.DeleteConfirmation.Action" = "Delete";
+"StoryList.ItemAction.Forward" = "Forward";

@@ -1649,66 +1649,32 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// performShareAction: the Forward picker's chats a story can go to, then the story as a message there.
     private func share(_ story: Story) {
         let client = session.client
-        guard presentedViewController == nil, let accountID = TDLib.shared.activeAccountID,
-              TDLib.shared.activeClient.id == client.id
-        else { return }
-        var seen = Set<Int64>()
-        let seedChats = RootVM.shared
-            .allFolders
-            .flatMap(\.chats)
-            .map(\.chat)
-            .filter { seen.insert($0.id).inserted }
-        guard let picker = ForwardMessagesViewController(
-            choosingChatFor: .shareStory,
-            client: client,
-            accountID: accountID,
-            seedChats: seedChats,
-        ) else { return }
+        guard presentedViewController == nil else { return }
         let storyChatID = story.posterChatId
         let storyID = story.id
-        picker.onChosenChat = { [weak self] chat, topic in
-            guard let self, TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id
-            else { return }
+        guard let picker = StoryForwarding.picker(client: client, onChosen: { [weak self] chat, topic in
+            guard let self else { return }
             #if DEBUG
                 if session.isOffline {
                     probeMenuActionHandler?("share-to \(chat.chat.id)")
                     return
                 }
             #endif
-            send(storyChatID: storyChatID, storyID: storyID, to: chat.chat, topic: topic)
-        }
-        let navigation = TelegramNavigationController(rootViewController: picker)
-        navigation.modalPresentationStyle = .fullScreen
-        present(navigation, animated: true)
-    }
-
-    /// The shared story as an inputMessageStory, with Telegram's forwarded tooltip.
-    private func send(storyChatID: Int64, storyID: Int, to chat: Chat, topic: ForumTopic?) {
-        let client = session.client
-        let chatID = chat.id
-        let topicID = topic
-            .map { MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) }
-        let content = TDNativeInputMessageStory(storyPosterChatId: storyChatID, storyId: storyID)
-        let tooltip = chatID == TDLib.shared.activeAccount?.userID
-            ? L10n.telegram("Conversation.StoryForwardTooltip.SavedMessages.One")
-            : L10n.telegram("Conversation.StoryForwardTooltip.Chat.One", chat.title)
-        Task { [weak self] in
-            do {
-                _ = try await client.send(TDNativeRequests.sendMessage(
-                    chatId: chatID,
-                    topicId: topicID,
-                    replyTo: nil,
-                    options: nil,
-                    replyMarkup: nil,
-                    inputMessageContent: .inputMessageStory(content),
-                ))
+            StoryForwarding.send(
+                storyChatID: storyChatID,
+                storyID: storyID,
+                to: chat.chat,
+                topic: topic,
+                client: client,
+            ) { [weak self] result in
                 guard let self, !isClosing else { return }
-                showMenuToast(tooltip.withoutTelegramMarkup)
-            } catch {
-                guard let self, !isClosing else { return }
-                presentChatListActionFailure()
+                switch result {
+                case .success(let tooltip): showMenuToast(tooltip)
+                case .failure: presentChatListActionFailure()
+                }
             }
-        }
+        }) else { return }
+        present(picker, animated: true)
     }
 
     /// updatePeerStoriesHidden, with Telegram's tooltip and its Undo.

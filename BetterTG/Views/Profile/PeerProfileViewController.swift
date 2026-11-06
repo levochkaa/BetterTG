@@ -3344,9 +3344,9 @@ ClientRestorableNavigationEntry {
         if posts.isEmpty { applySnapshot() }
     }
 
-    /// PeerInfoStoryPaneNode.openContextMenu for a story the account may manage: Archive or Unarchive, Pin or Unpin
-    /// on Posts (three at most), and Delete after a confirmation. Telegram's albums, Edit, Forward, Reorder and Select
-    /// are left out.
+    /// PeerInfoStoryPaneNode.openContextMenu: for a story the account may manage Archive or Unarchive, Pin or Unpin on
+    /// Posts (three at most) and Delete after a confirmation, and Forward for any public story that may be forwarded.
+    /// Telegram's albums, Edit, Reorder and Select are left out.
     private func postMenuActions(_ story: Story) -> [TelegramContextMenuAction] {
         var actions = [TelegramContextMenuAction]()
         let isArchive = currentSharedTab == .archivedPosts
@@ -3362,6 +3362,13 @@ ClientRestorableNavigationEntry {
                     image: UIImage(systemName: isPinned ? "pin.slash" : "pin"),
                 ) { [weak self] in self?.setPostPinned(story, pinned: !isPinned) })
             }
+        }
+        // Forward for a public story that may be forwarded.
+        if story.canBeForwarded, StoryMoreMenu.isPublic(story) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("StoryList.ItemAction.Forward"),
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak self] in self?.forwardPost(story) })
         }
         if story.canBeDeleted {
             actions.append(TelegramContextMenuAction(
@@ -3456,6 +3463,25 @@ ClientRestorableNavigationEntry {
             })
         sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         present(sheet, animated: true)
+    }
+
+    private func forwardPost(_ story: Story) {
+        let client = client
+        guard let picker = StoryForwarding.picker(client: client, onChosen: { [weak self] chat, topic in
+            StoryForwarding.send(
+                storyChatID: story.posterChatId,
+                storyID: story.id,
+                to: chat.chat,
+                topic: topic,
+                client: client,
+            ) { [weak self] result in
+                switch result {
+                case .success(let tooltip): self?.showInfoToast(tooltip)
+                case .failure: self?.presentChatListActionFailure()
+                }
+            }
+        }) else { return }
+        present(picker, animated: true)
     }
 
     private func removePost(_ storyID: Int) {
