@@ -193,6 +193,35 @@ import UIKit
         return result
     }
 
+    /// Swiftgram's `sgPairLoneTitlePill`: beside iPhone Duo's strip a root's row holds only a text pill such as Edit,
+    /// its buttons standing in the column, and that pill becomes the chat's title pill, and back. The other bar's back
+    /// then (de)materializes in place.
+    private static func pairLoneRowPill(
+        _ lone: inout [Key: TelegramGlassPlatter],
+        with other: inout [Key: TelegramGlassPlatter],
+    ) {
+        let rowKeys = lone.keys.filter {
+            if case .column = $0 {
+                false
+            } else {
+                true
+            }
+        }
+        let hasColumn = lone.keys.contains {
+            if case .column = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        guard hasColumn, rowKeys == [.leading], let pill = lone[.leading], !pill.fitsSideColumn,
+              let titleKey = other.first(where: { $0.value.role == .title })?.key
+        else { return }
+        lone[.leading] = nil
+        lone[titleKey] = pill
+        // The other bar's back has nothing left to pair with; it keeps its own key, alone.
+    }
+
     /// The platter of `other` an unpaired right pill `key` grows out of or collapses into: the nearest one nearer the
     /// screen edge.
     private static func partner(of key: Key, in other: [Key: TelegramGlassPlatter]) -> TelegramGlassPlatter? {
@@ -238,8 +267,10 @@ import UIKit
 
     /// Pairs the platters, draws the outgoing ones in the overlay and takes every platter from its bar.
     private func begin(source: [TelegramGlassPlatter], destination: [TelegramGlassPlatter]) {
-        let from = Self.keys(of: source)
-        let to = Self.keys(of: destination)
+        var from = Self.keys(of: source)
+        var to = Self.keys(of: destination)
+        Self.pairLoneRowPill(&from, with: &to)
+        Self.pairLoneRowPill(&to, with: &from)
         for key in Set(from.keys).union(to.keys).sorted() {
             let outgoing = from[key]
             let incoming = to[key]
