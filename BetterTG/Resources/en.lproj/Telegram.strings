@@ -4036,3 +4036,13 @@
 "Chat.ErrorQuoteOutdatedTitle" = "Quote Outdated";
 "Chat.ErrorQuoteOutdatedText" = "**%@** updated the message you are quoting. Edit your quote to make it up-to-date.";
 "Chat.ErrorQuoteOutdatedActionEdit" = "Edit";
+"Chat.SendAllowedContentText" = "The admins of this group only allow to send %1$@.";
+"Chat.SendNotAllowedText" = "Sending messages is not allowed in this group";
+"Chat.SendAllowedContentTypeText" = "text messages";
+"Chat.SendAllowedContentTypePhoto" = "photos";
+"Chat.SendAllowedContentTypeVideo" = "videos";
+"Chat.SendAllowedContentTypeVoiceMessage" = "voice messages";
+"Chat.SendAllowedContentTypeVideoMessage" = "video messages";
+"Chat.SendAllowedContentTypeFile" = "files";
+"Chat.SendAllowedContentTypeMusic" = "music";
+"Chat.SendAllowedContentTypeSticker" = "stickers & GIFs";

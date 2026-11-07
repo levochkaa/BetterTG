@@ -146,6 +146,8 @@ final class ChatComposerView: UIView {
     private let replyKeyboardInputView = ReplyKeyboardInputView()
     private let mediaInputResponder = ComposerInputResponder()
     private let actionButton = UIButton(type: .system)
+    /// Over the faded microphone of a group that bans voice and video messages: a tap says what may be sent.
+    private let restrictedRecordingButton = UIButton(type: .custom)
     private let restrictionLabel = UILabel()
     private let botStartButton = UIButton(type: .system)
     /// ChatTextInputPanelNode's menu button: a bot's command list labelled "Menu", or its Web App labelled with the
@@ -1174,6 +1176,17 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(mediaInputButton)
         inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
+        restrictedRecordingButton.translatesAutoresizingMaskIntoConstraints = false
+        restrictedRecordingButton.isHidden = true
+        restrictedRecordingButton.accessibilityLabel = L10n.betterTG("Accessibility.RecordVoiceMessage")
+        restrictedRecordingButton.addTarget(self, action: #selector(restrictedRecordingTapped), for: .touchUpInside)
+        inputRow.addSubview(restrictedRecordingButton)
+        NSLayoutConstraint.activate([
+            restrictedRecordingButton.leadingAnchor.constraint(equalTo: actionButton.leadingAnchor),
+            restrictedRecordingButton.trailingAnchor.constraint(equalTo: actionButton.trailingAnchor),
+            restrictedRecordingButton.topAnchor.constraint(equalTo: actionButton.topAnchor),
+            restrictedRecordingButton.bottomAnchor.constraint(equalTo: actionButton.bottomAnchor),
+        ])
         NSLayoutConstraint.activate([
             botMenuButton.heightAnchor.constraint(equalToConstant: 36),
             // The Web App button's text gets at most half the panel less 60 points, as `menuButtonTextNode` does.
@@ -2292,8 +2305,16 @@ final class ChatComposerView: UIView {
                 animated: animates,
             )
         }
-        actionButton.isHidden = !hasContent && !canRecordSelectedMode
+        // mediaInputDisabled: the microphone stays, faded, where the group bans both kinds of recording.
+        let recordingRestriction = !hasContent && !canRecordSelectedMode && !isRecordingMedia
+            ? chatVM.mediaRecordingRestrictionText
+            : nil
+        actionButton.isHidden = !hasContent && !canRecordSelectedMode && recordingRestriction == nil
         actionButton.isEnabled = hasContent || canRecordSelectedMode
+        restrictedRecordingButton.isHidden = recordingRestriction == nil
+        // ChatTextInputPanelNode's micAlpha for a faded microphone.
+        recordModeIcon.alpha = recordingRestriction == nil ? 1 : 0.5
+        restrictedRecordingButton.accessibilityHint = recordingRestriction
         actionButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: isRecordingMedia || hasContent ? 28 : 20,
@@ -3032,6 +3053,11 @@ final class ChatComposerView: UIView {
             bottomInset: bounds.height + 8,
             undo: nil,
         )
+    }
+
+    @objc private func restrictedRecordingTapped() {
+        guard let text = chatVM.mediaRecordingRestrictionText, let host = nearestViewController?.view else { return }
+        TelegramUndoToast.show(text: text, in: host, bottomInset: bounds.height + 8, undo: nil, maximumLines: 10)
     }
 
     @objc private func actionTouchDown(_ sender: UIButton) {

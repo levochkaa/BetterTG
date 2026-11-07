@@ -132,9 +132,12 @@ import UIKit
         actionTitle: String? = nil,
         undo: (() -> Void)?,
         tap: (() -> Void)? = nil,
+        maximumLines: Int? = nil,
     ) {
         current?.dismiss(animated: false)
         let toast = TelegramUndoToast(title: title, text: text, actionTitle: actionTitle, undo: undo)
+        // UndoOverlayController's `.info` text takes up to 10 lines.
+        if let maximumLines { toast.label.numberOfLines = maximumLines }
         // UndoOverlayController's `.info` action: a tap on the panel opens what the text names.
         if let tap {
             toast.tapAction = tap

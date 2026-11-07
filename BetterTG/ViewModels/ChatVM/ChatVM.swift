@@ -832,6 +832,35 @@ import UIKit
         return !customChat.isSavedMessages
     }
 
+    /// ChatTextInputPanelNode's mediaInputDisabled in a group whose permissions ban both voice and video messages: the
+    /// faded microphone answers with restrictedSendingContentsText, what the admins allow ("The admins of this group
+    /// only allow to send text messages, photos and stickers & GIFs.") or that nothing may be sent.
+    var mediaRecordingRestrictionText: String? {
+        switch customChat.type {
+        case .group:
+            break
+        case .supergroup(let group) where !group.isChannel:
+            break
+        default:
+            return nil
+        }
+        guard !permissionAllows(.voiceNote), !permissionAllows(.videoNote) else { return nil }
+        let kinds: [(ChatSendContentKind, String)] = [
+            (.text, "Chat.SendAllowedContentTypeText"),
+            (.photo, "Chat.SendAllowedContentTypePhoto"),
+            (.video, "Chat.SendAllowedContentTypeVideo"),
+            (.voiceNote, "Chat.SendAllowedContentTypeVoiceMessage"),
+            (.videoNote, "Chat.SendAllowedContentTypeVideoMessage"),
+            (.document, "Chat.SendAllowedContentTypeFile"),
+            (.audio, "Chat.SendAllowedContentTypeMusic"),
+            (.sticker, "Chat.SendAllowedContentTypeSticker"),
+        ]
+        let allowed = kinds.filter { permissionAllows($0.0) }.map { L10n.telegram($0.1) }
+        guard !allowed.isEmpty else { return L10n.telegram("Chat.SendNotAllowedText") }
+        let list = ListFormatter.localizedString(byJoining: allowed)
+        return L10n.telegram("Chat.SendAllowedContentText", list)
+    }
+
     var canRecordVoiceNote: Bool {
         (try? resolveSendContext(
             for: .voiceNote,
@@ -7939,6 +7968,18 @@ import UIKit
              .voiceNote: if recipientRestrictsVoiceAndVideoNotes { return false }
         default: break
         }
+        #if DEBUG
+            // `-ui-probe-recording-restricted`: groups ban voice and video messages.
+            if kind == .voiceNote || kind == .videoNote,
+               ProcessInfo.processInfo.arguments.contains("-ui-probe-recording-restricted")
+            {
+                switch customChat.type {
+                case .group: return false
+                case .supergroup(let group) where !group.isChannel: return false
+                default: break
+                }
+            }
+        #endif
         let permission: KeyPath<ChatPermissions, Bool> =
             switch kind {
             case .animation,
