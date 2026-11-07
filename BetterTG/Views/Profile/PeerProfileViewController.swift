@@ -215,6 +215,8 @@ ClientRestorableNavigationEntry {
     private let infoCardView = ProfileInfoCardView()
     private var businessLocation: TDNativeBusinessLocation?
     private var infoBirthdate: TDNativeBirthdate?
+    private var lastUserFullInfo: UserFullInfo?
+    private var addedToContacts = false
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -2482,6 +2484,7 @@ ClientRestorableNavigationEntry {
         infoCardView.isHidden = true
         infoCardView.onOpenAddress = { [weak self] in self?.openBusinessLocation() }
         infoCardView.onMenu = { [weak self] row, view in self?.openInfoRowMenu(row, from: view) }
+        infoCardView.onAction = { [weak self] _ in self?.presentAddContact() }
         headerStack.setCustomSpacing(20, after: personalChannelView)
         headerStack.addArrangedSubview(infoCardView)
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
@@ -3417,6 +3420,7 @@ ClientRestorableNavigationEntry {
     /// PeerInfoProfileItems' peerInfo rows the header doesn't show: the date of birth with the age ("birthday today" on
     /// the day), the account's notes on the person, "only visible to you", and a business's hours and address.
     private func applyInfoRows(_ info: UserFullInfo) {
+        lastUserFullInfo = info
         var rows = [ProfileInfoCardView.Row]()
         if let birthdate = info.birthdate {
             infoBirthdate = birthdate
@@ -3467,6 +3471,12 @@ ClientRestorableNavigationEntry {
                 label: L10n.telegram("PeerInfo.Location.Label"), text: location.address,
                 opens: location.location != nil,
             ))
+        }
+        // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet.
+        if !isMyProfile, !addedToContacts, let user = customChat.user, !user.isContact,
+           case .userTypeRegular = user.type
+        {
+            rows.append(.action(title: L10n.telegram("PeerInfo.AddToContacts")))
         }
         guard rows != infoCardView.rows else { return }
         infoCardView.configure(rows: rows)
@@ -3537,6 +3547,8 @@ ClientRestorableNavigationEntry {
                     "MyProfile.ToastBirthdayCopied",
                 ))
             }
+        case .action:
+            break
         case .hours(let hours):
             actions.append(copy(
                 BusinessHoursRowView.copyText(hours),
@@ -3554,6 +3566,52 @@ ClientRestorableNavigationEntry {
         }
         guard !actions.isEmpty else { return }
         presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// openAddPersonContact: the person's name to keep, then addContact without sharing the account's number; the row
+    /// goes once they're a contact.
+    private func presentAddContact() {
+        guard contextIsCurrent, presentedViewController == nil, let user = customChat.user else { return }
+        let client = client
+        let alert = UIAlertController(title: L10n.telegram("AddContact.Title"), message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.FirstNamePlaceholder")
+            field.text = user.firstName
+            field.autocapitalizationType = .words
+        }
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.LastNamePlaceholder")
+            field.text = user.lastName
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak self, weak alert] _ in
+            let firstName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lastName = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !firstName.isEmpty || !lastName.isEmpty else { return }
+            let contact = ImportedContact(
+                firstName: firstName,
+                lastName: lastName,
+                note: FormattedText(entities: [], text: ""),
+                phoneNumber: user.phoneNumber,
+            )
+            Task { [weak self] in
+                let added = await (try? client.addContact(contact: contact, sharePhoneNumber: false, userId: user.id))
+                    != nil
+                guard let self, contextIsCurrent else { return }
+                guard added else {
+                    presentChatListActionFailure()
+                    return
+                }
+                addedToContacts = true
+                if let info = lastUserFullInfo { applyInfoRows(info) }
+                let name = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                showInfoToast(L10n.telegram("AddContact.StatusSuccess", name))
+            }
+        }
+        alert.addAction(done)
+        alert.preferredAction = done
+        present(alert, animated: true)
     }
 
     /// PeerInfoScreen's openLocation: the business's place on the map, titled with its name.

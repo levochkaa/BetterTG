@@ -13,6 +13,8 @@ final class ProfileInfoCardView: UIView {
         case value(label: String, rightLabel: String? = nil, text: String, tapOpensMenu: Bool = false)
         case hours(BusinessHours)
         case address(label: String, text: String, opens: Bool)
+        /// PeerInfoScreenActionItem: an accent title that acts on a tap, as Add to Contacts.
+        case action(title: String)
     }
 
     /// TDLib's businessOpeningHours in the business's time zone and the account's, minutes from Monday 00:00.
@@ -25,6 +27,7 @@ final class ProfileInfoCardView: UIView {
     var onOpenAddress: (() -> Void)?
     /// The row's menu, from a long press or, for a row that asks for it, a tap.
     var onMenu: ((Row, UIView) -> Void)?
+    var onAction: ((Row) -> Void)?
 
     private(set) var rows = [Row]()
 
@@ -82,10 +85,19 @@ final class ProfileInfoCardView: UIView {
                             }
                             : nil,
                     )
+                case .action(let title):
+                    ProfileInfoActionRowView(title: title) { [weak self] in
+                        guard let self, rows.indices.contains(index) else { return }
+                        onAction?(rows[index])
+                    }
                 }
             if index > 0 { addSeparator(to: view) }
-            let longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-            view.addGestureRecognizer(longPress)
+            if case .action = row {} else {
+                view.addGestureRecognizer(UILongPressGestureRecognizer(
+                    target: self,
+                    action: #selector(longPressed(_:)),
+                ))
+            }
             view.tag = index
             stack.addArrangedSubview(view)
         }
@@ -187,6 +199,46 @@ private final class ProfileInfoValueRowView: UIControl {
 
     @objc private func tapped() {
         action?()
+    }
+}
+
+// MARK: - ProfileInfoActionRowView
+
+private final class ProfileInfoActionRowView: UIControl {
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? .systemFill : .clear }
+    }
+
+    private let action: () -> Void
+
+    init(title: String, action: @escaping () -> Void) {
+        self.action = action
+        super.init(frame: .zero)
+        let label = UILabel()
+        label.text = title
+        label.font = .systemFont(ofSize: 17)
+        label.textColor = .tintColor
+        label.isUserInteractionEnabled = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+        ])
+        isAccessibilityElement = true
+        accessibilityLabel = title
+        accessibilityTraits = .button
+        addTarget(self, action: #selector(tapped), for: .touchUpInside)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func tapped() {
+        action()
     }
 }
 

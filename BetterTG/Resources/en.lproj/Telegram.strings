@@ -3974,3 +3974,4 @@
 "MyProfile.ToastLocationCopied" = "Location copied to clipboard.";
 "MyProfile.LocationActionOpen" = "Open in Maps";
 "MyProfile.LocationActionCopy" = "Copy Address";
+"PeerInfo.AddToContacts" = "Add to Contacts";
