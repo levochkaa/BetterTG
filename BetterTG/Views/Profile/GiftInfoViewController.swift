@@ -92,6 +92,18 @@ final class GiftInfoViewController: UIViewController {
         return Int(Date().timeIntervalSince1970) <= gift.date + Self.convertPeriod
     }
 
+    /// The account's own regular gift that TDLib can upgrade: the button below opens the upgrade preview.
+    private var upgradableGift: TDNativeGift? {
+        guard isOwnProfile, !gift.receivedGiftId.isEmpty, case .sentGiftRegular(let value) = gift.gift else {
+            return nil
+        }
+        #if DEBUG
+            // `-ui-probe-gift-upgrade` offers the upgrade on any regular gift, to see the button and the preview.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-gift-upgrade") { return value.gift }
+        #endif
+        return gift.canBeUpgraded ? value.gift : nil
+    }
+
     init(
         gift: TDNativeReceivedGift,
         isOwnProfile: Bool,
@@ -191,14 +203,22 @@ final class GiftInfoViewController: UIViewController {
         scrollView.addSubview(table)
 
         var configuration = UIButton.Configuration.prominentGlass()
-        configuration.title = L10n.telegram("Common.OK")
+        // The upgrade button takes OK's place: Upgrade for Free when the sender prepaid it.
+        configuration.title =
+            if upgradableGift == nil {
+                L10n.telegram("Common.OK")
+            } else if gift.prepaidUpgradeStarCount > 0 {
+                L10n.telegram("Gift.View.UpgradeForFree")
+            } else {
+                L10n.telegram("Gift.View.Upgrade")
+            }
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = .systemFont(ofSize: 17, weight: .semibold)
             return outgoing
         }
         okButton.configuration = configuration
-        okButton.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
+        okButton.addAction(UIAction { [weak self] _ in self?.okPressed() }, for: .touchUpInside)
         scrollView.addSubview(okButton)
         resolvePeers()
         if showsVisibility {
@@ -472,6 +492,9 @@ final class GiftInfoViewController: UIViewController {
     private func descriptionText() -> String {
         if let upgraded { return upgraded.model.name }
         guard isOwnProfile, case .sentGiftRegular(let value) = gift.gift else { return "" }
+        if gift.canBeUpgraded, gift.prepaidUpgradeStarCount > 0 {
+            return L10n.telegram("Gift.View.FreeUpgradeDescription")
+        }
         if value.gift.overallLimits != nil {
             return gift.canBeUpgraded
                 ? L10n.telegram("Gift.View.UpgradeDescription")
@@ -571,6 +594,16 @@ final class GiftInfoViewController: UIViewController {
             ))
         }
         return rows
+    }
+
+    private func okPressed() {
+        guard let regular = upgradableGift else {
+            dismiss(animated: true)
+            return
+        }
+        GiftUpgradeViewController.present(gift, regular: regular, client: client, from: self) { [weak self] in
+            self?.onVisibilityChanged?()
+        }
     }
 
     /// HeaderButtonComponent's row on the backdrop, the glass tinted with the backdrop mixed 20% toward white.
