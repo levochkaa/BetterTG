@@ -7,20 +7,24 @@ import UIKit
 
 /// AddGiftsScreen: the profile's gifts in GiftsListView's grid with a check on each, those already in the collection
 /// dimmed and left out, and Add N Gifts at the bottom, which hands the picked gifts back in the grid's order. The
-/// sort and filter menu and the collection's 1000-gift limit are not ported.
+/// sort button opens the profile's sort and filters; no more gifts are picked than the collection has room for.
 final class GiftSelectionViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSource {
     var onAdd: (([String]) -> Void)?
 
     private let client: TDLibClient
     private let collectionID: Int
+    /// GiftsListView's remainingSelectionCount: the collection's room under stargifts_collection_gifts_limit.
+    private let remainingCount: Int
+    private let filterButton = UIButton(type: .system)
     private let pane: PeerProfileGiftsPane
     private var selected = [String]()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private let addButton = UIButton(configuration: .prominentGlass())
 
-    init(ownerID: MessageSender, collectionID: Int, client: TDLibClient) {
+    init(ownerID: MessageSender, collectionID: Int, remainingCount: Int, client: TDLibClient) {
         self.client = client
         self.collectionID = collectionID
+        self.remainingCount = remainingCount
         self.pane = PeerProfileGiftsPane(ownerID: ownerID, client: client) { true }
         super.init(nibName: nil, bundle: nil)
     }
@@ -37,6 +41,10 @@ final class GiftSelectionViewController: UIViewController, UICollectionViewDeleg
             title: L10n.telegram("Common.Cancel"),
             primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
         )
+        filterButton.setImage(UIImage(systemName: "line.3.horizontal.decrease"), for: .normal)
+        filterButton.accessibilityLabel = L10n.betterTG("Profile.GiftsFilter")
+        filterButton.addAction(UIAction { [weak self] _ in self?.openFilterMenu() }, for: .touchUpInside)
+        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: filterButton)
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.dataSource = self
@@ -95,7 +103,7 @@ final class GiftSelectionViewController: UIViewController, UICollectionViewDeleg
               !gift.collectionIds.contains(collectionID) else { return }
         if let index = selected.firstIndex(of: gift.receivedGiftId) {
             selected.remove(at: index)
-        } else {
+        } else if selected.count < remainingCount {
             selected.append(gift.receivedGiftId)
         }
         collectionView.reconfigureItems(at: [indexPath])
@@ -114,6 +122,15 @@ final class GiftSelectionViewController: UIViewController, UICollectionViewDeleg
         }
         addButton.configuration = configuration
         addButton.isEnabled = !selected.isEmpty
+    }
+
+    /// AddGiftsScreen's filter button: the same sort and filters as the profile's, Displayed and Hidden included.
+    private func openFilterMenu() {
+        presentTelegramContextMenu(
+            sourceView: filterButton,
+            actions: pane.filterMenuActions(hasVisibility: true),
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func addPressed() {

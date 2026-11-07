@@ -1293,7 +1293,10 @@ ClientRestorableNavigationEntry {
     /// addGiftsToCollection: AddGiftsScreen over the profile's gifts, then the picked ones join the collection.
     private func presentAddGifts(toCollection id: Int) {
         guard let giftsPane else { return }
-        let picker = GiftSelectionViewController(ownerID: giftsPane.owner, collectionID: id, client: client)
+        let inCollection = giftsPane.collections.first { $0.id == id }?.giftCount ?? 0
+        let picker = GiftSelectionViewController(
+            ownerID: giftsPane.owner, collectionID: id, remainingCount: max(0, 1000 - inCollection), client: client,
+        )
         picker.onAdd = { [weak self] giftIDs in
             guard let self else { return }
             self.giftsPane?.addGifts(giftIDs, toCollection: id, host: self)
