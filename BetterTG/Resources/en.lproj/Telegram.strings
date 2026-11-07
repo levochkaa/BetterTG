@@ -3874,3 +3874,14 @@
 "PeerInfo.LeaveChannelText" = "Are you sure you want to leave the channel **%@**?";
 "PeerInfo.ClearConfirmationUser" = "Are you sure you want to delete all messages with %@?";
 "PeerInfo.ClearConfirmationGroup" = "Are you sure you want to delete all messages in %@?";
+"PeerInfo.ReportProfilePhoto" = "Report Profile Photo";
+"PeerInfo.ReportProfileVideo" = "Report Profile Video";
+"ReportPeer.ReasonSpam" = "Spam";
+"ReportPeer.ReasonViolence" = "Violence";
+"ReportPeer.ReasonPornography" = "Pornography";
+"ReportPeer.ReasonChildAbuse" = "Child Abuse";
+"ReportPeer.ReasonCopyright" = "Copyright";
+"ReportPeer.ReasonOther" = "Other";
+"ReportPeer.ReasonOther.Title" = "Report";
+"ReportPeer.ReasonOther.Placeholder" = "Description";
+"ReportPeer.ReasonOther.Send" = "Send";

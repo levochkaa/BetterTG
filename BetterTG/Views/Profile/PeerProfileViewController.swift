@@ -2312,6 +2312,59 @@ ClientRestorableNavigationEntry {
         NavigationStorage.shared.retryClientRestoration()
     }
 
+    /// PeerInfo.ReportProfilePhoto (or Video) over presentPeerReportOptions' reasons, for a photo the person set
+    /// themselves; reportChatPhoto with Telegram's toast. Other asks for a description first.
+    private func avatarReportActions() -> [TelegramContextMenuAction] {
+        guard !isSelfProfile, let photo = customChat.chat.photo, !photo.isPersonal else { return [] }
+        let chatID = customChat.chat.id
+        let fileID = photo.big.id
+        let reasons: [(String, TDNativeReportReason)] = [
+            ("ReportPeer.ReasonSpam", .reportReasonSpam),
+            ("ReportPeer.ReasonViolence", .reportReasonViolence),
+            ("ReportPeer.ReasonPornography", .reportReasonPornography),
+            ("ReportPeer.ReasonChildAbuse", .reportReasonChildAbuse),
+            ("ReportPeer.ReasonCopyright", .reportReasonCopyright),
+        ]
+        var children = reasons.map { key, reason in
+            TelegramContextMenuAction(title: L10n.telegram(key)) { [weak self] in
+                self?.reportPhoto(chatID: chatID, fileID: fileID, reason: reason, text: "")
+            }
+        }
+        children.append(TelegramContextMenuAction(title: L10n.telegram("ReportPeer.ReasonOther")) { [weak self] in
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: L10n.telegram("ReportPeer.ReasonOther.Title"), message: nil, preferredStyle: .alert,
+            )
+            alert.addTextField { $0.placeholder = L10n.telegram("ReportPeer.ReasonOther.Placeholder") }
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.telegram("ReportPeer.ReasonOther.Send"), style: .default) {
+                [weak self, weak alert] _ in
+                let text = alert?.textFields?.first?.text ?? ""
+                self?.reportPhoto(chatID: chatID, fileID: fileID, reason: .reportReasonCustom, text: text)
+            })
+            present(alert, animated: true)
+        })
+        return [TelegramContextMenuAction(
+            title: L10n.telegram(photo.hasAnimation ? "PeerInfo.ReportProfileVideo" : "PeerInfo.ReportProfilePhoto"),
+            image: UIImage(systemName: "exclamationmark.bubble"),
+            children: children,
+        )]
+    }
+
+    private func reportPhoto(chatID: Int64, fileID: Int, reason: TDNativeReportReason, text: String) {
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.reportChatPhoto(
+                    chatId: chatID, fileId: fileID, reason: reason, text: text,
+                ))
+                self?.showInfoToast(L10n.telegram("Report.Succeed"))
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
     private func configureHeader() {
         profileHeaderView.backgroundColor = .systemBackground
         let headerStack = UIStackView()
@@ -2322,7 +2375,9 @@ ClientRestorableNavigationEntry {
         profileHeaderView.addSubview(headerStack)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.showsContextMenu = false
+        // displayAvatarContextMenu: someone else's own photo can be reported; nothing else holds on the avatar.
+        avatarView.showsContextMenu = !isSelfProfile
+        avatarView.contextMenuActions = { [weak self] in self?.avatarReportActions() ?? [] }
         avatarView.configure(
             file: displayedAvatarFile,
             minithumbnail: displayedAvatarMinithumbnail,
