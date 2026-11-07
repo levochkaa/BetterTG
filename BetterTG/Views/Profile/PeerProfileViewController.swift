@@ -1180,7 +1180,9 @@ ClientRestorableNavigationEntry {
             // GiftsListView opens GiftViewScreen for the tapped gift.
             guard contextIsCurrent, !isReorderingGifts, let id = dataSource.itemIdentifier(for: indexPath),
                   let gift = giftsPane?.gift(for: id) else { return }
-            GiftInfoViewController.present(gift, isOwnProfile: isMyProfile, client: client, from: self)
+            GiftInfoViewController.present(
+                gift, isOwnProfile: isMyProfile, client: client, from: self,
+            ) { [weak self] in self?.giftsPane?.reload() }
             return
         }
         if currentSharedTab.isStories {

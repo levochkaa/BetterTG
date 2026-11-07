@@ -25,6 +25,9 @@ final class GiftInfoViewController: UIViewController {
         return formatter
     }()
 
+    /// Runs after Hide from Profile or Show on Profile, so the grid reads the gift again.
+    var onVisibilityChanged: (() -> Void)?
+
     private let gift: TDNativeReceivedGift
     private let isOwnProfile: Bool
     private let client: TDLibClient
@@ -39,6 +42,9 @@ final class GiftInfoViewController: UIViewController {
     private let table = GiftInfoTableView()
     private let okButton = UIButton(configuration: .prominentGlass())
 
+    private let visibilityLabel = UILabel()
+    private var isSaved = false
+
     private var upgraded: TDNativeUpgradedGift? {
         if case .sentGiftUpgraded(let value) = gift.gift { return value.gift }
         return nil
@@ -46,6 +52,12 @@ final class GiftInfoViewController: UIViewController {
 
     private var headerHeight: CGFloat {
         upgraded == nil ? 210 : 240
+    }
+
+    /// The visibility line for the account's own gift that it still holds (not converted, not received upgraded
+    /// elsewhere): GiftViewScreen's DisplayedInfoNew or HiddenInfoNew.
+    private var showsVisibility: Bool {
+        isOwnProfile && !gift.receivedGiftId.isEmpty
     }
 
     init(gift: TDNativeReceivedGift, isOwnProfile: Bool, client: TDLibClient) {
@@ -138,6 +150,18 @@ final class GiftInfoViewController: UIViewController {
         okButton.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
         scrollView.addSubview(okButton)
         resolvePeers()
+        if showsVisibility {
+            isSaved = gift.isSaved
+            visibilityLabel.numberOfLines = 0
+            visibilityLabel.textAlignment = .center
+            visibilityLabel.isUserInteractionEnabled = true
+            visibilityLabel.addGestureRecognizer(UITapGestureRecognizer(
+                target: self,
+                action: #selector(toggleVisibility),
+            ))
+            scrollView.addSubview(visibilityLabel)
+            updateVisibilityText()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -169,8 +193,10 @@ final class GiftInfoViewController: UIViewController {
         isOwnProfile: Bool,
         client: TDLibClient,
         from host: UIViewController,
+        onVisibilityChanged: (() -> Void)? = nil,
     ) {
         let controller = GiftInfoViewController(gift: gift, isOwnProfile: isOwnProfile, client: client)
+        controller.onVisibilityChanged = onVisibilityChanged
         controller.modalPresentationStyle = .pageSheet
         if let sheet = controller.sheetPresentationController {
             sheet.detents = [.custom { [weak controller] context in
@@ -244,6 +270,22 @@ final class GiftInfoViewController: UIViewController {
         let tableHeight = table.height(for: tableWidth)
         let tableFrame = CGRect(x: sideInset, y: originY, width: tableWidth, height: tableHeight)
         originY += tableHeight + 23
+        // The visibility line 5 pt up from the button's place, then 16 pt to the button.
+        var visibilityFrame = CGRect.zero
+        if showsVisibility {
+            let size = visibilityLabel.sizeThatFits(CGSize(
+                width: width - sideInset * 2,
+                height: .greatestFiniteMagnitude,
+            ))
+            originY -= 5
+            visibilityFrame = CGRect(
+                x: floor((width - size.width) / 2),
+                y: originY,
+                width: size.width,
+                height: size.height,
+            )
+            originY += size.height + 16
+        }
         let buttonFrame = CGRect(x: sideInset, y: originY, width: width - sideInset * 2, height: 52)
         originY += 52 + max(view.safeAreaInsets.bottom, 16) + 8
         guard apply else { return originY }
@@ -272,8 +314,63 @@ final class GiftInfoViewController: UIViewController {
             height: descriptionSize.height,
         )
         table.frame = tableFrame
+        visibilityLabel.frame = visibilityFrame
         okButton.frame = buttonFrame
         return originY
+    }
+
+    /// "This gift is visible. Hide from Profile >" or, after the hidden icon, "This gift is hidden. Show on Profile
+    /// >": 13 pt secondary text, the link in the accent colour. A tap on the line toggles it (toggleGiftIsSaved).
+    private func updateVisibilityText() {
+        let raw = L10n.telegram(isSaved ? "Gift.View.DisplayedInfoNew" : "Gift.View.HiddenInfoNew")
+        let font = UIFont.systemFont(ofSize: 13)
+        let result = NSMutableAttributedString()
+        if !isSaved, let hidden = UIImage(named: "Gift/Hidden")?.withTintColor(
+            .secondaryLabel,
+            renderingMode: .alwaysOriginal,
+        ) {
+            let attachment = NSTextAttachment(image: hidden)
+            attachment.bounds = CGRect(x: 0, y: -2, width: 14, height: 14)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: "  "))
+        }
+        // The Markdown link: plain text before it, the link's text in the accent colour with its chevron.
+        if let open = raw.range(of: "["), let close = raw.range(of: "]()") {
+            result.append(NSAttributedString(
+                string: String(raw[..<open.lowerBound]),
+                attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel],
+            ))
+            let link = String(raw[open.upperBound..<close.lowerBound]).replacing(" >", with: "\u{00A0}›")
+            result.append(NSAttributedString(
+                string: link,
+                attributes: [.font: font, .foregroundColor: UIColor.tintColor],
+            ))
+        } else {
+            result.append(NSAttributedString(
+                string: raw,
+                attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel],
+            ))
+        }
+        visibilityLabel.attributedText = result
+        visibilityLabel.accessibilityTraits = .button
+    }
+
+    @objc private func toggleVisibility() {
+        let saved = !isSaved
+        let client = client
+        let giftID = gift.receivedGiftId
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleGiftIsSaved(receivedGiftId: giftID, isSaved: saved))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            isSaved = saved
+            updateVisibilityText()
+            view.setNeedsLayout()
+            onVisibilityChanged?()
+        }
     }
 
     // MARK: Content

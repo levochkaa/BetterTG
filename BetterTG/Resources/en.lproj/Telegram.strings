@@ -3564,3 +3564,5 @@
 "AddGifts.AddGifts_1" = "Add %@ Gift";
 "AddGifts.AddGifts_any" = "Add %@ Gifts";
 "PeerInfo.Gifts.Reorder" = "Reorder";
+"Gift.View.DisplayedInfoNew" = "This gift is visible. [Hide from Profile >]()";
+"Gift.View.HiddenInfoNew" = "This gift is hidden. [Show on Profile >]()";
