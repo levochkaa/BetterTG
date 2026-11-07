@@ -3543,3 +3543,16 @@
 "Chat.Context.Phone.AddToContacts" = "Add to Contacts";
 "Chat.Context.Date.SetReminder" = "Set a Reminder";
 "Conversation.DateReminderSet" = "You have set a reminder in [Saved Messages]().";
+"PeerInfo.Gifts.Collections.Add" = "Add Collection";
+"PeerInfo.Gifts.AddCollection" = "Add Collection";
+"PeerInfo.Gifts.RenameCollection" = "Rename";
+"PeerInfo.Gifts.DeleteCollection" = "Delete Collection";
+"PeerInfo.Gifts.CreateCollection.Title" = "Create a New Collection";
+"PeerInfo.Gifts.CreateCollection.Text" = "Choose a name for your collection and start adding your gifts there.";
+"PeerInfo.Gifts.CreateCollection.Placeholder" = "Title";
+"PeerInfo.Gifts.RenameCollection.Title" = "Create a New Collection";
+"PeerInfo.Gifts.Context.AddToCollection" = "Add to Collection";
+"PeerInfo.Gifts.Context.NewCollection" = "New Collection";
+"PeerInfo.Gifts.Context.RemoveFromCollection" = "Remove from Collection";
+"PeerInfo.Gifts.RemoveCollectionConfirmation" = "This will remove the collection.";
+"PeerInfo.Gifts.RemoveCollectionAction" = "Remove";

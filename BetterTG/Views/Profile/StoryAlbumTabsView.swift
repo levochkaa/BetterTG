@@ -53,6 +53,7 @@ final class StoryAlbumTabsView: UICollectionReusableView {
         albums: [(id: Int, name: String)],
         selectedID: Int?,
         allTitle: String = L10n.telegram("Stories.AlbumAll"),
+        addTitle: String = L10n.telegram("Stories.AlbumAdd"),
         onSelect: @escaping (Int?) -> Void,
         onAdd: (() -> Void)? = nil,
         onMenu: ((Int, UIView, ContextMenuPressGestureRecognizer) -> Void)? = nil,
@@ -94,11 +95,14 @@ final class StoryAlbumTabsView: UICollectionReusableView {
                 press.castsShadow = false
                 button.addGestureRecognizer(press)
             }
+            // Each tab keeps its title's width; a row wider than the view scrolls instead of stretching them.
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
             stack.addArrangedSubview(button)
         }
         if onAdd != nil {
             var configuration = UIButton.Configuration.plain()
-            configuration.title = L10n.telegram("Stories.AlbumAdd")
+            configuration.title = addTitle
             configuration.baseForegroundColor = .tintColor
             configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
             configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
@@ -108,6 +112,9 @@ final class StoryAlbumTabsView: UICollectionReusableView {
             }
             let button = UIButton(configuration: configuration)
             button.addAction(UIAction { [weak self] _ in self?.onAdd?() }, for: .touchUpInside)
+            // Each tab keeps its title's width; a row wider than the view scrolls instead of stretching them.
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
             stack.addArrangedSubview(button)
         }
     }

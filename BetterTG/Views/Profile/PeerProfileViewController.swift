@@ -1296,6 +1296,7 @@ ClientRestorableNavigationEntry {
             albums: giftsPane.collections.map { (id: $0.id, name: $0.name) },
             selectedID: giftsPane.selectedCollectionID,
             allTitle: L10n.telegram("PeerInfo.Gifts.Collections.All"),
+            addTitle: "+ " + L10n.telegram("PeerInfo.Gifts.Collections.Add"),
             onSelect: { [weak self] id in
                 guard let self, let giftsPane = self.giftsPane else { return }
                 giftsPane.selectCollection(id)
@@ -1305,7 +1306,74 @@ ClientRestorableNavigationEntry {
                     configureGiftCollectionTabs(view as? StoryAlbumTabsView)
                 }
             },
+            onAdd: isMyProfile ? { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) } : nil,
+            onMenu: isMyProfile
+                ? { [weak self] id, source, gesture in
+                    self?.openGiftCollectionMenu(id, source: source, gesture: gesture)
+                }
+                : nil,
         )
+    }
+
+    /// PeerInfoGiftsPaneNode.createCollection: a name of at most 12 characters, then the collection, shown.
+    private func presentCreateGiftCollection(giftIDs: [String]) {
+        presentAlbumNamePrompt(
+            title: L10n.telegram("PeerInfo.Gifts.CreateCollection.Title"),
+            text: L10n.telegram("PeerInfo.Gifts.CreateCollection.Text"),
+            name: "",
+            placeholder: L10n.telegram("PeerInfo.Gifts.CreateCollection.Placeholder"),
+            limit: 12,
+        ) { [weak self] name in
+            guard let self else { return }
+            giftsPane?.createCollection(name: name, giftIDs: giftIDs, host: self)
+        }
+    }
+
+    /// openCollectionContextMenu for the account's own collections: Rename and Delete Collection. Add Gifts, Share
+    /// and Reorder are not ported.
+    private func openGiftCollectionMenu(_ id: Int, source: UIView, gesture: UIGestureRecognizer) {
+        guard let collection = giftsPane?.collections.first(where: { $0.id == id }) else { return }
+        presentTelegramContextMenu(sourceView: source, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.RenameCollection"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in
+                self?.presentAlbumNamePrompt(
+                    title: L10n.telegram("PeerInfo.Gifts.RenameCollection.Title"),
+                    text: nil,
+                    name: collection.name,
+                    placeholder: L10n.telegram("PeerInfo.Gifts.CreateCollection.Placeholder"),
+                    limit: 12,
+                ) { [weak self] name in
+                    guard let self else { return }
+                    giftsPane?.renameCollection(id, to: name, host: self)
+                }
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.DeleteCollection"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDeleteGiftCollection(id) },
+        ], tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    /// deleteCollection's sheet: "This will remove the collection." and Remove.
+    private func confirmDeleteGiftCollection(_ id: Int) {
+        let sheet = UIAlertController(
+            title: nil, message: L10n.telegram("PeerInfo.Gifts.RemoveCollectionConfirmation"),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram("PeerInfo.Gifts.RemoveCollectionAction"),
+            style: .destructive,
+        ) {
+            [weak self] _ in
+            guard let self else { return }
+            giftsPane?.deleteCollection(id, host: self)
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = view
+        present(sheet, animated: true)
     }
 
     private func configureAlbumTabs(_ view: StoryAlbumTabsView?) {
@@ -1433,19 +1501,23 @@ ClientRestorableNavigationEntry {
     /// promptController with a title, a text and a field of at most 20 characters.
     private func presentAlbumNamePrompt(
         title: String,
-        text: String,
+        text: String?,
         name: String,
+        placeholder: String = L10n.telegram("Stories.CreateAlbum.Placeholder"),
+        limit: Int = 20,
         apply: @escaping (String) -> Void,
     ) {
         let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
         alert.addTextField { field in
             field.text = name
-            field.placeholder = L10n.telegram("Stories.CreateAlbum.Placeholder")
+            field.placeholder = placeholder
             field.autocapitalizationType = .sentences
         }
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
-            let value = String((alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespaces).prefix(20))
+            let value = String((alert?.textFields?.first?.text ?? "")
+                .trimmingCharacters(in: .whitespaces)
+                .prefix(limit))
             guard !value.isEmpty else { return }
             apply(value)
         })
@@ -3531,11 +3603,25 @@ ClientRestorableNavigationEntry {
     private func openGiftsFilterMenu() {
         guard contextIsCurrent, currentSharedTab == .gifts, let giftsPane,
               let source = giftsFilterItem.telegramChromeView else { return }
-        presentTelegramContextMenu(
-            sourceView: source,
-            actions: giftsPane.filterMenuActions(hasVisibility: isMyProfile),
-            presentationStyle: .sourceMorph,
-        )
+        var actions = giftsPane.filterMenuActions(hasVisibility: isMyProfile)
+        // PeerInfoScreenDisplayGiftsContextMenu's management items above the sort: Add Collection in All Gifts,
+        // Delete Collection in a collection.
+        if isMyProfile {
+            if let id = giftsPane.selectedCollectionID {
+                actions.insert(TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.Gifts.DeleteCollection"),
+                    image: UIImage(systemName: "trash"),
+                    isDestructive: true,
+                ) { [weak self] in self?.confirmDeleteGiftCollection(id) }, at: 0)
+            } else {
+                actions.insert(TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.Gifts.AddCollection"),
+                    image: UIImage(systemName: "folder.badge.plus"),
+                ) { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) }, at: 0)
+            }
+            if actions.count > 1 { actions[1].startsNewSection = true }
+        }
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
     }
 
     private func configureSharedMessageRefresh() {
@@ -5181,6 +5267,7 @@ ClientRestorableNavigationEntry {
             applySnapshot()
         }
         giftsPane = pane
+        pane.onNewCollection = { [weak self] giftID, _ in self?.presentCreateGiftCollection(giftIDs: [giftID]) }
         pane.loadCollections()
         // The tab's icons come from the first page, read with the profile as ProfileGiftsContext is.
         pane.loadMore()

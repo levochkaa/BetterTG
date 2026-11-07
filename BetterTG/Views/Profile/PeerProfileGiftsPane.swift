@@ -30,6 +30,8 @@ import UIKit
     private static let pageSize = 50
 
     var onChange: (() -> Void)?
+    /// New Collection from a gift's menu: the screen asks for the name, then calls `createCollection` with the gift.
+    var onNewCollection: ((String, UIViewController) -> Void)?
 
     private(set) var items = [Int64]()
     private(set) var hasMore = true
@@ -181,7 +183,9 @@ import UIKit
         let ownerID = ownerID
         collectionsTask = Task { [weak self] in
             let result = try? await client.send(TDNativeRequests.getGiftCollections(ownerId: ownerID))
-            guard let self, !Task.isCancelled, isCurrent() else { return }
+            guard let self, !Task.isCancelled else { return }
+            collectionsTask = nil
+            guard isCurrent() else { return }
             collections = (result?.collections ?? []).map { (id: $0.id, name: $0.name, giftCount: $0.giftCount) }
             #if DEBUG
                 // `-ui-probe-gift-collections` names two made-up collections so the tabs show on any profile; a
@@ -202,6 +206,61 @@ import UIKit
     }
 
     /// The tab's collection, or All Gifts; the grid reads it from its first page.
+    // MARK: Collection management
+
+    /// createCollection: a named collection with the given gifts, then shown.
+    func createCollection(name: String, giftIDs: [String] = [], host: UIViewController) {
+        let client = client
+        let ownerID = ownerID
+        Task { [weak self, weak host] in
+            do {
+                let collection = try await client.send(TDNativeRequests.createGiftCollection(
+                    ownerId: ownerID, name: name, receivedGiftIds: giftIDs,
+                ))
+                guard let self else { return }
+                collections.append((id: collection.id, name: collection.name, giftCount: collection.giftCount))
+                selectedCollectionID = collection.id
+                reload()
+            } catch {
+                if let host { Self.showError(error, in: host) }
+            }
+        }
+    }
+
+    func renameCollection(_ id: Int, to name: String, host: UIViewController) {
+        runCollectionChange(host: host) { client, ownerID in
+            _ = try await client.send(TDNativeRequests.setGiftCollectionName(
+                ownerId: ownerID, collectionId: id, name: name,
+            ))
+        }
+    }
+
+    /// deleteCollection: All Gifts shows again, and the collection goes.
+    func deleteCollection(_ id: Int, host: UIViewController) {
+        if selectedCollectionID == id { selectedCollectionID = nil }
+        collections.removeAll { $0.id == id }
+        reload()
+        runCollectionChange(host: host) { client, ownerID in
+            _ = try await client.send(TDNativeRequests.deleteGiftCollection(ownerId: ownerID, collectionId: id))
+        }
+    }
+
+    /// The tile menu's collection toggle: addGiftCollectionGifts or removeGiftCollectionGifts.
+    func setGift(_ giftID: String, inCollection id: Int, added: Bool, host: UIViewController) {
+        runCollectionChange(host: host) { client, ownerID in
+            _ =
+                if added {
+                    try await client.send(TDNativeRequests.addGiftCollectionGifts(
+                        ownerId: ownerID, collectionId: id, receivedGiftIds: [giftID],
+                    ))
+                } else {
+                    try await client.send(TDNativeRequests.removeGiftCollectionGifts(
+                        ownerId: ownerID, collectionId: id, receivedGiftIds: [giftID],
+                    ))
+                }
+        }
+    }
+
     func selectCollection(_ id: Int?) {
         guard id != selectedCollectionID else { return }
         selectedCollectionID = id
@@ -257,6 +316,9 @@ import UIKit
     func menuActions(for id: Int64, canManage: Bool, host: UIViewController) -> [TelegramContextMenuAction] {
         guard let gift = gifts[id] else { return [] }
         var actions = [TelegramContextMenuAction]()
+        if canManage, !gift.receivedGiftId.isEmpty {
+            actions.append(addToCollectionAction(gift, host: host))
+        }
         let upgraded: TDNativeUpgradedGift? =
             if case .sentGiftUpgraded(let value) = gift.gift {
                 value.gift
@@ -296,6 +358,17 @@ import UIKit
                 host.present(sheet, animated: true)
             })
         }
+        if canManage, !gift.receivedGiftId.isEmpty, let selectedCollectionID {
+            // Remove from Collection, in a collection's tab.
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.Context.RemoveFromCollection"),
+                image: UIImage(systemName: "folder.badge.minus"),
+                isDestructive: true,
+            ) { [weak self, weak host] in
+                guard let self, let host else { return }
+                setGift(gift.receivedGiftId, inCollection: selectedCollectionID, added: false, host: host)
+            })
+        }
         if canManage, !gift.receivedGiftId.isEmpty {
             let isSaved = gift.isSaved
             actions.append(TelegramContextMenuAction(
@@ -316,6 +389,25 @@ import UIKit
         reload()
     }
 
+    /// Runs a change, then reads the collections and the list again; a failure shows TDLib's error.
+    private func runCollectionChange(
+        host: UIViewController,
+        _ change: @escaping (TDLibClient, MessageSender) async throws -> Void,
+    ) {
+        let client = client
+        let ownerID = ownerID
+        Task { [weak self, weak host] in
+            do {
+                try await change(client, ownerID)
+            } catch {
+                if let host { Self.showError(error, in: host) }
+            }
+            guard let self else { return }
+            loadCollections()
+            reload()
+        }
+    }
+
     private func toggle(_ value: Filter) {
         var updated = filter.value
         if updated.contains(value) {
@@ -330,6 +422,36 @@ import UIKit
         guard updated != filter.value else { return }
         filter.send(updated)
         reload()
+    }
+
+    /// PeerInfo.Gifts.Context.AddToCollection's submenu: New Collection, then each collection, checked when the gift
+    /// is in it; a collection toggles the gift.
+    private func addToCollectionAction(
+        _ gift: TDNativeReceivedGift,
+        host: UIViewController,
+    ) -> TelegramContextMenuAction {
+        var children = [TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.Gifts.Context.NewCollection"),
+            image: UIImage(systemName: "folder.badge.plus"),
+        ) { [weak self, weak host] in
+            guard let self, let host else { return }
+            onNewCollection?(gift.receivedGiftId, host)
+        }]
+        for collection in collections {
+            let isAdded = gift.collectionIds.contains(collection.id)
+            children.append(TelegramContextMenuAction(
+                title: collection.name,
+                image: isAdded ? UIImage(systemName: "checkmark") : UIImage(),
+            ) { [weak self, weak host] in
+                guard let self, let host else { return }
+                setGift(gift.receivedGiftId, inCollection: collection.id, added: !isAdded, host: host)
+            })
+        }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.Gifts.Context.AddToCollection"),
+            image: UIImage(systemName: "folder.badge.plus"),
+            children: children,
+        )
     }
 
     /// ProfileGiftsContext.updateStarGiftPinnedToTop: the gift joins the end of the pinned list or leaves it, up to
