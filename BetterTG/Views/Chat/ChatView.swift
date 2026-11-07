@@ -9248,6 +9248,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// Telegram's Speak message item: with iOS's Speak Selection on, the message's text is read aloud (Speak's
     /// speakText: AVSpeechSynthesizer in the text's language), copy protection or not.
+    /// ChatInterfaceStateContextMenus' Ban: in a supergroup where the account may restrict members, the author's
+    /// restrictions (ChannelBannedMemberController), for someone else's message.
+    private func banMenuAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        guard case .supergroup(let group) = chatVM.customChat.type, !group.isChannel,
+              case .messageSenderUser(let author) = message.message.senderId,
+              author.userId != TDLib.shared.activeAccount?.userID
+        else { return nil }
+        let canRestrict =
+            switch group.status {
+            case .chatMemberStatusCreator: true
+            case .chatMemberStatusAdministrator(let administrator): administrator.rights.canRestrictMembers
+            default: false
+            }
+        guard canRestrict else { return nil }
+        let chatID = message.message.chatId
+        let sender = message.message.senderId
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ContextMenuBan"),
+            image: UIImage(systemName: "hand.raised"),
+        ) { [weak self] in
+            guard let self else { return }
+            let client = chatVM.client
+            Task { [weak self] in
+                let target = await ChatManagementTarget.load(chatID: chatID, client: client)
+                let peer = await SettingsPeer.resolve(sender, client: client)
+                let member = try? await client.getChatMember(chatId: chatID, memberId: sender)
+                guard let self, let target, let peer, let member else { return }
+                let isRestricted =
+                    if case .chatMemberStatusRestricted = member.status {
+                        true
+                    } else {
+                        false
+                    }
+                navigationController?.pushViewController(
+                    ChatMemberRestrictionViewController(
+                        target: target,
+                        member: ChatManagementMember(
+                            sender: sender,
+                            peer: peer,
+                            status: member.status,
+                            tag: member.tag,
+                        ),
+                        isNew: !isRestricted,
+                    ),
+                    animated: true,
+                )
+            }
+        }
+    }
+
     private func speakAction(for message: CustomMessage) -> TelegramContextMenuAction? {
         guard UIAccessibility.isSpeakSelectionEnabled else { return nil }
         var foundText = copyableText(from: message.message.content)
@@ -11432,6 +11482,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     self?.showChatToast(L10n.telegram("Report.Succeed"))
                 }
             })
+        }
+        if let banAction = banMenuAction(for: message) {
+            elements.append(banAction)
         }
         if canSelectMessage(message) {
             // Telegram's Select takes the message under the finger, an album's item included, and Select All takes

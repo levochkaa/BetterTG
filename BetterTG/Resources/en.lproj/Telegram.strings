@@ -3820,3 +3820,4 @@
 "ChatList.AddPhoto.Text" = "Help your friends spot you easily.";
 "ChatList.AddBirthdayTitle" = "Add your birthday! 🎂";
 "ChatList.AddBirthdayText" = "Let your contacts know when you're celebrating.";
+"Conversation.ContextMenuBan" = "Restrict";
