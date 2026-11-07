@@ -5,19 +5,22 @@ import UIKit
 
 // MARK: - StorageUsageViewController
 
-/// Telegram's Storage Usage (StorageUsageScreen) on TDLib's statistics: Clear Entire Cache with Telegram's
-/// confirmation (optimizeStorage with no limits), the cache by media type and by chat. Keep Media and the maximum
-/// cache size need a periodic cleanup BetterTG doesn't run, so they are not offered.
+/// Telegram's Storage Usage (StorageUsageScreen) on TDLib's statistics: PieChartComponent's ring of the cache by
+/// category with the total inside, Storage Usage and the share of the free disk space, the categories by size with
+/// their shares (past four, the smaller ones gather in Other, which opens), Clear Entire Cache with Telegram's
+/// confirmation (optimizeStorage with no limits), TDLib's service files and the cache by chat. Keep Media and the
+/// maximum cache size need a periodic cleanup BetterTG doesn't run, so they are not offered.
 final class StorageUsageViewController: SettingsListViewController {
-    private enum Category: CaseIterable {
+    /// StorageUsageScreen.Category with its colour and title.
+    enum Category: String, CaseIterable {
         case photos
         case videos
         case files
         case music
-        case voice
         case stickers
         case avatars
-        case other
+        case misc
+        case stories
 
         var title: String {
             switch self {
@@ -25,18 +28,44 @@ final class StorageUsageViewController: SettingsListViewController {
             case .videos: L10n.telegram("StorageManagement.SectionVideos")
             case .files: L10n.telegram("StorageManagement.SectionFiles")
             case .music: L10n.telegram("StorageManagement.SectionMusic")
-            case .voice: L10n.telegram("StorageManagement.SectionVoiceMessages")
             case .stickers: L10n.telegram("StorageManagement.SectionStickers")
             case .avatars: L10n.telegram("StorageManagement.SectionAvatars")
-            case .other: L10n.telegram("StorageManagement.SectionOther")
+            case .misc: L10n.telegram("StorageManagement.SectionMiscellaneous")
+            case .stories: L10n.telegram("StorageManagement.SectionStories")
             }
         }
 
+        var color: UIColor {
+            switch self {
+            case .photos: UIColor(rgb: 0x5AC8FA)
+            case .videos: UIColor(rgb: 0x3478F6)
+            case .files: UIColor(rgb: 0x34C759)
+            case .music: UIColor(rgb: 0xFF2D55)
+            case .stickers: UIColor(rgb: 0x5856D6)
+            case .avatars: UIColor(rgb: 0xAF52DE)
+            case .misc: UIColor(rgb: 0xFF9500)
+            case .stories: UIColor(rgb: 0xFF2D55)
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .photos: "photo.fill"
+            case .videos: "video.fill"
+            case .files: "doc.fill"
+            case .music: "music.note"
+            case .stickers: "face.smiling.inverse"
+            case .avatars: "person.crop.circle.fill"
+            case .misc: "ellipsis.circle.fill"
+            case .stories: "circle.dashed"
+            }
+        }
+
+        /// TDLib's file types in Telegram's categories; voice notes, thumbnails and the rest are Misc.
         init(_ type: TDNativeFileType) {
             self =
                 switch type {
                 case .fileTypePhoto,
-                     .fileTypePhotoStory,
                      .fileTypeSelfDestructingPhoto: .photos
                 case .fileTypeAnimation,
                      .fileTypeLivePhotoVideo,
@@ -44,13 +73,12 @@ final class StorageUsageViewController: SettingsListViewController {
                      .fileTypeSelfDestructingVideo,
                      .fileTypeSelfDestructingVideoNote,
                      .fileTypeVideo,
-                     .fileTypeVideoNote,
-                     .fileTypeVideoStory:
+                     .fileTypeVideoNote:
                     .videos
+                case .fileTypePhotoStory,
+                     .fileTypeVideoStory: .stories
                 case .fileTypeDocument: .files
                 case .fileTypeAudio: .music
-                case .fileTypeSelfDestructingVoiceNote,
-                     .fileTypeVoiceNote: .voice
                 case .fileTypeSticker: .stickers
                 case .fileTypeProfilePhoto: .avatars
                 case .fileTypeNone,
@@ -58,59 +86,114 @@ final class StorageUsageViewController: SettingsListViewController {
                      .fileTypeSecret,
                      .fileTypeSecretThumbnail,
                      .fileTypeSecure,
+                     .fileTypeSelfDestructingVoiceNote,
                      .fileTypeThumbnail,
                      .fileTypeUnknown,
+                     .fileTypeVoiceNote,
                      .fileTypeWallpaper:
-                    .other
+                    .misc
                 }
         }
     }
+
+    private static let otherID = "other"
+    private static let otherColor = UIColor(rgb: 0xC4C4C6)
 
     private var fast: TDNativeStorageStatisticsFast?
     private var categorySizes = [Category: Int64]()
     private var chats = [(peer: SettingsPeer, size: Int64)]()
     private var isCalculating = true
     private var isClearing = false
+    private var isOtherExpanded = false
+    private let headerView = UsageChartHeaderView()
+
+    /// The used categories by size: up to five shown, otherwise four and the rest under Other.
+    private var listed: (shown: [Category], other: [Category]) {
+        let used = Category.allCases
+            .filter { (categorySizes[$0] ?? 0) > 0 }
+            .sorted { (categorySizes[$0] ?? 0) > (categorySizes[$1] ?? 0) }
+        guard used.count > 5 else { return (used, []) }
+        return (Array(used.prefix(4)), Array(used.dropFirst(4)))
+    }
+
+    private var cacheTotal: Int64 {
+        categorySizes.values.reduce(0, +)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("StorageManagement.Title")
+        headerView.emptyColor = UIColor(rgb: 0x34C759)
+        updateHeader(animated: false)
         load()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let width = tableView.bounds.width
+        let height = headerView.height(for: width)
+        if headerView.frame.size != CGSize(width: width, height: height) {
+            headerView.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            tableView.tableHeaderView = headerView
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
         let loading = L10n.telegram("Channel.NotificationLoading")
-        let total = fast.map { $0.filesSize + $0.databaseSize + $0.languagePackDatabaseSize + $0.logSize }
-        var sections = [SettingsSection(
-            footer: L10n.telegram("StorageManagement.SectionsDescription"),
-            rows: [SettingsRow(
-                title: L10n.telegram("StorageManagement.ClearAll"),
-                detail: fast.map { SettingsFormatting.byteCount($0.filesSize) },
-                style: .action(destructive: false),
-                accessory: isClearing ? .activity : .none,
-                isEnabled: !isClearing && (fast?.filesSize ?? 0) > 0,
-            ) { [weak self] in self?.confirmClear() }],
-        )]
-        var usageRows = [SettingsRow(
-            title: L10n.telegram("ChatSettings.Cache"),
-            detail: total.map(SettingsFormatting.byteCount) ?? loading,
-        )]
+        var sections = [SettingsSection]()
         if isCalculating {
-            usageRows.append(SettingsRow(title: loading, style: .status(.secondaryLabel), accessory: .activity))
-        } else {
-            for category in Category.allCases {
-                guard let size = categorySizes[category], size > 0 else { continue }
-                usageRows.append(SettingsRow(title: category.title, detail: SettingsFormatting.byteCount(size)))
+            sections.append(SettingsSection(rows: [SettingsRow(
+                title: loading, style: .status(.secondaryLabel), accessory: .activity,
+            )]))
+        } else if cacheTotal > 0 {
+            let total = cacheTotal
+            func row(_ category: Category) -> SettingsRow {
+                let size = categorySizes[category] ?? 0
+                return SettingsRow(
+                    title: category.title,
+                    titleSuffix: UsagePieChartView.fractionText(CGFloat(size) / CGFloat(total)),
+                    detail: SettingsFormatting.byteCount(size),
+                    symbol: category.symbol,
+                    symbolTint: category.color,
+                )
             }
+            let (shown, other) = listed
+            var rows = shown.map(row)
+            if !other.isEmpty {
+                let size = other.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
+                var otherRow = SettingsRow(
+                    title: L10n.telegram("StorageManagement.SectionOther"),
+                    titleSuffix: UsagePieChartView.fractionText(CGFloat(size) / CGFloat(total)),
+                    symbol: "square.stack.fill",
+                    symbolTint: isOtherExpanded ? Self.otherColor : Category.misc.color,
+                )
+                let expanded = isOtherExpanded
+                let sizeText = SettingsFormatting.byteCount(size)
+                otherRow.trailingView = SettingsTrailingView {
+                    NetworkUsageSizeView(text: sizeText, isExpanded: expanded)
+                }
+                otherRow.action = { [weak self] in self?.toggleOther() }
+                rows.append(otherRow)
+                if isOtherExpanded {
+                    rows += other.map(row)
+                }
+            }
+            sections.append(SettingsSection(footer: L10n.telegram("StorageManagement.SectionsDescription"), rows: rows))
         }
+        sections.append(SettingsSection(rows: [SettingsRow(
+            title: L10n.telegram("StorageManagement.ClearAll"),
+            detail: fast.map { SettingsFormatting.byteCount($0.filesSize) },
+            style: .action(destructive: false),
+            accessory: isClearing ? .activity : .none,
+            isEnabled: !isClearing && (fast?.filesSize ?? 0) > 0,
+        ) { [weak self] in self?.confirmClear() }]))
         if let fast {
             let serviceSize = fast.databaseSize + fast.languagePackDatabaseSize + fast.logSize
-            usageRows.append(SettingsRow(
+            sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram("Cache.ServiceFiles"),
                 detail: SettingsFormatting.byteCount(serviceSize),
-            ))
+            )]))
         }
-        sections.append(SettingsSection(rows: usageRows))
         if !chats.isEmpty {
             sections.append(SettingsSection(
                 header: L10n.telegram("Cache.ByPeerHeader"),
@@ -124,6 +207,68 @@ final class StorageUsageViewController: SettingsListViewController {
             ))
         }
         return sections
+    }
+
+    /// The cache's share of the free disk space with it, as StorageUsageScreen writes it.
+    private static func diskShare(of size: Int64) -> String {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let free = (try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage ?? 0
+        guard free > 0, size > 0 else { return "0" }
+        let value = floor(Double(size) / Double(free + size) * 1000) / 10
+        if value < 0.1 { return "<0.1" }
+        return abs(Double(Int(value)) - value) < 0.001 ? "\(Int(value))" : "\(value)"
+    }
+
+    /// The chart: the shown categories, then the other ones apart while Other is open and as one Misc-coloured
+    /// section otherwise.
+    private func updateHeader(animated: Bool) {
+        let total = cacheTotal
+        let (shown, other) = listed
+        func fraction(_ size: Int64) -> CGFloat {
+            total == 0 ? 0 : CGFloat(size) / CGFloat(total)
+        }
+        var items = shown.map { category in
+            UsagePieChartView.Item(
+                id: category.rawValue, fraction: fraction(categorySizes[category] ?? 0), color: category.color,
+            )
+        }
+        if isOtherExpanded {
+            items += other.map { category in
+                UsagePieChartView.Item(
+                    id: category.rawValue, fraction: fraction(categorySizes[category] ?? 0), color: category.color,
+                )
+            }
+        } else if !other.isEmpty {
+            let size = other.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
+            items.append(UsagePieChartView.Item(id: Self.otherID, fraction: fraction(size), color: Category.misc.color))
+        }
+        let title: String
+        let description: String?
+        if isCalculating {
+            title = L10n.telegram("StorageManagement.Title")
+            description = " "
+        } else if total == 0 {
+            title = L10n.telegram("StorageManagement.TitleCleared")
+            description = L10n.telegram("StorageManagement.DescriptionCleared")
+        } else {
+            title = L10n.telegram("StorageManagement.Title")
+            description = L10n.betterTG("StorageManagement.DescriptionAppUsage", Self.diskShare(of: total))
+        }
+        headerView.update(
+            items: isCalculating ? [] : items,
+            totalText: SettingsFormatting.byteCount(total),
+            title: title,
+            description: description,
+            animated: animated,
+        )
+        viewIfLoaded?.setNeedsLayout()
+    }
+
+    private func toggleOther() {
+        isOtherExpanded.toggle()
+        updateHeader(animated: true)
+        reload()
     }
 
     private func load() {
@@ -150,6 +295,7 @@ final class StorageUsageViewController: SettingsListViewController {
             categorySizes = sizes
             self.chats = chats.sorted { $0.size > $1.size }
             isCalculating = false
+            updateHeader(animated: true)
             reload()
         }
     }
@@ -174,6 +320,8 @@ final class StorageUsageViewController: SettingsListViewController {
                 isCalculating = true
                 chats = []
                 categorySizes = [:]
+                isOtherExpanded = false
+                updateHeader(animated: true)
                 showToast(L10n.telegram("StorageManagement.TitleCleared"))
                 load()
             }

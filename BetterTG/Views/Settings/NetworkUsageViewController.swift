@@ -98,7 +98,7 @@ final class NetworkUsageViewController: SettingsListViewController {
     private var statistics: TDNativeNetworkStatistics?
     private var network = Network.all
     private var expanded = Set<Category>()
-    private let headerView = NetworkUsageHeaderView()
+    private let headerView = UsageChartHeaderView()
     private let segmentedControl = TelegramSegmentedControl(items: [
         L10n.telegram("DataUsage.TopSectionAll"),
         L10n.telegram("DataUsage.TopSectionMobile"),
@@ -290,7 +290,8 @@ final class NetworkUsageViewController: SettingsListViewController {
         headerView.update(
             items: statistics == nil ? [] : items,
             totalText: SettingsFormatting.byteCount(total),
-            since: since,
+            title: L10n.telegram(total == 0 ? "DataUsage.HeaderNoDataUsed" : "DataUsage.Header"),
+            description: since,
             animated: animated,
         )
         viewIfLoaded?.setNeedsLayout()
@@ -375,74 +376,10 @@ struct NetworkUsageEntry {
     }
 }
 
-// MARK: - NetworkUsageHeaderView
-
-/// DataUsageScreen's header: the ring, 23 pt to Data Usage (or No data used) in 20 pt semibold, 6 pt to since when in
-/// 13 pt, centred.
-final class NetworkUsageHeaderView: UIView {
-    private let chart = UsagePieChartView()
-    private let titleLabel = UILabel()
-    private let descriptionLabel = UILabel()
-    private var isLoaded = false
-
-    private var chartHeight: CGFloat {
-        chart.isEmpty ? UsagePieChartView.emptyHeight : UsagePieChartView.chartHeight
-    }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        addSubview(chart)
-        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
-        titleLabel.textAlignment = .center
-        addSubview(titleLabel)
-        descriptionLabel.font = .systemFont(ofSize: 13)
-        descriptionLabel.textColor = .secondaryLabel
-        descriptionLabel.textAlignment = .center
-        descriptionLabel.numberOfLines = 0
-        addSubview(descriptionLabel)
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        chart.frame = CGRect(x: 0, y: 8, width: bounds.width, height: chartHeight)
-        let titleSize = titleLabel.sizeThatFits(CGSize(width: bounds.width, height: 40))
-        titleLabel.frame = CGRect(x: 0, y: chart.frame.maxY + 23, width: bounds.width, height: titleSize.height)
-        let descriptionSize = descriptionLabel.sizeThatFits(CGSize(
-            width: bounds.width - 62, height: .greatestFiniteMagnitude,
-        ))
-        descriptionLabel.frame = CGRect(
-            x: 31, y: titleLabel.frame.maxY + 6, width: bounds.width - 62, height: descriptionSize.height,
-        )
-    }
-
-    func update(items: [UsagePieChartView.Item], totalText: String, since: String?, animated: Bool) {
-        isLoaded = !items.isEmpty
-        chart.update(items: items, totalText: totalText, animated: animated)
-        titleLabel.text = L10n.telegram(chart.isEmpty ? "DataUsage.HeaderNoDataUsed" : "DataUsage.Header")
-        descriptionLabel.text = since
-        setNeedsLayout()
-    }
-
-    func height(for width: CGFloat) -> CGFloat {
-        let titleHeight = titleLabel.sizeThatFits(CGSize(width: width, height: 40)).height
-        let descriptionHeight = descriptionLabel.text == nil
-            ? 0
-            : descriptionLabel.sizeThatFits(CGSize(
-                width: width - 62, height: .greatestFiniteMagnitude,
-            ))
-            .height
-        return 8 + chartHeight + 23 + titleHeight + 6 + descriptionHeight + 20
-    }
-}
-
 // MARK: - NetworkUsageSizeView
 
 /// DataCategoryItemComponent's size and the arrow that turns up while the category is open.
-private final class NetworkUsageSizeView: UIView {
+final class NetworkUsageSizeView: UIView {
     override var intrinsicContentSize: CGSize {
         frame.size
     }

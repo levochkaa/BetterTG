@@ -3663,3 +3663,6 @@
 "DataUsage.HeaderNoDataUsed" = "No data used";
 "DataUsage.Header" = "Data Usage";
 "DataUsage.Reset" = "Reset Statistics";
+"StorageManagement.DescriptionCleared" = "All media can be re-downloaded from the Telegram cloud if you need it again.";
+"StorageManagement.SectionMiscellaneous" = "Misc";
+"StorageManagement.SectionStories" = "Stories";

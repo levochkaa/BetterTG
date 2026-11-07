@@ -715,3 +715,4 @@
 "Accessibility.VideoEditor.Mute" = "Mute";
 "Accessibility.VideoEditor.Video" = "Video";
 "Attachment.SendInSd" = "Send in Standard Quality";
+"StorageManagement.DescriptionAppUsage" = "BetterTG uses %@%% of your free disk space.";
