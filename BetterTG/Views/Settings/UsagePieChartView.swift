@@ -31,6 +31,16 @@ final class UsagePieChartView: UIView {
 
     private(set) var isEmpty = true
 
+    /// A view in the hole in place of the total, such as a chat's 72 pt avatar.
+    var centerView: UIView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let centerView { addSubview(centerView) }
+            totalLabel.isHidden = isEmpty || centerView != nil
+            setNeedsLayout()
+        }
+    }
+
     var emptyColor = UIColor.tintColor {
         didSet {
             emptyValueLabel.textColor = emptyColor
@@ -80,6 +90,7 @@ final class UsagePieChartView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let center = CGPoint(x: bounds.midX, y: Self.chartHeight / 2)
+        centerView?.frame = CGRect(x: center.x - 36, y: center.y - 36, width: 72, height: 72)
         let totalSize = totalLabel.sizeThatFits(CGSize(width: 90, height: 40))
         totalLabel.frame = CGRect(
             x: center.x - totalSize.width / 2, y: center.y - totalSize.height / 2,
@@ -166,7 +177,8 @@ final class UsagePieChartView: UIView {
         let visible = items.filter { $0.fraction > 0 }
         isEmpty = visible.isEmpty
         totalLabel.text = totalText
-        totalLabel.isHidden = isEmpty
+        totalLabel.isHidden = isEmpty || centerView != nil
+        centerView?.isHidden = isEmpty
         emptyValueLabel.isHidden = !isEmpty
         emptyUnitLabel.isHidden = !isEmpty
         let target = Self.sections(for: visible)
@@ -293,6 +305,15 @@ final class UsageChartHeaderView: UIView {
     private let chart = UsagePieChartView()
     private let titleLabel = UILabel()
     private let descriptionLabel = UILabel()
+    private let progressBackground = CALayer()
+    private let progressForeground = CALayer()
+    private var progress: CGFloat?
+
+    /// See `UsagePieChartView.centerView`.
+    var centerView: UIView? {
+        get { chart.centerView }
+        set { chart.centerView = newValue }
+    }
 
     /// The empty ring's "0 KB" colour: the accent for network usage, green for cleared storage.
     var emptyColor: UIColor {
@@ -315,10 +336,23 @@ final class UsageChartHeaderView: UIView {
         descriptionLabel.textAlignment = .center
         descriptionLabel.numberOfLines = 0
         addSubview(descriptionLabel)
+        progressBackground.cornerRadius = 2
+        progressForeground.cornerRadius = 2
+        layer.addSublayer(progressBackground)
+        layer.addSublayer(progressForeground)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.updateProgressColors()
+        }
+        updateProgressColors()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        updateProgressColors()
     }
 
     override func layoutSubviews() {
@@ -332,6 +366,22 @@ final class UsageChartHeaderView: UIView {
         descriptionLabel.frame = CGRect(
             x: 31, y: titleLabel.frame.maxY + 6, width: bounds.width - 62, height: descriptionSize.height,
         )
+        // StorageUsageScreen's usage bar: 200 pt by 4 under the description, the share in the accent colour.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let progressWidth = min(200, bounds.width - 32)
+        let progressFrame = CGRect(
+            x: floor((bounds.width - progressWidth) / 2), y: descriptionLabel.frame.maxY + 8,
+            width: progressWidth, height: 4,
+        )
+        progressBackground.frame = progressFrame
+        progressForeground.frame = CGRect(
+            origin: progressFrame.origin,
+            size: CGSize(width: max(4, floor((progress ?? 0) * progressWidth)), height: 4),
+        )
+        progressBackground.isHidden = progress == nil
+        progressForeground.isHidden = progress == nil
+        CATransaction.commit()
     }
 
     func update(
@@ -339,8 +389,10 @@ final class UsageChartHeaderView: UIView {
         totalText: String,
         title: String,
         description: String?,
+        progress: CGFloat? = nil,
         animated: Bool,
     ) {
+        self.progress = progress
         chart.update(items: items, totalText: totalText, animated: animated)
         titleLabel.text = title
         descriptionLabel.text = description
@@ -355,7 +407,14 @@ final class UsageChartHeaderView: UIView {
                 width: width - 62, height: .greatestFiniteMagnitude,
             ))
             .height
-        return 8 + chartHeight + 23 + titleHeight + 6 + descriptionHeight + 20
+        let progressHeight: CGFloat = progress == nil ? 0 : 8 + 4 + 4
+        return 8 + chartHeight + 23 + titleHeight + 6 + descriptionHeight + progressHeight + 20
+    }
+
+    private func updateProgressColors() {
+        let accent = tintColor.resolvedColor(with: traitCollection)
+        progressBackground.backgroundColor = accent.withAlphaComponent(0.2).cgColor
+        progressForeground.backgroundColor = accent.cgColor
     }
 }
 

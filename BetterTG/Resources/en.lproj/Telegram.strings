@@ -3669,3 +3669,4 @@
 "ClearCache.Success" = "**%@** freed on your %@!";
 "StorageManagement.ClearSelected" = "Clear Selected";
 "StorageManagement.ClearConfirmationTitle" = "Clear Cache";
+"StorageManagement.DescriptionChatUsage" = "This chat uses %1$@% of your Telegram cache.";

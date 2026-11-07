@@ -113,7 +113,14 @@ final class StorageUsageViewController: SettingsListViewController {
     private static let otherID = "other"
     private static let otherColor = UIColor(rgb: 0xC4C4C6)
 
+    /// Runs after the chat's cache is cleared, so the whole cache's screen reads its statistics again.
+    var onCleared: (() -> Void)?
+
+    /// The chat whose cache the screen shows (StorageUsageScreen's `peer`), or nil for the whole cache.
+    private let chat: (id: Int64, peer: SettingsPeer)?
     private var fast: TDNativeStorageStatisticsFast?
+    /// The whole cache, against which a chat's share is told.
+    private var allChatsTotal: Int64 = 0
     private var categorySizes = [Category: Int64]()
     private var chats = [(peer: SettingsPeer, size: Int64)]()
     private var isCalculating = true
@@ -148,10 +155,41 @@ final class StorageUsageViewController: SettingsListViewController {
         selected.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
     }
 
+    /// The chat's name, Saved Messages for the account's own chat.
+    private var chatTitle: String? {
+        guard let chat else { return nil }
+        return chat.id == TDLib.shared.activeAccount?.userID
+            ? L10n.telegram("DialogList.SavedMessages")
+            : chat.peer.title
+    }
+
+    init(chat: (id: Int64, peer: SettingsPeer)? = nil) {
+        self.chat = chat
+        super.init()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("StorageManagement.Title")
+        title = chatTitle ?? L10n.telegram("StorageManagement.Title")
         headerView.emptyColor = UIColor(rgb: 0x34C759)
+        if let chat {
+            // The chat's 72 pt avatar in the ring's hole.
+            let avatar = ProfileAvatarView()
+            avatar.isUserInteractionEnabled = false
+            avatar.configure(
+                file: chat.peer.file,
+                minithumbnail: chat.peer.minithumbnail,
+                placeholder: chat.peer.placeholder,
+                accountID: accountID,
+                accountUserID: TDLib.shared.activeAccount?.userID,
+                client: client,
+            )
+            headerView.centerView = avatar
+        }
         updateHeader(animated: false)
         load()
     }
@@ -217,9 +255,16 @@ final class StorageUsageViewController: SettingsListViewController {
         // StorageCategoriesComponent's button: Clear Entire Cache with everything selected, Clear Selected otherwise,
         // with the size it frees.
         let selectedSize = selectedSize
+        let clearTitle =
+            if !isEverythingSelected {
+                L10n.telegram("StorageManagement.ClearSelected")
+            } else if chat != nil {
+                L10n.telegram("StorageManagement.ClearCache")
+            } else {
+                L10n.telegram("StorageManagement.ClearAll")
+            }
         sections.append(SettingsSection(rows: [SettingsRow(
-            title: L10n
-                .telegram(isEverythingSelected ? "StorageManagement.ClearAll" : "StorageManagement.ClearSelected"),
+            title: clearTitle,
             detail: isCalculating
                 ? fast.map { SettingsFormatting.byteCount($0.filesSize) }
                 : selectedSize == 0 ? nil : SettingsFormatting.byteCount(selectedSize),
@@ -227,6 +272,7 @@ final class StorageUsageViewController: SettingsListViewController {
             accessory: isClearing ? .activity : .none,
             isEnabled: !isClearing && (isCalculating ? (fast?.filesSize ?? 0) > 0 : selectedSize > 0),
         ) { [weak self] in self?.confirmClear() }]))
+        guard chat == nil else { return sections }
         if let fast {
             let serviceSize = fast.databaseSize + fast.languagePackDatabaseSize + fast.logSize
             sections.append(SettingsSection(rows: [SettingsRow(
@@ -242,22 +288,41 @@ final class StorageUsageViewController: SettingsListViewController {
                         title: item.peer.title,
                         detail: SettingsFormatting.byteCount(item.size),
                         style: .peer(item.peer),
-                    )
+                        accessory: .disclosure,
+                    ) { [weak self] in self?.openChat(item.peer) }
                 },
             ))
         }
         return sections
     }
 
-    /// The cache's share of the free disk space with it, as StorageUsageScreen writes it.
-    private static func diskShare(of size: Int64) -> String {
+    /// The cache's share of the free disk space with it.
+    private static func diskFraction(of size: Int64) -> Double {
         let home = URL(fileURLWithPath: NSHomeDirectory())
         let free = (try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
             .volumeAvailableCapacityForImportantUsage ?? 0
-        guard free > 0, size > 0 else { return "0" }
-        let value = floor(Double(size) / Double(free + size) * 1000) / 10
+        guard free > 0, size > 0 else { return 0 }
+        return Double(size) / Double(free + size)
+    }
+
+    /// A share as StorageUsageScreen writes it in its description: tenths, "<0.1" for less.
+    private static func shareText(_ fraction: Double) -> String {
+        let value = floor(fraction * 1000) / 10
         if value < 0.1 { return "<0.1" }
         return abs(Double(Int(value)) - value) < 0.001 ? "\(Int(value))" : "\(value)"
+    }
+
+    /// openPeer: the chat's own Storage Usage, after whose clear this one reads its statistics again.
+    private func openChat(_ peer: SettingsPeer) {
+        let screen = StorageUsageViewController(chat: (id: peer.id, peer: peer))
+        screen.onCleared = { [weak self] in
+            guard let self else { return }
+            isCalculating = true
+            updateHeader(animated: true)
+            reload()
+            load()
+        }
+        navigationController?.pushViewController(screen, animated: true)
     }
 
     /// The chart: the shown categories, then the other ones apart while Other is open and as one Misc-coloured
@@ -284,23 +349,33 @@ final class StorageUsageViewController: SettingsListViewController {
             let size = other.reduce(0) { $0 + size($1) }
             items.append(UsagePieChartView.Item(id: Self.otherID, fraction: fraction(size), color: Category.misc.color))
         }
+        // The description and the bar under it: a chat's share of the cache, or the cache's of the free space.
         let title: String
         let description: String?
+        var progress: CGFloat?
         if isCalculating {
-            title = L10n.telegram("StorageManagement.Title")
+            title = chatTitle ?? L10n.telegram("StorageManagement.Title")
             description = " "
         } else if total == 0 {
             title = L10n.telegram("StorageManagement.TitleCleared")
             description = L10n.telegram("StorageManagement.DescriptionCleared")
+        } else if let chatTitle {
+            let fraction = allChatsTotal == 0 ? 0 : Double(total) / Double(allChatsTotal)
+            title = chatTitle
+            description = L10n.telegram("StorageManagement.DescriptionChatUsage", Self.shareText(fraction))
+            progress = CGFloat(fraction)
         } else {
+            let fraction = Self.diskFraction(of: total)
             title = L10n.telegram("StorageManagement.Title")
-            description = L10n.betterTG("StorageManagement.DescriptionAppUsage", Self.diskShare(of: total))
+            description = L10n.betterTG("StorageManagement.DescriptionAppUsage", Self.shareText(fraction))
+            progress = CGFloat(fraction)
         }
         headerView.update(
             items: isCalculating ? [] : items,
             totalText: SettingsFormatting.byteCount(selectedTotal),
             title: title,
             description: description,
+            progress: progress,
             animated: animated,
         )
         viewIfLoaded?.setNeedsLayout()
@@ -334,16 +409,22 @@ final class StorageUsageViewController: SettingsListViewController {
             let statistics = try? await client.send(TDNativeRequests.getStorageStatistics(chatLimit: 100))
             var sizes = [Category: Int64]()
             var chats = [(peer: SettingsPeer, size: Int64)]()
+            let chatID = chat?.id
+            var allChatsTotal: Int64 = 0
             for byChat in statistics?.byChat ?? [] {
-                for byType in byChat.byFileType {
-                    sizes[Category(byType.fileType), default: 0] += byType.size
+                allChatsTotal += byChat.byFileType.reduce(0) { $0 + $1.size }
+                if chatID == nil || byChat.chatId == chatID {
+                    for byType in byChat.byFileType {
+                        sizes[Category(byType.fileType), default: 0] += byType.size
+                    }
                 }
-                guard byChat.chatId != 0, byChat.size > 0,
+                guard chatID == nil, byChat.chatId != 0, byChat.size > 0,
                       let peer = await SettingsPeer.chat(byChat.chatId, client: client) else { continue }
                 chats.append((peer: peer, size: byChat.size))
             }
             guard contextIsCurrent else { return }
             categorySizes = sizes
+            self.allChatsTotal = allChatsTotal
             self.chats = chats.sorted { $0.size > $1.size }
             isCalculating = false
             selected = existing
@@ -358,17 +439,21 @@ final class StorageUsageViewController: SettingsListViewController {
         let everything = isEverythingSelected
         let fileTypes = everything ? [] : selected.flatMap(\.fileTypes)
         let freed = isCalculating ? fast?.filesSize ?? 0 : selectedSize
+        let chatIDs = chat.map { [$0.id] } ?? []
         confirm(
             title: L10n.telegram("StorageManagement.ClearConfirmationTitle"),
             message: L10n.telegram("StorageManagement.ClearConfirmationText"),
-            actionTitle: L10n.telegram(everything ? "StorageManagement.ClearAll" : "StorageManagement.ClearSelected"),
+            actionTitle: L10n.telegram(
+                everything && chat == nil ? "StorageManagement.ClearAll" : "StorageManagement.ClearSelected",
+            ),
         ) { [weak self] in
             guard let self else { return }
             isClearing = true
             reload()
             perform { client in
                 _ = try await client.send(TDNativeRequests.optimizeStorage(
-                    size: 0, ttl: 0, count: 0, immunityDelay: 0, fileTypes: fileTypes, chatIds: [], excludeChatIds: [],
+                    size: 0, ttl: 0, count: 0, immunityDelay: 0, fileTypes: fileTypes, chatIds: chatIDs,
+                    excludeChatIds: [],
                     returnDeletedFileStatistics: false, chatLimit: 0,
                 ))
             } completion: { [weak self] in
@@ -379,6 +464,7 @@ final class StorageUsageViewController: SettingsListViewController {
                 categorySizes = [:]
                 isOtherExpanded = false
                 updateHeader(animated: true)
+                onCleared?()
                 showToast(L10n.telegram(
                     "ClearCache.Success", SettingsFormatting.byteCount(freed), UIDevice.current.model,
                 )
