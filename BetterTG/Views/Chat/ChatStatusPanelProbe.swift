@@ -29,7 +29,7 @@ import UIKit
                     + "basic-creator-left-delete/basic-read-only-restricted/user-none=true; "
                     + "restricted-default/personal/timed=true; "
                     + "secret-pending-outbound/inbound/closed-delete/ready-none=true; "
-                    + "geometry-mute-centred/search-right/join-spans/help-left/unblock-centred/"
+                    + "geometry-mute-centred/search-right/join-accent/help-left/unblock-centred/"
                     + "restricted-text/delete=true"
             } catch {
                 result = "Status panel probe failed: \(error)"
@@ -160,11 +160,12 @@ import UIKit
         }
 
         private static func verifyGeometry() throws {
-            let panel = ChatStatusPanelView(frame: CGRect(x: 0, y: 0, width: 402, height: 84))
-            let regular = UIFont.systemFont(ofSize: 17)
+            let panel = ChatStatusPanelView(frame: CGRect(x: 0, y: 0, width: 402, height: 90))
+            let medium = UIFont.systemFont(ofSize: 17, weight: .medium)
             func width(_ title: String) -> CGFloat {
-                ceil((title as NSString).size(withAttributes: [.font: regular]).width)
+                ceil((title as NSString).size(withAttributes: [.font: medium]).width)
             }
+            let shape = CGFloat(40)
 
             panel.update(
                 content: .init(title: "Mute", style: .action(spansWidth: false), showsSearch: true),
@@ -173,12 +174,12 @@ import UIKit
             var geometry = panel.probeGeometry
             let muteFrame = geometry.action ?? .zero
             try require(
-                abs(muteFrame.width - (width("Mute") + 24)) <= 1 && abs(muteFrame.midX - 201) <= 1
-                    && muteFrame.minY == 0 && muteFrame.height == 50,
+                muteFrame.width == 165 && abs(muteFrame.midX - 201) <= 1
+                    && muteFrame.minY == 8 && muteFrame.height == shape,
                 "mute \(muteFrame)",
             )
             try require(
-                geometry.search == CGRect(x: 358, y: 0, width: 44, height: 50) && geometry.help == nil,
+                geometry.search == CGRect(x: 354, y: 8, width: shape, height: shape) && geometry.help == nil,
                 "search \(String(describing: geometry.search))",
             )
 
@@ -188,7 +189,7 @@ import UIKit
             )
             geometry = panel.probeGeometry
             try require(
-                geometry.action == CGRect(x: 44, y: 0, width: 314, height: 50),
+                geometry.action?.width == 166 && abs((geometry.action?.midX ?? 0) - 201) <= 1,
                 "join \(String(describing: geometry.action))",
             )
 
@@ -198,7 +199,7 @@ import UIKit
             )
             geometry = panel.probeGeometry
             try require(
-                geometry.help == CGRect(x: 0, y: 0, width: 44, height: 50)
+                geometry.help == CGRect(x: 8, y: 8, width: shape, height: shape)
                     && abs((geometry.action?.midX ?? 0) - 201) <= 1,
                 "help \(String(describing: geometry.help))",
             )
@@ -206,7 +207,7 @@ import UIKit
             panel.update(content: .init(title: "Unblock", style: .button), animated: false)
             geometry = panel.probeGeometry
             try require(
-                abs((geometry.action?.width ?? 0) - (width("Unblock") + 24)) <= 1 && geometry.search == nil,
+                geometry.action?.width == max(165, width("Unblock") + 20) && geometry.search == nil,
                 "unblock \(String(describing: geometry.action))",
             )
 
@@ -214,14 +215,14 @@ import UIKit
             panel.update(content: .init(title: text, style: .text), animated: false)
             geometry = panel.probeGeometry
             try require(
-                geometry.action == nil && geometry.text == CGRect(x: 16, y: 0, width: 370, height: 50),
+                geometry.action == nil && geometry.text == CGRect(x: 16, y: 0, width: 370, height: 56),
                 "restricted \(String(describing: geometry.text))",
             )
 
             panel.update(content: .init(title: "Delete and Exit", style: .destructive), animated: false)
             geometry = panel.probeGeometry
             try require(
-                abs((geometry.action?.width ?? 0) - (width("Delete and Exit") + 24)) <= 1 && geometry.text == nil,
+                geometry.action?.width == max(165, width("Delete and Exit") + 20) && geometry.text == nil,
                 "delete \(String(describing: geometry.action))",
             )
         }
