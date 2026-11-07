@@ -108,8 +108,54 @@ import UIKit
         if let clear = clearMessagesAction() {
             actions.append(clear)
         }
+        if let block = blockAction() {
+            actions.append(block)
+        }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Block
+
+    /// Conversation.BlockUser for a contact not yet blocked (others block from the chat's bar), behind updateBlocked's
+    /// sheet: "Do you want to block … from messaging and calling you on Telegram?" with Block ….
+    private func blockAction() -> TelegramContextMenuAction? {
+        guard case .user(let user) = customChat.type, user.isContact, !user.isSupport, !customChat.isSavedMessages,
+              chat.blockList == nil
+        else { return nil }
+        let name = user.firstName.isEmpty ? user.lastName : user.firstName
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.BlockUser"),
+            image: UIImage(systemName: "hand.raised"),
+            isDestructive: true,
+        ) { [weak host, client, scope] in
+            guard let host else { return }
+            let sheet = UIAlertController(
+                title: nil,
+                message: L10n.telegram("UserInfo.BlockConfirmationTitle", name),
+                preferredStyle: .actionSheet,
+            )
+            sheet
+                .addAction(UIAlertAction(title: L10n.telegram("UserInfo.BlockActionTitle", name), style: .destructive) {
+                    [weak host] _ in
+                    Task { [weak host] in
+                        do {
+                            _ = try await client.send(TDNativeRequests.setMessageSenderBlockList(
+                                senderId: .messageSenderUser(.init(userId: user.id)), blockList: .blockListMain,
+                            ))
+                        } catch {
+                            if scope.isCurrent { host?.presentChatListActionFailure() }
+                        }
+                    }
+                })
+            sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            // A popover only where the sheet is one: on a phone the source makes it a popover without Cancel.
+            if host.traitCollection.horizontalSizeClass == .regular, let popover = sheet.popoverPresentationController {
+                popover.sourceView = host.view
+                popover.sourceRect = CGRect(x: host.view.bounds.midX, y: host.view.bounds.midY, width: 0, height: 0)
+            }
+            host.present(sheet, animated: true)
+        }
     }
 
     // MARK: Share Contact
