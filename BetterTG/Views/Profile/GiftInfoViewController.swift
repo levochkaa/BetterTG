@@ -31,6 +31,7 @@ final class GiftInfoViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let backgroundLayer = CALayer()
     private let backdropLayer = CAGradientLayer()
+    private let patternLayer = GiftPatternLayer()
     private let stickerView = CustomEmojiInlineView()
     private let closeButton = UIButton(type: .system)
     private let titleLabel = UILabel()
@@ -81,6 +82,15 @@ final class GiftInfoViewController: UIViewController {
             backdropLayer.colors = [UIColor(rgb: colors.centerColor).cgColor, UIColor(rgb: colors.edgeColor).cgColor]
             backdropLayer.backgroundColor = UIColor(rgb: colors.edgeColor).cgColor
             scrollView.layer.addSublayer(backdropLayer)
+            patternLayer.masksToBounds = true
+            patternLayer.setColor(UIColor(rgb: colors.symbolColor))
+            scrollView.layer.addSublayer(patternLayer)
+            let symbol = upgraded.symbol.sticker
+            let client = client
+            Task { [weak self] in
+                let image = await GiftSymbolImages.image(for: symbol, client: client)
+                self?.patternLayer.setImage(image)
+            }
         }
         let sticker: Sticker =
             switch gift.gift {
@@ -243,6 +253,9 @@ final class GiftInfoViewController: UIViewController {
         backdropLayer.frame = CGRect(x: 0, y: -400, width: width, height: backdropHeight + 400)
         backdropLayer.startPoint = CGPoint(x: 0.5, y: (400 + 104) / (backdropHeight + 400))
         backdropLayer.endPoint = CGPoint(x: 1, y: 1)
+        // GiftCompositionComponent's cover: the pattern around 104 pt down in a 300 pt tall area.
+        patternLayer.frame = backdropLayer.frame
+        patternLayer.layout(center: CGPoint(x: width / 2, y: 400 + 104), defaultHeight: 300)
         CATransaction.commit()
         stickerView.frame = CGRect(x: floor((width - 136) / 2), y: 88 - 68, width: 136, height: 136)
         titleLabel.frame = CGRect(

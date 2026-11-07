@@ -120,6 +120,8 @@ final class ProfileGiftCell: UICollectionViewCell {
 
     private let backgroundLayer = CALayer()
     private let backdropLayer = CAGradientLayer()
+    private let patternLayer = GiftPatternLayer()
+    private var patternTask: Task<Void, Never>?
     private let stickerView = CustomEmojiInlineView()
     private let avatarView = ProfileAvatarView()
     private let pinView = UIImageView(image: UIImage(named: "Gift/Pinned")?.withRenderingMode(.alwaysTemplate))
@@ -140,6 +142,8 @@ final class ProfileGiftCell: UICollectionViewCell {
         backdropLayer.type = .radial
         backdropLayer.isHidden = true
         backgroundLayer.addSublayer(backdropLayer)
+        patternLayer.isHidden = true
+        backgroundLayer.addSublayer(patternLayer)
         contentView.layer.addSublayer(backgroundLayer)
         contentView.addSubview(stickerView)
         hiddenBackground.clipsToBounds = true
@@ -195,6 +199,9 @@ final class ProfileGiftCell: UICollectionViewCell {
         // PeerInfoCoverComponent's gradient, centred on the sticker.
         backdropLayer.startPoint = CGPoint(x: 0.5, y: size.height > 0 ? iconFrame.midY / size.height : 0.5)
         backdropLayer.endPoint = CGPoint(x: 1, y: 1)
+        // GiftItemComponent's cover: the pattern centred on the sticker, as tall as the tile.
+        patternLayer.frame = backgroundLayer.bounds
+        patternLayer.layout(center: CGPoint(x: iconFrame.midX, y: iconFrame.midY), defaultHeight: size.height)
         let hiddenSide: CGFloat = 30
         hiddenBackground.frame = CGRect(
             x: iconFrame.midX - hiddenSide / 2,
@@ -224,6 +231,9 @@ final class ProfileGiftCell: UICollectionViewCell {
         super.prepareForReuse()
         avatarTask?.cancel()
         avatarTask = nil
+        patternTask?.cancel()
+        patternTask = nil
+        patternLayer.setImage(nil)
         avatarView.prepareForReuse()
         stickerView.setPlaybackVisible(false)
     }
@@ -313,13 +323,26 @@ final class ProfileGiftCell: UICollectionViewCell {
                 UIColor(rgb: backdrop.edgeColor).cgColor,
             ]
             backdropLayer.isHidden = false
+            patternLayer.setColor(UIColor(rgb: backdrop.symbolColor))
+            patternLayer.isHidden = false
         } else {
             backgroundLayer.backgroundColor = UIColor.secondarySystemGroupedBackground
                 .resolvedColor(with: traitCollection)
                 .cgColor
             backdropLayer.isHidden = true
+            patternLayer.isHidden = true
         }
         CATransaction.commit()
+        patternTask?.cancel()
+        patternLayer.setImage(nil)
+        if case .sentGiftUpgraded(let value) = received.gift {
+            let symbol = value.gift.symbol.sticker
+            patternTask = Task { [weak self] in
+                let image = await GiftSymbolImages.image(for: symbol, client: client)
+                guard !Task.isCancelled, let self else { return }
+                patternLayer.setImage(image)
+            }
+        }
 
         stickerView.configure(sticker: sticker, client: client)
         stickerView.setPlaybackVisible(window != nil)
