@@ -169,6 +169,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         folderTabsAtTop ? FolderPickerView.barHeight - FolderPickerView.controlTopInset : 0
     }
 
+    /// Where the header panels, and the bar's background with them, start under the bar: past the top folder tabs,
+    /// which search results hide.
+    private var headerPanelsTopInset: CGFloat {
+        isShowingSearchResults ? 0 : topFolderTabsHeight
+    }
+
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isClientRestoration = restoration != nil
@@ -950,7 +956,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         folderTabsAtTop = atTop
         NSLayoutConstraint.deactivate(atTop ? folderPickerBottomConstraints : folderPickerTopConstraints)
         NSLayoutConstraint.activate(atTop ? folderPickerTopConstraints : folderPickerBottomConstraints)
-        headerPanelsTopConstraint?.constant = topFolderTabsHeight
+        headerPanelsTopConstraint?.constant = headerPanelsTopInset
         folderPicker.showsBackground = !atTop
         applyFolderTabsLowering()
         for controller in folderControllers {
@@ -1000,9 +1006,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         // Telegram hides the folder tabs while search results are shown.
         folderPicker.isUserInteractionEnabled = !showsResults
+        headerPanelsTopConstraint?.constant = headerPanelsTopInset
         let changes = {
             resultsView.alpha = showsResults ? 1 : 0
             self.folderPicker.alpha = showsResults ? 0 : 1
+            self.view.layoutIfNeeded()
         }
         guard animated else {
             changes()
