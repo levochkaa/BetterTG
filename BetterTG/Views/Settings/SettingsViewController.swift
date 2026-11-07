@@ -49,6 +49,19 @@ final class SettingsViewController: UITableViewController {
         tableView.estimatedSectionFooterHeight = 0
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
         tableView.register(SettingsProfileCell.self, forCellReuseIdentifier: SettingsProfileCell.reuseIdentifier)
+        // peerInfoNavigationButtonSets' settings bar: QR Code on the left, Edit on the right. Telegram's search
+        // between them isn't ported.
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "qrcode"),
+            primaryAction: UIAction { [weak self] _ in self?.openQRCode() },
+        )
+        navigationItem.leftBarButtonItem?.accessibilityLabel = L10n.telegram("PeerInfo.QRCode.Title")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: L10n.telegram("Common.Edit"),
+            primaryAction: UIAction { [weak self] _ in
+                self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
+            },
+        )
 
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
             self?.loadAccountState()
@@ -285,6 +298,30 @@ final class SettingsViewController: UITableViewController {
             with: "$1",
             options: .regularExpression,
         )
+    }
+
+    /// openQrCode from the settings bar: the account's own code, by its first active username or, with none, by the
+    /// link TDLib gives.
+    private func openQRCode() {
+        guard let me else { return }
+        var username = me.usernames?.activeUsernames.first
+        #if DEBUG
+            // `-ui-probe-qr-temporary` leaves the username out, so the code comes from getUserLink.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-qr-temporary") { username = nil }
+        #endif
+        let screen = PeerQRCodeViewController(
+            username: username,
+            peer: SettingsPeer(
+                id: me.id,
+                title: [me.firstName, me.lastName].filter { !$0.isEmpty }.joined(separator: " "),
+                file: me.profilePhoto?.small,
+                minithumbnail: me.profilePhoto?.minithumbnail,
+                placeholder: me.telegramAvatarPlaceholder,
+            ),
+            client: TDLib.shared.activeClient,
+            accountID: TDLib.shared.activeAccountID,
+        )
+        navigationController?.pushViewController(screen, animated: true)
     }
 
     /// Settings' rememberPassword and passwordSetup both reach the password's screen: entering it there proves it is

@@ -6,14 +6,17 @@ import UIKit
 
 // MARK: - PeerQRCodeViewController
 
-/// ChatQrCodeScreen for a public username: Telegram's default gradient behind a white card, 42 pt round, whose code
-/// shows the gradient through its modules (codeForegroundNode masked by the code), "@USERNAME" in rounded bold under
+/// ChatQrCodeScreen for a person: Telegram's default gradient behind a white card, 42 pt round, whose code shows the
+/// gradient through its modules (codeForegroundNode masked by the code), "@USERNAME" (or the name) in rounded bold
+/// under
 /// it in the same gradient, the 100 pt avatar standing 70% above the card, and Share QR Code, which shares the card as
-/// an image. Telegram's theme carousel isn't ported.
-final class PeerQRCodeViewController: UIViewController {
+/// an image. Without a username the account's own code is TDLib's user link: the phone number's, or a contact token
+/// that expires, which shows its countdown in place of the text and is replaced when it runs out (QrContentNode's
+/// temporary code). Telegram's theme carousel isn't ported.
+final class PeerQRCodeViewController: UIViewController, TelegramTransitionReadiness {
     private static let gradientColors = [0xDBDDBB, 0x6BA587, 0xD5D88D, 0x88B884].map { UIColor(rgb: $0).cgColor }
 
-    private let username: String
+    private let username: String?
     private let peer: SettingsPeer
     private let client: TDLibClient
     private let accountID: UUID?
@@ -24,13 +27,27 @@ final class PeerQRCodeViewController: UIViewController {
     private let avatarView = ProfileAvatarView()
     private let shareButton = UIButton(configuration: .prominentGlass())
     private var renderedSide: CGFloat = 0
+    private var link: String?
+    /// When a temporary link runs out; nil for a lasting one.
+    private var expiry: Date?
+    private var renderedCaption: String?
+    private var countdownTimer: Timer?
+    private var isLoadingLink = false
+    private var readyHandlers = [() -> Void]()
 
-    private var link: String {
-        "https://t.me/\(username)"
+    private var caption: String {
+        if let expiry {
+            let remaining = max(0, Int(expiry.timeIntervalSinceNow.rounded(.down)))
+            return String(format: "%d:%02d", remaining / 60, remaining % 60)
+        }
+        if let username { return "@" + username.uppercased() }
+        return peer.title.uppercased()
     }
 
-    init(username: String, peer: SettingsPeer, client: TDLibClient, accountID: UUID?) {
+    /// A username's code, or with none the account's own link from TDLib.
+    init(username: String?, peer: SettingsPeer, client: TDLibClient, accountID: UUID?) {
         self.username = username
+        self.link = username.map { "https://t.me/\($0)" }
         self.peer = peer
         self.client = client
         self.accountID = accountID
@@ -39,6 +56,10 @@ final class PeerQRCodeViewController: UIViewController {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        countdownTimer?.invalidate()
     }
 
     override func viewDidLoad() {
@@ -79,6 +100,19 @@ final class PeerQRCodeViewController: UIViewController {
         shareButton.configuration = configuration
         shareButton.addAction(UIAction { [weak self] _ in self?.share() }, for: .touchUpInside)
         view.addSubview(shareButton)
+        shareButton.isEnabled = link != nil
+        if link == nil { loadLink() }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        startCountdownIfNeeded()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 
     override func viewDidLayoutSubviews() {
@@ -116,7 +150,7 @@ final class PeerQRCodeViewController: UIViewController {
             size: card.bounds.size,
         )
         CATransaction.commit()
-        if renderedSide != cardWidth { renderMask(cardWidth: cardWidth) }
+        if renderedSide != cardWidth || renderedCaption != caption { renderMask(cardWidth: cardWidth) }
     }
 
     /// The black-on-white code as alpha: modules opaque, the rest clear.
@@ -128,17 +162,74 @@ final class PeerQRCodeViewController: UIViewController {
         return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
     }
 
+    func whenReadyForTransition(_ ready: @escaping () -> Void) {
+        loadViewIfNeeded()
+        guard link == nil else { return avatarView.whenImageShown(ready) }
+        readyHandlers.append(ready)
+    }
+
+    /// getUserLink: the username's or phone number's link, or a contact token with its lifetime.
+    private func loadLink() {
+        guard !isLoadingLink else { return }
+        isLoadingLink = true
+        let client = client
+        Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.getUserLink(
+                removeMessagesFee: false, returnPermanentLink: false, revokePreviousLinks: false,
+            ))
+            guard let self else { return }
+            isLoadingLink = false
+            if let result {
+                link = result.url
+                expiry = result.expiresIn > 0 ? Date(timeIntervalSinceNow: TimeInterval(result.expiresIn)) : nil
+                #if DEBUG
+                    // `-ui-probe-qr-temporary` counts down 8 seconds on any link, then asks for the next.
+                    if ProcessInfo.processInfo.arguments.contains("-ui-probe-qr-temporary") {
+                        expiry = Date(timeIntervalSinceNow: 8)
+                    }
+                #endif
+                shareButton.isEnabled = true
+                renderedSide = 0
+                view.setNeedsLayout()
+                startCountdownIfNeeded()
+            }
+            let handlers = readyHandlers
+            readyHandlers.removeAll()
+            for handler in handlers {
+                avatarView.whenImageShown(handler)
+            }
+        }
+    }
+
+    /// QrContentNode's tick: twice a second the countdown redraws, and at its end the next token is asked for.
+    private func startCountdownIfNeeded() {
+        guard expiry != nil, countdownTimer == nil, view.window != nil else { return }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
+    }
+
+    private func tick() {
+        guard let expiry else { return }
+        if expiry.timeIntervalSinceNow <= 1 { loadLink() }
+        if renderedCaption != caption { view.setNeedsLayout() }
+    }
+
     /// The code (220 pt, 160 pt on narrow screens) and "@USERNAME" under it as the mask the gradient shows through.
     private func renderMask(cardWidth: CGFloat) {
         renderedSide = cardWidth
+        let text = caption
+        renderedCaption = text
         let scale = traitCollection.displayScale
         let imageSide: CGFloat = view.bounds.width > 320 ? 220 : 160
-        guard let code = TelegramQRCode.render(link, side: imageSide, scale: scale),
+        guard let link, let code = TelegramQRCode.render(link, side: imageSide, scale: scale),
               let codeMask = Self.alphaMask(from: code.image) else { return }
         let size = CGSize(width: cardWidth, height: floor(cardWidth * 1.1))
-        let text = "@" + username.uppercased()
-        let fontSize: CGFloat = text.count > 18 ? 16 : text.count > 12 ? 22 : 24
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        // The countdown is 23 pt with monospaced digits, so it holds still as it counts.
+        let fontSize: CGFloat = expiry != nil ? 23 : text.count > 18 ? 16 : text.count > 12 ? 22 : 24
+        let font = UIFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
         let rounded = font.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: fontSize) } ?? font
         let image = UIGraphicsImageRenderer(size: size).image { _ in
             let imageFrame = CGRect(
@@ -168,7 +259,7 @@ final class PeerQRCodeViewController: UIViewController {
             view.layer.render(in: context.cgContext)
         }
         let sheet = UIActivityViewController(
-            activityItems: [image, URL(string: link) as Any],
+            activityItems: [image, link.flatMap(URL.init(string:)) as Any],
             applicationActivities: nil,
         )
         sheet.popoverPresentationController?.sourceView = shareButton
