@@ -217,6 +217,8 @@ ClientRestorableNavigationEntry {
     private var infoBirthdate: TDNativeBirthdate?
     private var lastUserFullInfo: UserFullInfo?
     private var addedToContacts = false
+    /// What Block or Unblock set, until full info catches up.
+    private var blockedOverride: Bool?
     /// The secret chat's keyHash once it's ready, for Encryption Key.
     private var secretKeyHash: Data?
     private var secretKeyTask: Task<Void, Never>?
@@ -2488,10 +2490,11 @@ ClientRestorableNavigationEntry {
         infoCardView.onOpenAddress = { [weak self] in self?.openBusinessLocation() }
         infoCardView.onMenu = { [weak self] row, view in self?.openInfoRowMenu(row, from: view) }
         infoCardView.onAction = { [weak self] row in
-            if case .disclosure = row {
-                self?.openSecretChatKey()
-            } else {
-                self?.presentAddContact()
+            switch row {
+            case .disclosure: self?.openSecretChatKey()
+            case .action("block", _, _): self?.confirmBlock()
+            case .action("unblock", _, _): self?.confirmUnblock()
+            default: self?.presentAddContact()
             }
         }
         headerStack.setCustomSpacing(20, after: personalChannelView)
@@ -3481,6 +3484,31 @@ ClientRestorableNavigationEntry {
                 opens: location.location != nil,
             ))
         }
+        // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet.
+        if !isMyProfile, !addedToContacts, let user = customChat.user, !user.isContact,
+           case .userTypeRegular = user.type
+        {
+            rows.append(.action(id: "addContact", title: L10n.telegram("PeerInfo.AddToContacts")))
+        }
+        // Unblock for one who is blocked; Block User for a person who isn't a contact or Telegram's support.
+        if !isMyProfile, let user = customChat.user {
+            let isBlocked = blockedOverride ?? (info.blockList != nil)
+            let isBot =
+                if case .userTypeBot = user.type {
+                    true
+                } else {
+                    false
+                }
+            if isBlocked {
+                rows.append(.action(
+                    id: "unblock", title: L10n.telegram(isBot ? "Bot.Unblock" : "Conversation.Unblock"),
+                ))
+            } else if !user.isContact, !addedToContacts, !user.isSupport, case .userTypeRegular = user.type {
+                rows.append(.action(
+                    id: "block", title: L10n.telegram("Conversation.BlockUser"), isDestructive: true,
+                ))
+            }
+        }
         // PeerInfoProfileItems' Encryption Key in a secret chat whose key is set.
         if let keyHash = secretKeyHash {
             rows.append(.disclosure(
@@ -3489,12 +3517,6 @@ ClientRestorableNavigationEntry {
             ))
         } else {
             loadSecretKeyIfNeeded()
-        }
-        // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet.
-        if !isMyProfile, !addedToContacts, let user = customChat.user, !user.isContact,
-           case .userTypeRegular = user.type
-        {
-            rows.append(.action(title: L10n.telegram("PeerInfo.AddToContacts")))
         }
         guard rows != infoCardView.rows else { return }
         infoCardView.configure(rows: rows)
@@ -3620,6 +3642,77 @@ ClientRestorableNavigationEntry {
             SecretChatKeyViewController(keyHash: keyHash, name: customChat.user?.compactDisplayTitle ?? profileTitle()),
             animated: true,
         )
+    }
+
+    /// updateBlocked(true) for a person: the sheet asking whether to block them, then the main block list.
+    private func confirmBlock() {
+        guard contextIsCurrent, presentedViewController == nil, let user = customChat.user else { return }
+        let name = user.firstName.isEmpty ? user.lastName : user.firstName
+        let sheet = UIAlertController(
+            title: nil, message: L10n.telegram("UserInfo.BlockConfirmationTitle", name), preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(title: L10n.telegram("UserInfo.BlockActionTitle", name), style: .destructive) {
+            [weak self] _ in self?.setBlocked(true)
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if traitCollection.horizontalSizeClass == .regular, let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        }
+        present(sheet, animated: true)
+    }
+
+    /// updateBlocked(false): a person after "Unblock …?" with No and Yes; a bot at once, then /start and its chat, as
+    /// Telegram restarts it.
+    private func confirmUnblock() {
+        guard contextIsCurrent, presentedViewController == nil, let user = customChat.user else { return }
+        if case .userTypeBot = user.type {
+            setBlocked(false) { [weak self] in
+                guard let self else { return }
+                let chatID = customChat.id
+                let client = client
+                Task {
+                    _ = try? await client.send(TDNativeRequests.sendMessage(
+                        chatId: chatID, topicId: nil, replyTo: nil, options: nil, replyMarkup: nil,
+                        inputMessageContent: .inputMessageText(TDNativeInputMessageText(
+                            text: FormattedText(entities: [], text: "/start"),
+                            linkPreviewOptions: nil,
+                            clearDraft: false,
+                        )),
+                    ))
+                }
+                openChat(targetMessageID: nil)
+            }
+            return
+        }
+        let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        let alert = UIAlertController(
+            title: nil, message: L10n.telegram("UserInfo.UnblockConfirmation", name), preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.No"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Yes"), style: .default) { [weak self] _ in
+            self?.setBlocked(false)
+        })
+        present(alert, animated: true)
+    }
+
+    private func setBlocked(_ isBlocked: Bool, completion: (() -> Void)? = nil) {
+        guard let user = customChat.user else { return }
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setMessageSenderBlockList(
+                    senderId: .messageSenderUser(.init(userId: user.id)), blockList: isBlocked ? .blockListMain : nil,
+                ))
+            } catch {
+                if self?.contextIsCurrent == true { self?.presentChatListActionFailure() }
+                return
+            }
+            guard let self, contextIsCurrent else { return }
+            blockedOverride = isBlocked
+            if let info = lastUserFullInfo { applyInfoRows(info) }
+            completion?()
+        }
     }
 
     /// openAddPersonContact: the person's name to keep, then addContact without sharing the account's number; the row

@@ -14,7 +14,7 @@ final class ProfileInfoCardView: UIView {
         case hours(BusinessHours)
         case address(label: String, text: String, opens: Bool)
         /// PeerInfoScreenActionItem: an accent title that acts on a tap, as Add to Contacts.
-        case action(title: String)
+        case action(id: String, title: String, isDestructive: Bool = false)
         /// PeerInfoScreenDisclosureEncryptionKeyItem: a title with the key's picture and a chevron on the right.
         case disclosure(title: String, image: UIImage?)
     }
@@ -92,8 +92,9 @@ final class ProfileInfoCardView: UIView {
                         guard let self, rows.indices.contains(index) else { return }
                         onAction?(rows[index])
                     }
-                case .action(let title):
-                    ProfileInfoActionRowView(title: title) { [weak self] in
+                case .action(_, let title, let isDestructive):
+                    ProfileInfoActionRowView(title: title, color: isDestructive ? .systemRed : .tintColor) {
+                        [weak self] in
                         guard let self, rows.indices.contains(index) else { return }
                         onAction?(rows[index])
                     }
@@ -224,13 +225,13 @@ private final class ProfileInfoActionRowView: UIControl {
     /// An accent title alone, or, with an image, a disclosure row: the title in the primary colour, then the image and
     /// a
     /// chevron on the right.
-    init(title: String, image: UIImage? = nil, action: @escaping () -> Void) {
+    init(title: String, image: UIImage? = nil, color: UIColor = .tintColor, action: @escaping () -> Void) {
         self.action = action
         super.init(frame: .zero)
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 17)
-        label.textColor = image == nil ? .tintColor : .label
+        label.textColor = image == nil ? color : .label
         label.isUserInteractionEnabled = false
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
