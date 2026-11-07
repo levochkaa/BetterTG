@@ -3446,6 +3446,20 @@ ClientRestorableNavigationEntry {
             filter: filter,
             selectsEmptyDays: false,
         ) { [weak self] day in self?.scrollMedia(to: day) }
+        // The day's preview: the chat at its first photo or video, unread messages kept unread, and View in Chat.
+        let customChat = customChat
+        picker.previewDay = { [weak self, weak picker] message in
+            let preview = ChatViewController(
+                customChat: customChat, presentationMode: .contextPreview, targetMessageID: message.id,
+            )
+            let viewInChat = TelegramContextMenuAction(
+                title: L10n.telegram("SharedMedia.ViewInChat"),
+                image: UIImage(systemName: "bubble.left"),
+            ) { [weak self, weak picker] in
+                picker?.dismiss(animated: true) { self?.onOpenMessage?(message.id) }
+            }
+            return (preview, [viewInChat])
+        }
         let navigation = UINavigationController(rootViewController: picker)
         // The months scroll in a turned scroll view, which a sheet's pull to dismiss would take over.
         navigation.isModalInPresentation = true

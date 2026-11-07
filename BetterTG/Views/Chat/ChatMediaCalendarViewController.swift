@@ -14,6 +14,10 @@ import UIKit
 final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDelegate {
     private static let monthSpacing: CGFloat = 16
 
+    /// CalendarMessageScreen's `previewDay`: holding a day with media opens a preview of the chat at its message,
+    /// with the menu the opener gives for it.
+    var previewDay: ((Message) -> (preview: UIViewController, actions: [TelegramContextMenuAction])?)?
+
     private let chatID: Int64
     private let topic: MessageTopic?
     private let client: TDLibClient
@@ -166,6 +170,9 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
                 monthView = ChatCalendarMonthView()
                 monthView.transform = CGAffineTransform(rotationAngle: .pi)
                 monthView.onSelectDay = { [weak self] day in self?.select(day) }
+                monthView.onHoldDay = { [weak self] message, source, gesture in
+                    self?.preview(message, source: source, gesture: gesture)
+                }
                 monthView.selectsEmptyDays = selectsEmptyDays
                 monthViews[index] = monthView
                 scrollView.addSubview(monthView)
@@ -177,6 +184,17 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
         for index in monthViews.keys where !shown.contains(index) {
             monthViews.removeValue(forKey: index)?.removeFromSuperview()
         }
+    }
+
+    private func preview(_ message: Message, source: UIView, gesture: UIGestureRecognizer) {
+        guard let content = previewDay?(message) else { return }
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: content.actions,
+            tracking: gesture,
+            presentationStyle: .chatPreview,
+            previewController: content.preview,
+        )
     }
 
     private func select(_ day: Date) {
@@ -321,6 +339,7 @@ final class ChatCalendarMonthView: UIView {
     }
 
     var onSelectDay: ((Date) -> Void)?
+    var onHoldDay: ((Message, UIView, UIGestureRecognizer) -> Void)?
     var selectsEmptyDays = true
 
     private let titleLabel = UILabel()
@@ -393,6 +412,9 @@ final class ChatCalendarMonthView: UIView {
             while dayViews.count < month.numberOfDays {
                 let dayView = ChatCalendarDayView()
                 dayView.addTarget(self, action: #selector(dayTapped(_:)), for: .touchUpInside)
+                let hold = ContextMenuPressGestureRecognizer(target: self, action: #selector(dayHeld(_:)))
+                hold.castsShadow = false
+                dayView.addGestureRecognizer(hold)
                 addSubview(dayView)
                 dayViews.append(dayView)
             }
@@ -417,6 +439,13 @@ final class ChatCalendarMonthView: UIView {
                 client: client,
             )
         }
+    }
+
+    @objc private func dayHeld(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, onHoldDay != nil, let month, let dayView = gesture.view,
+              dayView.tag <= month.lastEnabledDay,
+              let message = media[month.day(dayView.tag, calendar: Calendar.current)] else { return }
+        onHoldDay?(message, dayView, gesture)
     }
 
     @objc private func dayTapped(_ dayView: ChatCalendarDayView) {
