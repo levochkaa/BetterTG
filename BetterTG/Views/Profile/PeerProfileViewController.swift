@@ -144,6 +144,13 @@ ClientRestorableNavigationEntry {
         let publicID: Int64?
     }
 
+    /// PeerInfoVisualMediaPaneNode.contentType: Media lists photos and videos, or one kind of them.
+    private enum MediaContentType {
+        case photoOrVideo
+        case photo
+        case video
+    }
+
     #if DEBUG
         /// `-ui-probe-main-web-app`: Open App shows on every other profile and opens the probe page after the terms.
         static var probeShowsOpenApp = false
@@ -271,6 +278,20 @@ ClientRestorableNavigationEntry {
             }
         #endif
         return 3
+    }() {
+        didSet { mediaColumnsSubject.send(mediaColumns) }
+    }
+
+    private lazy var mediaColumnsSubject = CurrentValueSubject<Int, Never>(mediaColumns)
+
+    private var mediaContentType = MediaContentType.photoOrVideo
+    private var mediaOptionsTask: Task<Void, Never>?
+    private lazy var mediaOptionsItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(primaryAction: UIAction(
+            image: UIImage(systemName: "ellipsis"),
+        ) { [weak self] _ in self?.openMediaOptionsMenu() })
+        item.accessibilityLabel = L10n.telegram("Common.More")
+        return item
     }()
 
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
@@ -401,6 +422,16 @@ ClientRestorableNavigationEntry {
     private lazy var mediaRevealSession = mediaPlaybackContext.map(MediaRevealSession.init)
 
     var navigationClientSource: TdUpdateSource? { restorationIdentity.origin }
+
+    /// The current pane's message filter: Media's narrows to photos or videos when only one kind shows.
+    private var effectiveSharedFilter: SearchMessagesFilter? {
+        guard currentSharedTab == .media else { return currentSharedTab.filter }
+        return switch mediaContentType {
+        case .photoOrVideo: .searchMessagesFilterPhotoAndVideo
+        case .photo: .searchMessagesFilterPhoto
+        case .video: .searchMessagesFilterVideo
+        }
+    }
 
     /// The account's own chat shown as Saved Messages, as it is when opened from that chat.
     private var isSavedMessagesProfile: Bool {
@@ -992,6 +1023,29 @@ ClientRestorableNavigationEntry {
         section.interGroupSpacing = spacing
         section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: sideInset, bottom: 16, trailing: sideInset)
         return section
+    }
+
+    /// Media keeps to one kind for Show Photos or Show Videos; other panes keep their tab's filter.
+    private static func mediaIncludes(tab: SharedTab, contentType: MediaContentType) -> ((Message) -> Bool?)? {
+        guard tab == .media, contentType != .photoOrVideo else { return nil }
+        return { message in
+            switch message.content {
+            case .messagePhoto: contentType == .photo
+            case .messageVideo: contentType == .video
+            default: false
+            }
+        }
+    }
+
+    /// The chat's photo and video counts; `-ui-probe-media-kinds` offers Show Photos and Show Videos on a chat
+    /// without both.
+    private static func probedMediaCounts(_ photos: Int, _ videos: Int) -> (Int, Int) {
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-media-kinds") {
+                return (max(photos, 1), max(videos, 1))
+            }
+        #endif
+        return (photos, videos)
     }
 
     func scrollViewWillBeginDragging(_: UIScrollView) {
@@ -3300,7 +3354,104 @@ ClientRestorableNavigationEntry {
         if currentSharedTab == .gifts, giftsPane != nil {
             items.append(giftsFilterItem)
         }
+        if currentSharedTab == .media {
+            items.append(mediaOptionsItem)
+        }
         navigationItem.rightBarButtonItems = items
+    }
+
+    /// PeerInfoScreenDisplayMediaGalleryContextMenu for photos and videos: Zoom In and Zoom Out, which step the grid
+    /// between 2 and 12 to a row with the menu open and dim at either end, then, when the chat has both, Show Photos
+    /// and
+    /// Show Videos, each checked while shown; turning one off leaves the other. Show Calendar is not ported.
+    private func openMediaOptionsMenu() {
+        guard contextIsCurrent, currentSharedTab == .media, mediaOptionsTask == nil,
+              let source = mediaOptionsItem.telegramChromeView else { return }
+        let client = client
+        let chatID = customChat.id
+        let topic = topic
+        mediaOptionsTask = Task { [weak self] in
+            async let photos = try? client.getChatMessageCount(
+                chatId: chatID, topicId: topic, filter: .searchMessagesFilterPhoto, returnLocal: false,
+            )
+            async let videos = try? client.getChatMessageCount(
+                chatId: chatID, topicId: topic, filter: .searchMessagesFilterVideo, returnLocal: false,
+            )
+            let counts = await Self.probedMediaCounts(photos?.count ?? 0, videos?.count ?? 0)
+            guard let self else { return }
+            mediaOptionsTask = nil
+            guard contextIsCurrent, currentSharedTab == .media else { return }
+            presentTelegramContextMenu(
+                sourceView: source,
+                actions: mediaOptionsActions(showsKinds: counts.0 > 0 && counts.1 > 0),
+                presentationStyle: .sourceMorph,
+            )
+        }
+    }
+
+    private func mediaOptionsActions(showsKinds: Bool) -> [TelegramContextMenuAction] {
+        var zoomIn = TelegramContextMenuAction(
+            title: L10n.telegram("SharedMedia.ZoomIn"),
+            image: UIImage(systemName: "plus.magnifyingglass"),
+        ) { [weak self] in self?.zoomMedia(by: -1) }
+        zoomIn.keepsMenuOpen = true
+        zoomIn.selectableUpdates = mediaColumnsSubject.map { $0 > 2 }.removeDuplicates().eraseToAnyPublisher()
+        var zoomOut = TelegramContextMenuAction(
+            title: L10n.telegram("SharedMedia.ZoomOut"),
+            image: UIImage(systemName: "minus.magnifyingglass"),
+        ) { [weak self] in self?.zoomMedia(by: 1) }
+        zoomOut.keepsMenuOpen = true
+        zoomOut.selectableUpdates = mediaColumnsSubject.map { $0 < 12 }.removeDuplicates().eraseToAnyPublisher()
+        var actions = [zoomIn, zoomOut]
+        guard showsKinds else { return actions }
+        let showsPhotos = mediaContentType != .video
+        let showsVideos = mediaContentType != .photo
+        let check = UIImage(systemName: "checkmark")
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("SharedMedia.ShowPhotos"),
+            image: showsPhotos ? check : UIImage(),
+            startsNewSection: true,
+        ) { [weak self] in
+            self?.toggleMediaKind(.photo)
+        })
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("SharedMedia.ShowVideos"),
+            image: showsVideos ? check : UIImage(),
+        ) { [weak self] in
+            self?.toggleMediaKind(.video)
+        })
+        return actions
+    }
+
+    /// SparseItemGrid's zoom levels from 12 to 2 to a row: a negative step zooms in, to fewer and larger tiles.
+    private func zoomMedia(by step: Int) {
+        let columns = min(12, max(2, mediaColumns + step))
+        guard columns != mediaColumns, currentSharedTab == .media else { return }
+        mediaColumns = columns
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25) {
+            self.collectionView.collectionViewLayout.invalidateLayout()
+            self.collectionView.layoutIfNeeded()
+        }
+    }
+
+    /// Show Photos or Show Videos: turning off the only kind shown keeps it; turning one of both off leaves the other.
+    private func toggleMediaKind(_ kind: MediaContentType) {
+        let type: MediaContentType =
+            switch (mediaContentType, kind) {
+            case (.photoOrVideo, .photo): .video
+            case (.photoOrVideo, _): .photo
+            case (.photo, .video),
+                 (.video, .photo): .photoOrVideo
+            default: mediaContentType
+            }
+        setMediaContentType(type)
+    }
+
+    /// PeerInfoVisualMediaPaneNode.updateContentType: the pane reads its messages again for the kinds it shows.
+    private func setMediaContentType(_ type: MediaContentType) {
+        guard type != mediaContentType, currentSharedTab == .media else { return }
+        mediaContentType = type
+        tabChanged()
     }
 
     private func openGiftsFilterMenu() {
@@ -3317,7 +3468,7 @@ ClientRestorableNavigationEntry {
         sharedMessageRefresh?.stop()
         sharedMessageRefresh = nil
         // Groups lists chats, which no message refresh covers.
-        guard let filter = currentSharedTab.filter else { return }
+        guard let filter = effectiveSharedFilter else { return }
         let source = restorationIdentity.origin
         let tab = currentSharedTab
         let client = client
@@ -3345,6 +3496,7 @@ ClientRestorableNavigationEntry {
                 .messages
                 .contains { $0.id == messageID }
             },
+            includes: Self.mediaIncludes(tab: tab, contentType: mediaContentType),
         )
         refresh.onChange = { [weak self, weak refresh] change in
             guard let self, let refresh, sharedMessageRefresh === refresh else { return }
@@ -3492,7 +3644,7 @@ ClientRestorableNavigationEntry {
     private func loadMore() {
         // Before the counts arrive only a restored pane reads; afterwards only a pane with content does.
         guard availableSharedTabs?.contains(currentSharedTab) ?? (restoration != nil) else { return }
-        guard let filter = currentSharedTab.filter else {
+        guard let filter = effectiveSharedFilter else {
             if currentSharedTab == .members {
                 guard restoredViewport == nil, contextIsCurrent, let membersPane else { return }
                 historyError = nil

@@ -3466,3 +3466,7 @@
 "PeerInfo.Gifts.Displayed" = "Displayed";
 "PeerInfo.Gifts.Hidden" = "Hidden";
 "PeerInfo.Gifts.Collections.All" = "All Gifts";
+"SharedMedia.ZoomIn" = "Zoom In";
+"SharedMedia.ZoomOut" = "Zoom Out";
+"SharedMedia.ShowPhotos" = "Show Photos";
+"SharedMedia.ShowVideos" = "Show Videos";

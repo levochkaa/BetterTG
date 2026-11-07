@@ -34,6 +34,10 @@ import UIKit
     let tab: PeerProfileViewController.SharedTab
     var onChange: ((Change) -> Void)?
 
+    /// Whether a message belongs to the pane: the tab's filter, narrowed where the pane shows only one kind (Media's
+    /// Show Photos or Show Videos); nil when this app can't tell.
+    private let includes: (Message) -> Bool?
+
     private let accepts: () -> Bool
     private let canStart: () -> Bool
     private let read: (Int64) async throws -> Message
@@ -68,10 +72,12 @@ import UIKit
         canStart: @escaping () -> Bool = { true },
         read: @escaping (Int64) async throws -> Message,
         searchMembership: ((Int64) async throws -> Bool)? = nil,
+        includes: ((Message) -> Bool?)? = nil,
     ) {
         self.source = source
         self.location = location
         self.tab = tab
+        self.includes = includes ?? { tab.includes($0) }
         self.seeds = seedIDs
         self.visibleIDs = visibleIDs
         self.knownIDs = Set(seedIDs)
@@ -150,7 +156,7 @@ import UIKit
     func receiveNew(_ message: Message, source: TdUpdateSource) {
         guard isCurrent, self.source == source, location.matches(message: message), message.sendingState == nil,
               !knownIDs.contains(message.id), !removedIDs.contains(message.id) else { return }
-        guard let included = tab.includes(message) else {
+        guard let included = includes(message) else {
             confirmMembership(of: message)
             return
         }
@@ -211,7 +217,7 @@ import UIKit
         let id = delivery.messageID
         switch delivery.result {
         case .message(let value):
-            guard let included = tab.includes(value.message) else {
+            guard let included = includes(value.message) else {
                 confirmMembership(of: value.message)
                 return
             }
