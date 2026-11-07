@@ -5850,6 +5850,10 @@ ClientRestorableNavigationEntry {
         let chatID = customChat.id
         moreMenuTask = Task { [weak self] in
             let chat = try? await client.getChat(chatId: chatID)
+            var botInfo: TDNativeBotInfo?
+            if case .bot(let user) = await MainActor.run(body: { self?.customChat.type }) {
+                botInfo = try? await client.getUserFullInfo(userId: user.id).botInfo
+            }
             guard let self else { return }
             moreMenuTask = nil
             guard let chat, scope.isCurrent, presentedViewController == nil else { return }
@@ -5859,6 +5863,7 @@ ClientRestorableNavigationEntry {
                 client: client,
                 canChangeInfo: infoPermission.canChangeInfo,
                 scope: scope,
+                botInfo: botInfo,
                 host: self,
             )
             presentTelegramContextMenu(

@@ -3853,3 +3853,7 @@
 "Settings.PersonalChannelSelectTitle" = "Channel";
 "Settings.PersonalChannelSelectSubtitle" = "select your channel";
 "Settings.PersonalChannelRemove" = "Hide Channel";
+"UserInfo.ShareBot" = "Share";
+"UserInfo.BotPrivacy" = "Privacy Policy";
+"UserInfo.BotSettings" = "Settings";
+"UserInfo.BotHelp" = "Help";

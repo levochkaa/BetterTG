@@ -15,6 +15,8 @@ import UIKit
     let client: TDLibClient
     let canChangeInfo: Bool
     let scope: ChatListActionScope
+    /// A bot's commands and privacy policy, for its Share, Privacy Policy, Settings and Help.
+    var botInfo: TDNativeBotInfo?
     weak var host: UIViewController?
 
     // MARK: Mute
@@ -66,8 +68,28 @@ import UIKit
         return L10n.telegramPlural(key, count: max(1, count))
     }
 
+    private static func sendBotCommand(
+        _ command: String,
+        to customChat: CustomChat,
+        client: TDLibClient,
+        scope: ChatListActionScope,
+    ) {
+        let content = InputMessageContent.inputMessageText(InputMessageText(
+            clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: "/" + command),
+        ))
+        Task {
+            _ = try? await client.sendMessage(
+                chatId: customChat.chat.id, inputMessageContent: content, options: nil, replyMarkup: nil,
+                replyTo: nil, topicId: nil,
+            )
+            guard scope.isCurrent else { return }
+            NavigationStorage.shared.push(.customChat(customChat))
+        }
+    }
+
     func actions() -> [TelegramContextMenuAction] {
         var actions = [muteAction()]
+        actions += botActions()
         if canSetAutoDelete {
             actions.append(autoDeleteAction())
         }
@@ -75,6 +97,65 @@ import UIKit
             actions.append(clear)
         }
         actions.append(removalAction())
+        return actions
+    }
+
+    // MARK: Bot
+
+    /// PeerInfoScreenPerformButtonAction's bot items: Share for a bot with a username; Privacy Policy by the bot's
+    /// link, Telegram's default terms when the bot has neither a link nor /privacy, or its /privacy command; and its
+    /// /settings and /help commands, in the bot's order. A command is sent to the bot (performBotCommand), whose chat
+    /// opens.
+    private func botActions() -> [TelegramContextMenuAction] {
+        guard case .bot(let user) = customChat.type else { return [] }
+        var actions = [TelegramContextMenuAction]()
+        if let username = user.usernames?.activeUsernames.first, let link = URL(string: "https://t.me/\(username)") {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("UserInfo.ShareBot"),
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak host] in
+                guard let host else { return }
+                let sheet = UIActivityViewController(activityItems: [link], applicationActivities: nil)
+                sheet.popoverPresentationController?.sourceView = host.view
+                host.present(sheet, animated: true)
+            })
+        }
+        guard let botInfo else { return actions }
+        let commands = botInfo.commands.map(\.command)
+        var addedPrivacy = false
+        let privacyURL: String? =
+            if !botInfo.privacyPolicyUrl.isEmpty {
+                botInfo.privacyPolicyUrl
+            } else if commands.contains("privacy") {
+                nil
+            } else {
+                L10n.telegram("WebApp.PrivacyPolicy_URL")
+            }
+        if let privacyURL, let url = URL(string: privacyURL) {
+            addedPrivacy = true
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("UserInfo.BotPrivacy"),
+                image: UIImage(systemName: "info.circle"),
+            ) { [weak host] in
+                WebBrowser.open(url, from: host)
+            })
+        }
+        for command in commands {
+            let title: String
+            let symbol: String
+            switch command {
+            case "settings": (title, symbol) = ("UserInfo.BotSettings", "gearshape")
+            case "help": (title, symbol) = ("UserInfo.BotHelp", "questionmark.circle")
+            case "privacy" where !addedPrivacy: (title, symbol) = ("UserInfo.BotPrivacy", "info.circle")
+            default: continue
+            }
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(title),
+                image: UIImage(systemName: symbol),
+            ) { [customChat, client, scope] in
+                Self.sendBotCommand(command, to: customChat, client: client, scope: scope)
+            })
+        }
         return actions
     }
 
