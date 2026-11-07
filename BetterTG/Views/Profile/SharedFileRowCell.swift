@@ -244,7 +244,7 @@ final class SharedFileRowCell: UICollectionViewCell, SharedSelectableRow {
         captionLabel.text = caption
         captionLabel.isHidden = caption.isEmpty
         let bytes = Int64(max(document.document.size, document.document.expectedSize))
-        let size = bytes > 0 ? ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) : nil
+        let size = bytes > 0 ? DataSize.string(bytes) : nil
         let date = Date(timeIntervalSince1970: TimeInterval(message.date))
         if isGlobalSearch {
             dateLabel.text = profileDateString(message.date)

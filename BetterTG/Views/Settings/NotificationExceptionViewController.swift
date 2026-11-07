@@ -490,7 +490,7 @@ struct NotificationSoundLimits {
                 L10n.telegram("Notifications.UploadError.TooLarge.Title"),
                 L10n.telegram(
                     "Notifications.UploadError.TooLarge.Text",
-                    ByteCountFormatter.string(fromByteCount: maxSize, countStyle: .binary),
+                    DataSize.string(maxSize),
                 ),
             )
         }

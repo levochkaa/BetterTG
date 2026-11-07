@@ -2108,7 +2108,7 @@ final class ChatComposerView: UIView {
             sizeLabel.font = .preferredFont(forTextStyle: .caption1)
             sizeLabel.adjustsFontForContentSizeCategory = true
             sizeLabel.textColor = .secondaryLabel
-            sizeLabel.text = ByteCountFormatter.string(fromByteCount: document.size, countStyle: .file)
+            sizeLabel.text = DataSize.string(document.size)
 
             let labels = UIStackView(arrangedSubviews: [titleLabel, sizeLabel])
             labels.translatesAutoresizingMaskIntoConstraints = false

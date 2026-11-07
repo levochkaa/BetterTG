@@ -481,7 +481,7 @@ final class ChatListDownloadCell: UITableViewCell {
         }
         let total = Int64(max(file?.size ?? 0, file?.expectedSize ?? 0))
         let downloaded = Int64(file?.local.downloadedSize ?? 0)
-        let format: (Int64) -> String = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        let format: (Int64) -> String = { DataSize.string($0) }
         let isDone = download.completeDate != 0 || file?.local.isDownloadingCompleted == true
         if isDone {
             descriptionLabel.text = total > 0 ? format(total) : nil

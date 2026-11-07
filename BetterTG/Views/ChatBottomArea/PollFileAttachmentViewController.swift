@@ -202,7 +202,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
         let date = Foundation.Date(timeIntervalSince1970: TimeInterval(file.date))
             .formatted(date: .abbreviated, time: .omitted)
         guard size > 0 else { return date }
-        return "\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) • \(date)"
+        return "\(DataSize.string(Int64(size))) • \(date)"
     }
 
     private static func emptyFooter(title: String?, text: String, top: CGFloat) -> UIView {

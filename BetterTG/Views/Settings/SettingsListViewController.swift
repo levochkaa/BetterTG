@@ -909,8 +909,9 @@ enum SettingsFormatting {
         return L10n.telegramPlural(key, count: max(1, count))
     }
 
+    /// Telegram's dataSizeString.
     static func byteCount(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        DataSize.string(bytes)
     }
 
     /// Telegram's stringForRelativeActivityTimestamp: the time today, otherwise the date.

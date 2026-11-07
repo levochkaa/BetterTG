@@ -289,7 +289,7 @@ final class NetworkUsageViewController: SettingsListViewController {
         }
         headerView.update(
             items: statistics == nil ? [] : items,
-            totalText: SettingsFormatting.byteCount(total),
+            totalText: DataSize.string(total, forceDecimal: true),
             title: L10n.telegram(total == 0 ? "DataUsage.HeaderNoDataUsed" : "DataUsage.Header"),
             description: since,
             animated: animated,

@@ -710,7 +710,7 @@ private final class MusicPlayerTrackCell: UITableViewCell {
             if !performer.isEmpty {
                 "\(MusicPlayerControlsView.timeString(seconds: audio.duration)) • \(performer)"
             } else if size > 0 {
-                ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                DataSize.string(size)
             } else {
                 ""
             }

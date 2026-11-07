@@ -372,7 +372,7 @@ final class StorageUsageViewController: SettingsListViewController {
         }
         headerView.update(
             items: isCalculating ? [] : items,
-            totalText: SettingsFormatting.byteCount(selectedTotal),
+            totalText: DataSize.string(selectedTotal, forceDecimal: true),
             title: title,
             description: description,
             progress: progress,

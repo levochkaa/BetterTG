@@ -996,7 +996,7 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
     private static func fileSizeString(_ file: File) -> String {
         let size = max(file.size, file.expectedSize)
         guard size > 0 else { return L10n.telegram("Message.File") }
-        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        return DataSize.string(size)
     }
 
     func prepareForReuse() {

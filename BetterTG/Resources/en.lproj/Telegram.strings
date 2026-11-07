@@ -3670,3 +3670,7 @@
 "StorageManagement.ClearSelected" = "Clear Selected";
 "StorageManagement.ClearConfirmationTitle" = "Clear Cache";
 "StorageManagement.DescriptionChatUsage" = "This chat uses %1$@% of your Telegram cache.";
+"FileSize.B" = "%@ B";
+"FileSize.KB" = "%@ KB";
+"FileSize.MB" = "%@ MB";
+"FileSize.GB" = "%@ GB";

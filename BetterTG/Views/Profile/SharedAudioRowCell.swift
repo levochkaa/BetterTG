@@ -137,7 +137,7 @@ final class SharedAudioRowCell: UICollectionViewCell, SharedSelectableRow {
                 details.append(performer)
             } else {
                 let bytes = Int64(max(audio.audio.size, audio.audio.expectedSize))
-                if bytes > 0 { details.append(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
+                if bytes > 0 { details.append(DataSize.string(bytes)) }
             }
             showIcon(
                 cover: audio.albumCoverThumbnail,
