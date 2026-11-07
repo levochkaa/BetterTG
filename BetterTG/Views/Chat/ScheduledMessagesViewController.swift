@@ -9,6 +9,7 @@ import UIKit
 /// Telegram's scheduled messages chat (ChatControllerSubject.scheduledMessages) as a BetterTG list: the chat's or
 /// topic's scheduled messages grouped by the day they go out, or "until online". A message's menu sends it now,
 /// reschedules it (editMessageSchedulingState), copies its text or deletes it. Saved Messages calls them reminders.
+/// A video still being converted goes out on its date once processed: its row says so, and Send Now asks first.
 final class ScheduledMessagesViewController: SettingsListViewController {
     private let location: ChatLocation
     private let isReminders: Bool
@@ -89,8 +90,9 @@ final class ScheduledMessagesViewController: SettingsListViewController {
     /// The day Telegram's scheduled chat heads a message with: today, a date, or until online.
     private static func header(for message: Message, dayFormatter: DateFormatter) -> String {
         switch message.schedulingState {
-        case .messageSchedulingStateSendAtDate(let state):
-            let date = Date(timeIntervalSince1970: TimeInterval(state.sendDate))
+        case .messageSchedulingStateSendAtDate,
+             .messageSchedulingStateSendWhenVideoProcessed:
+            let date = Date(timeIntervalSince1970: TimeInterval(sendDate(of: message)))
             return Calendar.current.isDateInToday(date)
                 ? L10n.telegram("ScheduledMessages.ScheduledToday")
                 : L10n.telegram("ScheduledMessages.ScheduledDate", dayFormatter.string(from: date))
@@ -101,14 +103,27 @@ final class ScheduledMessagesViewController: SettingsListViewController {
         }
     }
 
+    /// The time it goes out; a video still processing adds Chat.VideoProcessingInfo, as Telegram's scheduled chat puts
+    /// "This video will be published once converted and optimized" over it.
     private static func time(for message: Message) -> String? {
-        guard case .messageSchedulingStateSendAtDate(let state) = message.schedulingState else { return nil }
-        return Date(timeIntervalSince1970: TimeInterval(state.sendDate)).formatted(date: .omitted, time: .shortened)
+        let date = sendDate(of: message)
+        guard date != Int.max else { return nil }
+        let time = Date(timeIntervalSince1970: TimeInterval(date)).formatted(date: .omitted, time: .shortened)
+        guard isProcessingVideo(message) else { return time }
+        return "\(time) · \(L10n.telegram("Chat.VideoProcessingInfo"))"
     }
 
     private static func sendDate(of message: Message) -> Int {
-        if case .messageSchedulingStateSendAtDate(let state) = message.schedulingState { return state.sendDate }
-        return Int.max
+        switch message.schedulingState {
+        case .messageSchedulingStateSendAtDate(let state): state.sendDate
+        case .messageSchedulingStateSendWhenVideoProcessed(let state): state.sendDate
+        default: Int.max
+        }
+    }
+
+    private static func isProcessingVideo(_ message: Message) -> Bool {
+        if case .messageSchedulingStateSendWhenVideoProcessed = message.schedulingState { return true }
+        return false
     }
 
     private func scheduledMessage(at indexPath: IndexPath) -> Message? {
@@ -175,7 +190,7 @@ final class ScheduledMessagesViewController: SettingsListViewController {
             TelegramContextMenuAction(
                 title: L10n.telegram("ScheduledMessages.SendNow"),
                 image: UIImage(systemName: "paperplane"),
-            ) { [weak self] in self?.setSchedulingState(nil, of: message) },
+            ) { [weak self] in self?.sendNow(message) },
             TelegramContextMenuAction(
                 title: L10n.telegram("ScheduledMessages.EditTime"),
                 image: UIImage(systemName: "calendar.badge.clock"),
@@ -199,13 +214,29 @@ final class ScheduledMessagesViewController: SettingsListViewController {
         presentTelegramContextMenu(sourceView: cell, actions: actions, presentationStyle: .menuOnly)
     }
 
+    /// Send Now; a video still being converted first gets "Wait!" with Send Anyway, as Telegram asks.
+    private func sendNow(_ message: Message) {
+        guard Self.isProcessingVideo(message) else {
+            setSchedulingState(nil, of: message)
+            return
+        }
+        let alert = UIAlertController(
+            title: L10n.telegram("Chat.ScheduledForceSendProcessingVideo.Title"),
+            message: L10n.telegram("Chat.ScheduledForceSendProcessingVideo.Text"),
+            preferredStyle: .alert,
+        )
+        let send = UIAlertAction(
+            title: L10n.telegram("Chat.ScheduledForceSendProcessingVideo.Action"), style: .default,
+        ) { [weak self] _ in self?.setSchedulingState(nil, of: message) }
+        alert.addAction(send)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.preferredAction = send
+        present(alert, animated: true)
+    }
+
     private func reschedule(_ message: Message) {
-        let current: Date? =
-            if case .messageSchedulingStateSendAtDate(let state) = message.schedulingState {
-                Date(timeIntervalSince1970: TimeInterval(state.sendDate))
-            } else {
-                nil
-            }
+        let date = Self.sendDate(of: message)
+        let current: Date? = date == Int.max ? nil : Date(timeIntervalSince1970: TimeInterval(date))
         ScheduleMessagePickerViewController.present(
             from: self,
             isReminder: isReminders,

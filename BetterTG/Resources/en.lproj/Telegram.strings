@@ -3993,3 +3993,7 @@
 "ChannelInfo.FakeChannelWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
 "Channel.LinkItem" = "share link";
 "PeerInfo.PrivateShareLinkInfo" = "This link will work only for group members.";
+"Chat.ScheduledForceSendProcessingVideo.Title" = "Wait!";
+"Chat.ScheduledForceSendProcessingVideo.Text" = "This video hasn't been converted and optimized yet. If you send it now, the viewers of the video may experience slow download speed.";
+"Chat.ScheduledForceSendProcessingVideo.Action" = "Send Anyway";
+"Chat.VideoProcessingInfo" = "The video will be published once converted and optimized.";
