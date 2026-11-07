@@ -270,6 +270,12 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             guard let item = searchSections[safe: indexPath.section]?.items[safe: indexPath.row] else { return }
             SettingsSearch.addRecent(item.id)
             open(item.target)
+            // A setting inside a screen shows where it is there.
+            if !item.breadcrumbs.isEmpty,
+               let screen = navigationController?.topViewController as? SettingsListViewController
+            {
+                screen.focusedRowTitle = item.title
+            }
             return
         }
         guard let row = rows(in: indexPath.section)[safe: indexPath.row] else { return }

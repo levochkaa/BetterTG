@@ -168,6 +168,11 @@ class SettingsListViewController: UITableViewController {
 
     let accountID: UUID?
     private(set) var sections = [SettingsSection]()
+    /// focusOnItemTag: the row with this title, once the list has it on screen, comes into view and shows its
+    /// highlight (displayHighlight), as a setting found by the settings search does.
+    var focusedRowTitle: String?
+
+    private var highlightedRow: (title: String, until: Date)?
 
     var client: TDLibClient {
         TDLib.shared.activeClient
@@ -205,6 +210,11 @@ class SettingsListViewController: UITableViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        focusRowIfNeeded()
     }
 
     // MARK: Table
@@ -332,8 +342,15 @@ class SettingsListViewController: UITableViewController {
     }
 
     /// Sets play their thumbnails while on screen, as ItemListStickerPackItem does with `playAnimatedStickers`.
-    override func tableView(_: UITableView, willDisplay cell: UITableViewCell, forRowAt _: IndexPath) {
+    override func tableView(_: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         (cell as? SettingsStickerSetCell)?.setPlaybackVisible(true)
+        // The focused row keeps its highlight on whatever cell a reload gives it.
+        if let highlightedRow, highlightedRow.until > Date(),
+           settingsRow(at: indexPath)?.title.caseInsensitiveCompare(highlightedRow.title) == .orderedSame
+        {
+            cell.selectionStyle = .default
+            cell.setHighlighted(true, animated: false)
+        }
     }
 
     override func tableView(_: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt _: IndexPath) {
@@ -369,6 +386,7 @@ class SettingsListViewController: UITableViewController {
         sections = makeSections()
         guard isViewLoaded else { return }
         tableView.reloadData()
+        focusRowIfNeeded()
     }
 
     /// Rebuilds the rows without redrawing them, after the table moved a row itself or changed editing.
@@ -444,6 +462,54 @@ class SettingsListViewController: UITableViewController {
 
     func settingsRow(at indexPath: IndexPath) -> SettingsRow? {
         sections[safe: indexPath.section]?.rows[safe: indexPath.row]
+    }
+
+    /// ItemListDisclosureItem's displayHighlight: the highlight for 1.2 s, then a 0.3 s fade. A list that loads its
+    /// rows later focuses once the row is there.
+    private func focusRowIfNeeded() {
+        guard let title = focusedRowTitle, viewIfLoaded?.window != nil, let indexPath = indexPath(titled: title)
+        else { return }
+        focusedRowTitle = nil
+        tableView.layoutIfNeeded()
+        // Rows under the bars or the tab bar count as hidden.
+        let visible = tableView.bounds.inset(by: tableView.adjustedContentInset)
+        if !visible.contains(tableView.rectForRow(at: indexPath)) {
+            tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+            tableView.layoutIfNeeded()
+        }
+        highlightedRow = (title, Date().addingTimeInterval(1.2))
+        showHighlight()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, let highlightedRow, highlightedRow.title == title else { return }
+            self.highlightedRow = nil
+            guard let current = self.indexPath(titled: title), let cell = tableView.cellForRow(at: current)
+            else { return }
+            UIView.animate(withDuration: 0.3) {
+                cell.setHighlighted(false, animated: false)
+            } completion: { [weak self] _ in
+                guard let self, let row = settingsRow(at: current) else { return }
+                apply(row, to: cell)
+            }
+        }
+    }
+
+    /// The focused row's highlight, again on the cell a reload put in its place. A row that doesn't select, such as a
+    /// switch, shows it too.
+    private func showHighlight() {
+        guard let highlightedRow, highlightedRow.until > Date(),
+              let indexPath = indexPath(titled: highlightedRow.title),
+              let cell = tableView.cellForRow(at: indexPath) else { return }
+        cell.selectionStyle = .default
+        cell.setHighlighted(true, animated: false)
+    }
+
+    private func indexPath(titled title: String) -> IndexPath? {
+        for (sectionIndex, section) in sections.enumerated() {
+            if let row = section.rows.firstIndex(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
+                return IndexPath(row: row, section: sectionIndex)
+            }
+        }
+        return nil
     }
 
     private func apply(_ row: SettingsRow, to cell: UITableViewCell) {
