@@ -7364,6 +7364,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// openMessageReplies' error: the post's thread is gone from the discussion group, "Sorry, this post has been
+    /// removed from the discussion group." with OK.
+    private func presentDiscussionUnavailable() {
+        metadataNavigationTask = nil
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: nil, message: L10n.telegram("Channel.DiscussionMessageUnavailable"), preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
+    }
+
     private func presentMetadataUnavailable() {
         metadataNavigationTask = nil
         guard presentedViewController == nil else { return }
@@ -7677,7 +7689,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   TDLib.shared.activeClient.id == currentLocation.clientID
             else { return }
             guard let thread else {
-                presentMetadataUnavailable()
+                presentDiscussionUnavailable()
                 return
             }
             let discussion = await RootVM.shared.getCustomChatForNavigation(from: thread.chatId, client: client)
@@ -7688,7 +7700,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   navigationController?.topViewController === self
             else { return }
             guard let discussion else {
-                presentMetadataUnavailable()
+                presentDiscussionUnavailable()
                 return
             }
             NavigationStorage.shared.push(.customChat(

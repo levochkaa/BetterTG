@@ -4054,3 +4054,4 @@
 "WebBrowser.ExceptionAdded.Text" = "This site will always open in-app.";
 "Chat.PauseVoiceMessageTooltip" = "Pause to trim or replay.";
 "WebBrowser.InAppSafari" = "In-App Safari";
+"Channel.DiscussionMessageUnavailable" = "Sorry, this post has been removed from the discussion group.";
