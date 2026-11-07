@@ -1181,7 +1181,12 @@ ClientRestorableNavigationEntry {
             guard contextIsCurrent, !isReorderingGifts, let id = dataSource.itemIdentifier(for: indexPath),
                   let gift = giftsPane?.gift(for: id) else { return }
             GiftInfoViewController.present(
-                gift, isOwnProfile: isMyProfile, client: client, from: self,
+                gift,
+                isOwnProfile: isMyProfile,
+                isPremium: customChat.user?.isPremium == true,
+                emojiStatus: customChat.user?.emojiStatus,
+                client: client,
+                from: self,
             ) { [weak self] in self?.giftsPane?.reload() }
             return
         }

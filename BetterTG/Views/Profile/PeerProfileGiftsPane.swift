@@ -93,13 +93,6 @@ import UIKit
         TelegramUndoToast.show(text: message, in: host.view, bottomInset: 12, undo: nil)
     }
 
-    private static func formattedNumber(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
-
     func isPinned(_ id: Int64) -> Bool {
         gifts[id]?.isPinned == true || locallyPinned.contains(id)
     }
@@ -440,14 +433,7 @@ import UIKit
                 image: UIImage(systemName: "crown"),
             ) { [weak self, weak host] in
                 guard let self, let host else { return }
-                if isPremium {
-                    wear(upgraded, host: host)
-                } else {
-                    TelegramUndoToast.show(
-                        text: L10n.telegram("Gift.View.TooltipPremiumWearing").withoutTelegramMarkup,
-                        in: host.view, bottomInset: 62, undo: nil,
-                    )
-                }
+                GiftActions.wear(upgraded, isPremium: isPremium, client: client, host: host)
             })
         }
         if let upgraded, !upgraded.name.isEmpty {
@@ -489,7 +475,14 @@ import UIKit
                 image: UIImage(systemName: "arrow.right.arrow.left"),
             ) { [weak self, weak host] in
                 guard let self, let host else { return }
-                transfer(gift, upgraded: upgraded, host: host)
+                GiftActions.transfer(gift, upgraded: upgraded, client: client, host: host) { [
+                    weak self,
+                    weak host,
+                ] text in
+                    self?.reload()
+                    guard let host else { return }
+                    TelegramUndoToast.show(text: text, in: host.view, bottomInset: 12, undo: nil)
+                }
             })
         }
         if canManage, !gift.receivedGiftId.isEmpty, let selectedCollectionID {
@@ -511,135 +504,6 @@ import UIKit
         guard isFiltered else { return }
         filter.send(.all)
         reload()
-    }
-
-    /// PeerInfoGiftsPaneNode's Transfer: a gift hosted on Fragment is locked there, one TDLib can't move yet says when
-    /// it
-    /// can (GiftViewScreen's Try Later); otherwise the Transfer picker, Confirm Transfer, free or for the gift's
-    /// transfer Stars, and transferGift. A person's chat opens after, as Telegram's does; a channel's stays put.
-    private func transfer(_ gift: TDNativeReceivedGift, upgraded: TDNativeUpgradedGift, host: UIViewController) {
-        guard upgraded.hostId == nil else {
-            let alert = UIAlertController(
-                title: L10n.telegram("Gift.UnavailableAction.Title"),
-                message: L10n.telegram("Gift.UnavailableAction.Text"),
-                preferredStyle: .alert,
-            )
-            alert
-                .addAction(UIAlertAction(title: L10n.telegram("Gift.UnavailableAction.OpenFragment"), style: .default) {
-                    _ in
-                    guard let url = URL(string: "https://fragment.com/gift/\(upgraded.name)") else { return }
-                    UIApplication.shared.open(url)
-                })
-            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-            host.present(alert, animated: true)
-            return
-        }
-        if gift.nextTransferDate > Int(Date().timeIntervalSince1970) {
-            let date = ChatVM.fullDateString(Date(timeIntervalSince1970: TimeInterval(gift.nextTransferDate)))
-            let alert = UIAlertController(
-                title: L10n.telegram("Gift.Transfer.Unavailable.Title"),
-                message: L10n.telegram("Gift.Transfer.Unavailable.Text", date).withoutTelegramMarkup,
-                preferredStyle: .alert,
-            )
-            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
-            host.present(alert, animated: true)
-            return
-        }
-        let picker = GiftTransferPickerViewController()
-        picker.onPick = { [weak self, weak picker, weak host] recipient in
-            guard let self, let picker, let host else { return }
-            confirmTransfer(gift, upgraded: upgraded, to: recipient, picker: picker, host: host)
-        }
-        host.present(UINavigationController(rootViewController: picker), animated: true)
-    }
-
-    /// giftTransferAlertController: Confirm Transfer, "Transfer" when it's free and "Transfer for N Stars" otherwise.
-    private func confirmTransfer(
-        _ gift: TDNativeReceivedGift,
-        upgraded: TDNativeUpgradedGift,
-        to recipient: GiftTransferPickerViewController.Recipient,
-        picker: UIViewController,
-        host: UIViewController,
-    ) {
-        let giftTitle = upgraded.title + " #" + Self.formattedNumber(upgraded.number)
-        let stars = Int(gift.transferStarCount)
-        let starsText = L10n.telegramPlural(
-            "Gift.Transfer.Confirmation.Text.Stars", count: stars, formattedCount: Self.formattedNumber(stars),
-        )
-        let text = stars > 0
-            ? L10n.telegram("Gift.Transfer.Confirmation.Text", giftTitle, recipient.peer.title, starsText)
-            : L10n.telegram("Gift.Transfer.Confirmation.TextFree", giftTitle, recipient.peer.title)
-        let button = stars > 0
-            ? L10n.telegram("Gift.Transfer.Confirmation.Transfer") + " " + starsText
-            : L10n.telegram("Gift.Transfer.Confirmation.TransferFree")
-        let alert = UIAlertController(
-            title: L10n.telegram("Gift.Transfer.Confirmation.Title"),
-            message: text.withoutTelegramMarkup,
-            preferredStyle: .alert,
-        )
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: button, style: .default) { [weak self, weak picker, weak host] _ in
-            guard let self, let picker, let host else { return }
-            send(gift, giftTitle: giftTitle, to: recipient, stars: gift.transferStarCount, picker: picker, host: host)
-        })
-        picker.present(alert, animated: true)
-    }
-
-    private func send(
-        _ gift: TDNativeReceivedGift,
-        giftTitle: String,
-        to recipient: GiftTransferPickerViewController.Recipient,
-        stars: Int64,
-        picker: UIViewController,
-        host: UIViewController,
-    ) {
-        let client = client
-        Task { [weak self, weak picker, weak host] in
-            do {
-                _ = try await client.send(TDNativeRequests.transferGift(
-                    businessConnectionId: "",
-                    receivedGiftId: gift.receivedGiftId,
-                    newOwnerId: recipient.sender,
-                    starCount: stars,
-                ))
-            } catch {
-                if let picker { Self.showError(error, in: picker) }
-                return
-            }
-            self?.reload()
-            let success = L10n.telegram("Gift.Transfer.Success", giftTitle, recipient.peer.title).withoutTelegramMarkup
-            picker?.dismiss(animated: true) {
-                guard let host else { return }
-                TelegramUndoToast.show(text: success, in: host.view, bottomInset: 12, undo: nil)
-            }
-            if !recipient.isChannel,
-               let chat = try? await client.createPrivateChat(force: false, userId: recipient.peer.id),
-               let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client)
-            {
-                NavigationStorage.shared.push(.customChat(customChat))
-            }
-        }
-    }
-
-    /// setStarGiftStatus: the gift's emoji status, as TDLib lists the account's upgraded gifts' statuses.
-    private func wear(_ upgraded: TDNativeUpgradedGift, host: UIViewController) {
-        let client = client
-        Task { [weak host] in
-            do {
-                let statuses = try await client.send(TDNativeRequests.getUpgradedGiftEmojiStatuses())
-                let status = statuses.emojiStatuses.first { status in
-                    if case .emojiStatusTypeUpgradedGift(let value) = status.type {
-                        value.upgradedGiftId == upgraded.id
-                    } else {
-                        false
-                    }
-                }
-                guard let status else { return }
-                _ = try await client.send(TDNativeRequests.setEmojiStatus(emojiStatus: status))
-            } catch {
-                if let host { Self.showError(error, in: host) }
-            }
-        }
     }
 
     /// Runs a change, then reads the collections and the list again; a failure shows TDLib's error.
@@ -752,7 +616,7 @@ import UIKit
             reload()
             guard let host else { return }
             if pinned {
-                let title = upgraded.title + " #" + Self.formattedNumber(upgraded.number)
+                let title = GiftActions.title(upgraded)
                 TelegramUndoToast.show(
                     title: L10n.telegram("PeerInfo.Gifts.ToastPinned.TitleNew", title),
                     text: L10n.telegram("PeerInfo.Gifts.ToastPinned.Text"),

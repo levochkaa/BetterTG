@@ -3597,3 +3597,8 @@
 "Gift.UnavailableAction.Title" = "Action Locked";
 "Gift.UnavailableAction.Text" = "Transfer this gift to your Telegram account on Fragment to unlock this action.";
 "Gift.UnavailableAction.OpenFragment" = "Open Fragment";
+"Gift.View.Header.Transfer" = "transfer";
+"Gift.View.Header.Wear" = "wear";
+"Gift.View.Header.TakeOff" = "take off";
+"Gift.View.PutOn" = "You put on %@";
+"Gift.View.TookOff" = "You took off %@";

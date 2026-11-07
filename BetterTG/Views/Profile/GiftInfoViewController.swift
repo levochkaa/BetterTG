@@ -5,11 +5,11 @@ import UIKit
 
 // MARK: - GiftInfoViewController
 
-/// GiftViewScreen for a gift on a profile, read only: the gift's sticker at 136 pt on the sheet, or on an upgraded
+/// GiftViewScreen for a gift on a profile: the gift's sticker at 136 pt on the sheet, or on an upgraded
 /// gift's backdrop; the title (Received Gift on the account's own profile, Gift elsewhere, an upgraded gift's name
 /// and number), the description, then TableComponent's table and OK. A regular gift lists From, Date, Value,
 /// Availability, Status and its message; an upgraded one its Owner, Model, Backdrop and Symbol with their rarity,
-/// and how many were issued.
+/// and how many were issued. The account's own upgraded gift gets Transfer and Wear or Take Off on its backdrop.
 final class GiftInfoViewController: UIViewController {
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -26,6 +26,8 @@ final class GiftInfoViewController: UIViewController {
     }()
 
     private static let convertPeriod = 90 * 86400
+
+    private static let headerButtonHeight: CGFloat = 58
 
     /// Runs after Hide from Profile or Show on Profile, so the grid reads the gift again.
     var onVisibilityChanged: (() -> Void)?
@@ -45,6 +47,11 @@ final class GiftInfoViewController: UIViewController {
     private let okButton = UIButton(configuration: .prominentGlass())
 
     private let visibilityLabel = UILabel()
+    private let isPremium: Bool
+    private var isWearing: Bool
+    /// GiftViewScreen's header buttons for the account's own upgraded gift: Transfer when TDLib allows it, then Wear
+    /// or Take Off.
+    private var headerButtons = [GiftHeaderButton]()
     private var isSaved = false
     private var senderName: String?
 
@@ -54,7 +61,12 @@ final class GiftInfoViewController: UIViewController {
     }
 
     private var headerHeight: CGFloat {
-        upgraded == nil ? 210 : 240
+        upgraded == nil ? 210 : displaysHeaderButtons ? 240 + Self.headerButtonHeight + 16 : 240
+    }
+
+    /// `displaysHeaderButtons`: the account's own upgraded gift, still held.
+    private var displaysHeaderButtons: Bool {
+        isOwnProfile && upgraded != nil && !gift.receivedGiftId.isEmpty
     }
 
     /// The visibility line for the account's own gift that it still holds (not converted, not received upgraded
@@ -77,10 +89,24 @@ final class GiftInfoViewController: UIViewController {
         return Int(Date().timeIntervalSince1970) <= gift.date + Self.convertPeriod
     }
 
-    init(gift: TDNativeReceivedGift, isOwnProfile: Bool, client: TDLibClient) {
+    init(
+        gift: TDNativeReceivedGift,
+        isOwnProfile: Bool,
+        isPremium: Bool,
+        emojiStatus: TDNativeEmojiStatus?,
+        client: TDLibClient,
+    ) {
         self.gift = gift
         self.isOwnProfile = isOwnProfile
+        self.isPremium = isPremium
         self.client = client
+        let upgraded: TDNativeUpgradedGift? =
+            if case .sentGiftUpgraded(let value) = gift.gift {
+                value.gift
+            } else {
+                nil
+            }
+        self.isWearing = upgraded.map { GiftActions.isWearing($0, status: emojiStatus) } ?? false
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -152,6 +178,10 @@ final class GiftInfoViewController: UIViewController {
         descriptionLabel.numberOfLines = 0
         scrollView.addSubview(descriptionLabel)
 
+        if displaysHeaderButtons, let upgraded {
+            makeHeaderButtons(upgraded)
+        }
+
         table.client = client
         table.rows = makeRows()
         scrollView.addSubview(table)
@@ -208,11 +238,15 @@ final class GiftInfoViewController: UIViewController {
     static func present(
         _ gift: TDNativeReceivedGift,
         isOwnProfile: Bool,
+        isPremium: Bool = false,
+        emojiStatus: TDNativeEmojiStatus? = nil,
         client: TDLibClient,
         from host: UIViewController,
         onVisibilityChanged: (() -> Void)? = nil,
     ) {
-        let controller = GiftInfoViewController(gift: gift, isOwnProfile: isOwnProfile, client: client)
+        let controller = GiftInfoViewController(
+            gift: gift, isOwnProfile: isOwnProfile, isPremium: isPremium, emojiStatus: emojiStatus, client: client,
+        )
         controller.onVisibilityChanged = onVisibilityChanged
         controller.modalPresentationStyle = .pageSheet
         if let sheet = controller.sheetPresentationController {
@@ -274,7 +308,10 @@ final class GiftInfoViewController: UIViewController {
         let descriptionSize = descriptionLabel.text?.isEmpty == false
             ? descriptionLabel.sizeThatFits(CGSize(width: descriptionWidth, height: .greatestFiniteMagnitude))
             : .zero
-        let backdropHeight = max(header, 207 + descriptionSize.height + 16)
+        let buttonsY = max(header - 16 - Self.headerButtonHeight, 207 + descriptionSize.height + 16)
+        let backdropHeight = displaysHeaderButtons
+            ? buttonsY + Self.headerButtonHeight + 16
+            : max(header, 207 + descriptionSize.height + 16)
         var originY: CGFloat =
             if upgraded != nil {
                 backdropHeight + 16
@@ -330,6 +367,21 @@ final class GiftInfoViewController: UIViewController {
             width: descriptionSize.width,
             height: descriptionSize.height,
         )
+        // 10 pt apart across the band, 16 pt above the backdrop's bottom.
+        let buttonWidth = floor(
+            (width - sideInset * 2 - 10 * CGFloat(max(0, headerButtons.count - 1))) / CGFloat(max(
+                1,
+                headerButtons.count,
+            )),
+        )
+        for (index, button) in headerButtons.enumerated() {
+            button.frame = CGRect(
+                x: sideInset + CGFloat(index) * (buttonWidth + 10),
+                y: buttonsY,
+                width: buttonWidth,
+                height: Self.headerButtonHeight,
+            )
+        }
         table.frame = tableFrame
         visibilityLabel.frame = visibilityFrame
         okButton.frame = buttonFrame
@@ -515,6 +567,67 @@ final class GiftInfoViewController: UIViewController {
             ))
         }
         return rows
+    }
+
+    /// HeaderButtonComponent's row on the backdrop, the glass tinted with the backdrop mixed 20% toward white.
+    private func makeHeaderButtons(_ upgraded: TDNativeUpgradedGift) {
+        headerButtons.forEach { $0.removeFromSuperview() }
+        let edge = UIColor(rgb: upgraded.backdrop.colors.edgeColor)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        edge.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        let tint = UIColor(red: red * 0.8 + 0.2, green: green * 0.8 + 0.2, blue: blue * 0.8 + 0.2, alpha: 1)
+        var buttons = [GiftHeaderButton]()
+        if gift.canBeTransferred {
+            buttons.append(GiftHeaderButton(
+                title: L10n.telegram("Gift.View.Header.Transfer"),
+                symbol: "arrow.right.arrow.left",
+                tint: tint,
+                isLocked: upgraded.hostId != nil,
+            ) { [weak self] in self?.transfer(upgraded) })
+        }
+        buttons.append(GiftHeaderButton(
+            title: L10n.telegram(isWearing ? "Gift.View.Header.TakeOff" : "Gift.View.Header.Wear"),
+            symbol: isWearing ? "crown.fill" : "crown",
+            tint: tint,
+            isLocked: false,
+        ) { [weak self] in self?.toggleWear(upgraded) })
+        buttons.forEach(scrollView.addSubview)
+        headerButtons = buttons
+        view.setNeedsLayout()
+    }
+
+    private func transfer(_ upgraded: TDNativeUpgradedGift) {
+        GiftActions.transfer(gift, upgraded: upgraded, client: client, host: self) { [weak self] text in
+            guard let self else { return }
+            let host = presentingViewController
+            onVisibilityChanged?()
+            dismiss(animated: true) {
+                guard let host else { return }
+                TelegramUndoToast.show(text: text, in: host.view, bottomInset: 12, undo: nil)
+            }
+        }
+    }
+
+    /// Wear sets the gift as the emoji status ("You put on …"), Take Off clears it ("You took off …").
+    private func toggleWear(_ upgraded: TDNativeUpgradedGift) {
+        let title = GiftActions.title(upgraded)
+        let done: () -> Void = { [weak self] in
+            guard let self else { return }
+            isWearing.toggle()
+            makeHeaderButtons(upgraded)
+            TelegramUndoToast.show(
+                text: L10n.telegram(isWearing ? "Gift.View.PutOn" : "Gift.View.TookOff", title),
+                in: view, bottomInset: 12, undo: nil,
+            )
+        }
+        if isWearing {
+            GiftActions.takeOff(client: client, host: self, completion: done)
+        } else {
+            GiftActions.wear(upgraded, isPremium: isPremium, client: client, host: self, completion: done)
+        }
     }
 
     /// convertToStars: Convert Gift to Stars with the sender, the Stars and the days left, then sellGift, "Gift
@@ -900,5 +1013,78 @@ private final class GiftInfoAttributeView: UIView {
     @objc private func badgeTapped(_ gesture: UITapGestureRecognizer) {
         guard badgeBackground.frame.insetBy(dx: -8, dy: -8).contains(gesture.location(in: self)) else { return }
         action?()
+    }
+}
+
+// MARK: - GiftHeaderButton
+
+/// HeaderButtonComponent: interactive dark glass with a 16 pt radius, the icon centred 22 pt down and the 11 pt title
+/// 42 pt down, both white; a gift hosted elsewhere puts the lock before the title.
+final class GiftHeaderButton: UIVisualEffectView {
+    private let iconView = UIImageView()
+    private let titleLabel = UILabel()
+    private let lockView = UIImageView()
+    private let action: () -> Void
+
+    init(title: String, symbol: String, tint: UIColor, isLocked: Bool, action: @escaping () -> Void) {
+        self.action = action
+        let effect = UIGlassEffect(style: .regular)
+        effect.tintColor = tint
+        effect.isInteractive = true
+        super.init(effect: effect)
+        overrideUserInterfaceStyle = .dark
+        cornerConfiguration = .corners(radius: .fixed(16))
+        iconView.image = UIImage(
+            systemName: symbol,
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium),
+        )
+        iconView.tintColor = .white
+        iconView.contentMode = .center
+        contentView.addSubview(iconView)
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 11)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        contentView.addSubview(titleLabel)
+        if isLocked {
+            lockView.image = UIImage(
+                systemName: "lock.fill",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold),
+            )
+            lockView.tintColor = .white
+            contentView.addSubview(lockView)
+        }
+        accessibilityLabel = title
+        accessibilityTraits = .button
+        isAccessibilityElement = true
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        iconView.frame = CGRect(x: 0, y: 22 - 14, width: bounds.width, height: 28)
+        let titleSize = titleLabel.sizeThatFits(CGSize(width: bounds.width - 16, height: 20))
+        let lockSize = lockView.image?.size ?? .zero
+        let spacing: CGFloat = lockView.image == nil ? 0 : 3
+        let total = min(bounds.width - 16, titleSize.width) + lockSize.width + spacing
+        var x = floor((bounds.width - total) / 2)
+        lockView.frame = CGRect(
+            x: x, y: floor(42 - lockSize.height / 2), width: lockSize.width, height: lockSize.height,
+        )
+        x += lockSize.width + spacing
+        titleLabel.frame = CGRect(
+            x: x,
+            y: floor(42 - titleSize.height / 2),
+            width: min(bounds.width - 16, titleSize.width),
+            height: titleSize.height,
+        )
+    }
+
+    @objc private func tapped() {
+        action()
     }
 }
