@@ -27,8 +27,16 @@ enum MessageDeliveryState: Equatable {
         // Temporary IDs are never compared with a read watermark.
         if case .messageSendingStateFailed = message.sendingState { return .failed }
         if case .messageSendingStatePending = message.sendingState { return .sending }
+        // The whole chat's read edge covers the messages of its reply threads (`messageTopicThread`).
+        let isThreadMessageOfChat =
+            if topic == nil, case .messageTopicThread = message.topicId {
+                true
+            } else {
+                false
+            }
         guard permitsFinalStatus, message.isOutgoing, !message.isChannelPost,
-              MessageDeliveryReceiptScope(topic: topic) != nil, message.topicId == topic else { return .none }
+              MessageDeliveryReceiptScope(topic: topic) != nil, message.topicId == topic || isThreadMessageOfChat
+        else { return .none }
         return readOutbox.map { message.id <= $0 } == true ? .read : .delivered
     }
 }

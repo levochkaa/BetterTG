@@ -340,6 +340,15 @@ import UIKit
             MessageDeliveryState.resolve(fixture(id: 9), permitsFinalStatus: true, readOutbox: 9) == .read,
             "accepted watermark not shown",
         )
+        // A reply that TDLib files under a supergroup's reply thread reads with the whole chat.
+        try require(
+            MessageDeliveryState.resolve(
+                fixture(id: 9, topic: .messageTopicThread(.init(messageThreadId: 5))),
+                permitsFinalStatus: true,
+                readOutbox: 9,
+            ) == .read,
+            "a reply in a thread lost its checks in the whole chat",
+        )
         for message in [
             fixture(id: 9, outgoing: false),
             fixture(id: 9, channel: true),
