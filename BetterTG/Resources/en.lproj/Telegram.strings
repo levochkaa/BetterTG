@@ -4010,3 +4010,6 @@
 "PeerInfo.NotificationMemberAdded" = "**%1$@** added to the group.";
 "PeerInfo.NotificationMultipleMembersAdded_1" = "**%d** member added to the group.";
 "PeerInfo.NotificationMultipleMembersAdded_any" = "**%d** members added to the group.";
+"PeerInfo.AutoDeleteInfo" = "Automatically delete messages sent in this chat after a certain period of time.";
+"PeerInfo.ChannelAutoDeleteInfo" = "Automatically delete messages sent in this channel after a certain period of time.";
+"AutoremoveSetup.AdditionalGlobalSettingsInfo" = "You can also set your default [self-destruct timer]() for all chats in Settings.";

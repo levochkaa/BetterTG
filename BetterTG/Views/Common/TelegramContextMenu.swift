@@ -140,7 +140,9 @@ import UIKit
             .height
         guard titleHeight > font.lineHeight * 1.5 else { return actionHeight }
         let measuredLines = Int((titleHeight / font.lineHeight).rounded())
-        let lines = maximumTitleLines == 0 ? measuredLines : min(maximumTitleLines, measuredLines)
+        let lines = maximumTitleLines == 0 || action.isMultiline
+            ? measuredLines
+            : min(maximumTitleLines, measuredLines)
         return max(actionHeight, ceil(font.lineHeight * CGFloat(lines)) + scaled(actionVerticalInset) * 2)
     }
 
@@ -190,6 +192,9 @@ struct TelegramContextMenuAction {
     /// A selectable row in the smaller 14-point font, such as who added a poll answer (ContextMenuActionItem with
     /// `.small` text and an action).
     var usesSmallText = false
+    /// ContextMenuActionItem's `.multiline` text layout: the title wraps to as many lines as it needs, such as the
+    /// auto-delete submenu's note.
+    var isMultiline = false
     /// ChatReadReportContextItem in a private chat: a compact line of text at the top of the menu, such as when the
     /// message was read. It is never highlighted or selected unless `selectableUpdates` says so.
     var isHeader = false
@@ -3512,7 +3517,7 @@ final class TelegramContextMenuActionButton: UIControl {
         titleLabel.textColor = action.isSectionTitle ? .secondaryLabel : color
         titleLabel.font = TelegramContextMenuLayout.titleFont(of: action)
         titleLabel.numberOfLines = TelegramContextMenuLayout.wrapsTitle(of: action)
-            ? TelegramContextMenuLayout.maximumTitleLines
+            ? action.isMultiline ? 0 : TelegramContextMenuLayout.maximumTitleLines
             : 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)

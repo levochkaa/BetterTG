@@ -515,6 +515,30 @@ import UIKit
                 isDestructive: true,
             ) { setAutoDelete(0) })
         }
+        // The submenu's note after a separator, whose link opens the account's default timer
+        // (AutoremoveSetup.AdditionalGlobalSettingsInfo's textLinkAction).
+        let isChannel =
+            if case .supergroup(let group) = customChat.type {
+                group.isChannel
+            } else {
+                false
+            }
+        var note = TelegramContextMenuAction(
+            title: L10n.telegram(isChannel ? "PeerInfo.ChannelAutoDeleteInfo" : "PeerInfo.AutoDeleteInfo") + "\n\n"
+                + L10n.telegram("AutoremoveSetup.AdditionalGlobalSettingsInfo")
+                .replacing(/\[([^\]]*)\]\([^)]*\)/) { String($0.1) },
+            startsNewSection: true,
+        ) { [weak host, client] in
+            Task { [weak host] in
+                let time = await (try? client.send(TDNativeRequests.getDefaultMessageAutoDeleteTime()))?.time ?? 0
+                host?.navigationController?.pushViewController(
+                    GlobalAutoDeleteViewController(currentTime: time), animated: true,
+                )
+            }
+        }
+        note.usesSmallText = true
+        note.isMultiline = true
+        children.append(note)
         return TelegramContextMenuAction(
             title: L10n.telegram(current == 0 ? "PeerInfo.EnableAutoDelete" : "PeerInfo.AdjustAutoDelete"),
             image: UIImage(systemName: "timer"),
