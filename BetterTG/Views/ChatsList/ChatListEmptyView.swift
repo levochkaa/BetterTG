@@ -5,14 +5,21 @@ import UIKit
 
 // MARK: - ChatListEmptyView
 
-/// ChatListEmptyNode's `.filter` subject: ChatListFilterEmpty played once at 124 pt, "Folder is empty." in 17 pt
-/// semibold 24 pt under it, "No chats currently match this folder." in 14 pt 8 pt lower, and Edit Folder, a 52 pt glass
-/// capsule up to 270 pt wide, 20 pt above the list's bottom. Where the content doesn't fit, the animation fades and the
-/// text moves up, as Telegram lays it out.
+/// ChatListEmptyNode: its animation played once at 124 pt, the title in 17 pt semibold 24 pt under it, a note in 14 pt
+/// 8 pt lower, and the button, a 52 pt glass capsule up to 270 pt wide, 20 pt above the list's bottom. `.filter` is an
+/// empty folder ("Folder is empty.", Edit Folder), `.chats` an empty main list ("You have no conversations yet." or,
+/// with archived chats, "All of your chats are archived.", and New Message). Where the content doesn't fit, the
+/// animation fades and the text moves up, as Telegram lays it out.
 final class ChatListEmptyView: UIView {
+    enum Subject {
+        case filter(showsEdit: Bool)
+        case chats(hasArchive: Bool)
+    }
+
     private static let animationSide: CGFloat = 124
 
-    var onEdit: (() -> Void)?
+    /// Edit Folder or New Message.
+    var onAction: (() -> Void)?
     /// The list's bars, which the content keeps clear of.
     var insets = UIEdgeInsets.zero {
         didSet { setNeedsLayout() }
@@ -25,36 +32,52 @@ final class ChatListEmptyView: UIView {
     private let textLabel = UILabel()
     private let button = UIButton(configuration: .prominentGlass())
 
-    init(showsEdit: Bool) {
+    init(subject: Subject) {
         super.init(frame: .zero)
+        let animationName: String
+        let title: String
+        let note: String?
+        let buttonTitle: String?
+        switch subject {
+        case .filter(let showsEdit):
+            animationName = "ChatListFilterEmpty"
+            title = L10n.telegram("ChatList.EmptyChatListFilterTitle")
+            note = L10n.telegram("ChatList.EmptyChatListFilterText")
+            buttonTitle = showsEdit ? L10n.telegram("ChatList.EmptyChatListEditFilter") : nil
+        case .chats(let hasArchive):
+            animationName = "ChatListEmpty"
+            title = L10n.telegram(hasArchive ? "ChatList.EmptyChatListWithArchive" : "ChatList.EmptyChatList")
+            note = nil
+            buttonTitle = L10n.telegram("ChatList.EmptyChatListNewMessage")
+        }
         animationView.contentMode = .scaleAspectFit
         animationView.loopMode = .playOnce
         animationView.isUserInteractionEnabled = true
         animationView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(replay)))
-        if let path = Bundle.main.path(forResource: "ChatListFilterEmpty", ofType: "tgs") {
+        if let path = Bundle.main.path(forResource: animationName, ofType: "tgs") {
             Task { [weak self] in
                 guard let animation = await TGSAnimationRepository.animation(at: path), let self else { return }
                 animationView.animation = animation
                 animationView.play()
             }
         }
-        titleLabel.text = L10n.telegram("ChatList.EmptyChatListFilterTitle")
+        titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = .label
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
-        textLabel.text = L10n.telegram("ChatList.EmptyChatListFilterText")
+        textLabel.text = note
         textLabel.font = .systemFont(ofSize: 14)
         textLabel.textColor = .secondaryLabel
         textLabel.textAlignment = .center
         textLabel.numberOfLines = 0
         button.configuration?.attributedTitle = AttributedString(
-            L10n.telegram("ChatList.EmptyChatListEditFilter"),
+            buttonTitle ?? "",
             attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]),
         )
         button.configuration?.cornerStyle = .capsule
         button.addTarget(self, action: #selector(editPressed), for: .touchUpInside)
-        button.isHidden = !showsEdit
+        button.isHidden = buttonTitle == nil
         for view in [animationView, titleLabel, textLabel, button] as [UIView] {
             addSubview(view)
         }
@@ -112,6 +135,6 @@ final class ChatListEmptyView: UIView {
     }
 
     @objc private func editPressed() {
-        onEdit?()
+        onAction?()
     }
 }

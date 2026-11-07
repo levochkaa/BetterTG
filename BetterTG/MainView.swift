@@ -1340,6 +1340,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 guard let self, let folder else { return }
                 performFolderAction(.editFolder, for: folder)
             }
+            controller.onNewMessage = { [weak self] in self?.openCompose() }
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }
                 return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge

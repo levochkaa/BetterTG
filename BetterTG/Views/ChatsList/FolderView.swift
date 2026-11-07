@@ -465,6 +465,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     var onListInteractionEnded: (() -> Void)?
     /// ChatListEmptyNode's Edit Folder in an empty folder of the user's.
     var onEditFolder: (() -> Void)?
+    /// ChatListEmptyNode's New Message in an empty main list.
+    var onNewMessage: (() -> Void)?
     /// The selection's title for the screen's bar and its Done, or nil and nil once selection ends.
     var onSelectionEditingChange: ((String?, (() -> Void)?) -> Void)?
 
@@ -556,10 +558,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    /// `-ui-probe-empty-folder`: the user's folders show as empty.
+    /// `-ui-probe-empty-folder`: All Chats and the user's folders show as empty.
     private var probesEmptyFolder: Bool {
         #if DEBUG
-            guard case .folder = folder.type else { return false }
+            if case .archive = folder.type { return false }
             return ProcessInfo.processInfo.arguments.contains("-ui-probe-empty-folder")
         #else
             false
@@ -1262,12 +1264,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         return container
     }
 
-    /// A folder of the user's gets ChatListEmptyNode's `.filter` subject; other lists keep the line of text.
+    /// ChatListContainerItemNode's subject: a folder of the user's gets `.filter` (no Edit for one that only drops
+    /// read chats and names none), All Chats `.chats`; the archive keeps the line of text.
     private func emptyView() -> UIView {
-        guard case .folder = folder.type else { return emptyLabel() }
-        let view = ChatListEmptyView(showsEdit: true)
+        let view: ChatListEmptyView
+        switch folder.type {
+        case .folder(_, let filter):
+            let onlyDropsRead = filter.excludeRead && filter.includedChatIds.isEmpty && filter.pinnedChatIds.isEmpty
+            view = ChatListEmptyView(subject: .filter(showsEdit: !onlyDropsRead))
+            view.onAction = { [weak self] in self?.onEditFolder?() }
+        case .main:
+            view = ChatListEmptyView(subject: .chats(hasArchive: !(rootVM.archive?.chats.isEmpty ?? true)))
+            view.onAction = { [weak self] in self?.onNewMessage?() }
+        case .archive:
+            return emptyLabel()
+        }
         view.insets = tableView.adjustedContentInset
-        view.onEdit = { [weak self] in self?.onEditFolder?() }
         return view
     }
 
