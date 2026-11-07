@@ -6,11 +6,14 @@ import UIKit
 // MARK: - WebBrowser
 
 /// Telegram's Open Links In (WebBrowserSettings with OpenInOptions' browsers): links outside Telegram open inside the
-/// app, or in Safari or another browser installed on the device, with each browser's own URL form. BetterTG's
-/// in-app browser is Safari's view controller rather than Telegram's own browser.
+/// app, in Safari, in the system's default browser, or in another browser installed on the device, with each
+/// browser's own URL form. BetterTG's in-app browser is Safari's view controller, so it reads In-App Safari. System is
+/// Swiftgram's option (OpenInOptions' `system`): the link goes to iOS as it is, so the default browser takes it;
+/// Safari forces Safari. System is the default.
 enum WebBrowser: String, CaseIterable {
     case telegram
     case safari
+    case system
     case chrome
     case firefox
     case firefoxFocus
@@ -28,11 +31,12 @@ enum WebBrowser: String, CaseIterable {
 
     private static let key = "BetterTG.webBrowser"
 
-    /// The chosen browser, the in-app one by default as in Telegram; one no longer installed counts as Safari.
+    /// The chosen browser, the system's default browser unless another was chosen; one no longer installed counts as
+    /// the system's.
     @MainActor static var current: WebBrowser {
         get {
-            let stored = UserDefaults.standard.string(forKey: key).flatMap(WebBrowser.init(rawValue:)) ?? .telegram
-            return stored.isAvailable ? stored : .safari
+            let stored = UserDefaults.standard.string(forKey: key).flatMap(WebBrowser.init(rawValue:)) ?? .system
+            return stored.isAvailable ? stored : .system
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
@@ -65,8 +69,9 @@ enum WebBrowser: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .telegram: L10n.telegram("WebBrowser.Telegram")
+        case .telegram: L10n.telegram("WebBrowser.InAppSafari")
         case .safari: "Safari"
+        case .system: "System"
         case .chrome: "Chrome"
         case .firefox: "Firefox"
         case .firefoxFocus: "Firefox Focus"
@@ -88,6 +93,7 @@ enum WebBrowser: String, CaseIterable {
     private var scheme: String? {
         switch self {
         case .safari,
+             .system,
              .telegram: nil
         case .chrome: "googlechrome"
         case .firefox: "firefox"
@@ -178,7 +184,8 @@ enum WebBrowser: String, CaseIterable {
             return components.url
         }
         switch self {
-        case .telegram:
+        case .system,
+             .telegram:
             return url
         case .safari:
             // Safari even where another browser is the system's default.

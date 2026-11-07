@@ -4,8 +4,9 @@ import UIKit
 
 // MARK: - WebBrowserSettingsViewController
 
-/// Telegram's Web Browser (WebBrowserSettingsController): OPEN LINKS IN with Telegram's in-app browser, Safari and
-/// the browsers installed on the device, and the note; then the websites that open the other way: DON'T OPEN IN-APP
+/// Telegram's Web Browser (WebBrowserSettingsController): OPEN LINKS IN with the in-app browser (In-App Safari),
+/// Safari, Swiftgram's System (the default browser iOS picks, chosen until the user picks another) and the browsers
+/// installed on the device, and the note; then the websites that open the other way: DON'T OPEN IN-APP
 /// while the in-app browser is chosen, OPEN IN-APP while another is, with Add Website, a swipe to delete one and
 /// Delete All Exceptions. They're kept on the device, as TDLib doesn't sync Telegram's browser settings. The in-app
 /// browser is Safari's, whose cookies the app can't clear, so Clear Cookies has no counterpart.

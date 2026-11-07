@@ -4052,3 +4052,4 @@
 "WebBrowser.Exception.OpenInBrowser" = "Always open this site in browser";
 "WebBrowser.ExceptionAdded.Title" = "Exception Added";
 "WebBrowser.ExceptionAdded.Text" = "This site will always open in-app.";
+"WebBrowser.InAppSafari" = "In-App Safari";
