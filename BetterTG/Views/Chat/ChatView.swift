@@ -3358,6 +3358,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
         }
         composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
+        composerView.onQuoteOutdated = { [weak self] in self?.presentQuoteOutdated() }
         composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
         composerView.suggestedStickerPeekActions = { [weak self] sticker in
             self?.suggestedStickerPeekActions(sticker) ?? []
@@ -11080,6 +11081,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram's Edit Item: the checklist editor on the task.
     private func presentEditChecklistTask(_ message: CustomMessage, task: ChecklistTask) {
         openChecklistEditor(message, focusedTaskID: task.id, appends: false)
+    }
+
+    /// ChatControllerNode's Quote Outdated: the quoted message's author changed it; Edit drops the quote and opens the
+    /// reply options to pick it again.
+    private func presentQuoteOutdated() {
+        guard presentedViewController == nil, let reply = chatVM.replyMessage else { return }
+        let author = reply.senderUser.map(ServiceMessageText.displayTitle) ?? chatVM.customChat.chat.title
+        let alert = UIAlertController(
+            title: L10n.telegram("Chat.ErrorQuoteOutdatedTitle"),
+            message: L10n.telegram("Chat.ErrorQuoteOutdatedText", author).withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let edit = UIAlertAction(title: L10n.telegram("Chat.ErrorQuoteOutdatedActionEdit"), style: .default) {
+            [weak self] _ in
+            guard let self else { return }
+            chatVM.removeReplyQuote()
+            composerView.openReplyOptions()
+        }
+        alert.addAction(edit)
+        alert.preferredAction = edit
+        present(alert, animated: true)
     }
 
     /// ChatMessageActionOptions' reply options, opened from the composer's reply panel.

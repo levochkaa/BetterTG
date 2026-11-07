@@ -69,6 +69,8 @@ final class ChatComposerView: UIView {
     var onChangeForwardRecipient: ((PendingMessageForward) -> Void)?
     /// Telegram's reply panel opens the reply options (ChatMessageActionOptions) from the panel, its source view.
     var onOpenReplyOptions: ((UIView) -> Void)?
+    /// The send was stopped because the quote is outdated (Chat.ErrorQuoteOutdated).
+    var onQuoteOutdated: (() -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
     var onCancelVideoNoteRecording: (() -> Void)?
@@ -967,6 +969,10 @@ final class ChatComposerView: UIView {
     /// Sends the composer, with the send menu's options when it chose some.
     func send(options: TDNativeMessageSendOptions?, mediaMode: ComposerMediaSendMode = .grouped) {
         guard !chatVM.sendingComposerMessage, chatVM.editCustomMessage == nil || options == nil else { return }
+        if chatVM.editCustomMessage == nil, chatVM.replyQuoteIsOutdated {
+            onQuoteOutdated?()
+            return
+        }
         draftTask?.cancel()
         draftTask = nil
         typingTask?.cancel()
@@ -975,6 +981,11 @@ final class ChatComposerView: UIView {
         chatVM.sendMessageTask = Task { [weak chatVM] in
             await chatVM?.sendMessage(options: options, mediaMode: mediaMode)
         }
+    }
+
+    /// The reply options over the reply panel, as its tap opens them.
+    func openReplyOptions() {
+        onOpenReplyOptions?(replySnippet)
     }
 
     /// Raise to Speak (activateRaiseGesture's requestAudioRecorder): with no finger on the button, Telegram's

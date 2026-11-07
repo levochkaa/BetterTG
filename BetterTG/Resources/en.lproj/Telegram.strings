@@ -4033,3 +4033,6 @@
 "ChatList.MessageFiles_any" = "%@ Files";
 "ChatList.MessageMusic_1" = "%@ Music File";
 "ChatList.MessageMusic_any" = "%@ Music Files";
+"Chat.ErrorQuoteOutdatedTitle" = "Quote Outdated";
+"Chat.ErrorQuoteOutdatedText" = "**%@** updated the message you are quoting. Edit your quote to make it up-to-date.";
+"Chat.ErrorQuoteOutdatedActionEdit" = "Edit";

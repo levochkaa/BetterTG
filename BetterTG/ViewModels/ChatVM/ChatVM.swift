@@ -1276,6 +1276,18 @@ import UIKit
         return isPhotoOrVideo ? (true, false) : (false, true)
     }
 
+    /// ChatControllerNode's send check: the quoted message no longer holds the quote's text, because its author edited
+    /// it since. Telegram also compares the quote's entities; BetterTG compares the text.
+    var replyQuoteIsOutdated: Bool {
+        guard let quote = replyQuote, let reply = replyMessage else { return false }
+        // The text the quote was cut from, as beginQuoteReply takes it: an album item's caption, else the message's.
+        let targetID = replyTargetMessageID ?? reply.id
+        let item = targetID == reply.id ? nil : reply.sourceMessages.first { $0.id == targetID }
+        let text = item.flatMap { MessageContentPresentation.make($0).formattedText } ?? reply.formattedText
+        guard let text, !quote.text.text.isEmpty else { return false }
+        return !text.text.contains(quote.text.text)
+    }
+
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
     /// Restart Bot instead, and a secret chat keeps its own.
     private var showsUnblockPanel: Bool {
