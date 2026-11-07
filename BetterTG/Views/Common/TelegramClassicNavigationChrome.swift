@@ -210,6 +210,29 @@ final class TelegramSideColumnView: UIView {
 // MARK: - TelegramClassicNavigationChrome
 
 @MainActor final class TelegramClassicNavigationChrome: UIView {
+    private typealias MorphShape = (frame: CGRect, items: TelegramGlassLoan)
+
+    private struct RowCapture {
+        let frame: CGRect
+        let views: [(UIView, CGRect)]
+
+        /// The items, out of their old glass now, in a stand-in for it for the morph to lend. The loan holds its home
+        /// weakly: `homes` keeps it until the morph is done.
+        @MainActor func shape(keeping homes: inout [UIView]) -> MorphShape {
+            let home = UIView(frame: CGRect(origin: .zero, size: frame.size))
+            homes.append(home)
+            for (view, itemFrame) in views {
+                view.removeFromSuperview()
+                view.translatesAutoresizingMaskIntoConstraints = true
+                view.isHidden = false
+                view.alpha = 1
+                home.addSubview(view)
+                view.frame = itemFrame
+            }
+            return (frame, TelegramGlassLoan(views: views.map(\.0), home: home))
+        }
+    }
+
     var onBack: (() -> Void)?
     var onHeightChange: (() -> Void)?
     var topInset: CGFloat = 0
@@ -246,7 +269,8 @@ final class TelegramSideColumnView: UIView {
     private var searchActive = false
 
     var contentHeight: CGFloat {
-        if searchView != nil, searchActive { return promptHeight + ChatListNavigationSearchView.contentHeight }
+        // An open search takes the row in its place, so the bar keeps the row's height.
+        if searchView != nil, searchActive { return promptHeight + 44 + TelegramGlassPlatter.barBottomInset }
         return promptHeight + 44
             + (searchView != nil ? ChatListNavigationSearchView.contentHeight : TelegramGlassPlatter.barBottomInset)
     }
@@ -358,7 +382,8 @@ final class TelegramSideColumnView: UIView {
         )
         searchView?.frame = CGRect(
             x: searchInsets.left,
-            y: searchActive ? rowY : contentY + 44,
+            // Open, the field centres on the row, where the buttons it grew out of stood.
+            y: searchActive ? rowY + 22 - ChatListNavigationSearchView.contentHeight / 2 : contentY + 44,
             width: bounds.width - searchInsets.left - searchInsets.right,
             height: ChatListNavigationSearchView.contentHeight,
         )
@@ -404,6 +429,10 @@ final class TelegramSideColumnView: UIView {
         platter.glassView.effect = effect
     }
 
+    private static func opensFromButton(_ search: UISearchController?) -> Bool {
+        search?.delegate?.responds(to: #selector(UISearchControllerDelegate.didDismissSearchController(_:))) == true
+    }
+
     /// Moves back and the icon buttons into iPhone Duo's strip over `host`, and the row clear of the status island.
     func applyIPhoneDuoLayout(_ layout: IPhoneDuoLayout?, host: UIView) {
         sideColumn = layout?.sideColumn
@@ -432,9 +461,16 @@ final class TelegramSideColumnView: UIView {
                 UIAccessibility.post(notification: .announcement, argument: prompt)
             }
         }
+        // A search from a button morphs out of the row's glass and back into it, as the chat list's does.
+        let opensButtonSearch = searchController !== newSearch && Self.opensFromButton(newSearch)
+            && window != nil && !bounds.isEmpty
+        let closingField = searchController !== newSearch && newSearch == nil && window != nil
+            ? searchView.flatMap { $0.onClose == nil ? nil : $0 }
+            : nil
+        let rowBefore = opensButtonSearch ? rowShapes() : (leading: [RowCapture](), trailing: [RowCapture]())
         // A search that closed gives Back its place again in this pass.
         if searchController !== newSearch {
-            searchView?.removeFromSuperview()
+            if searchView !== closingField { searchView?.removeFromSuperview() }
             searchEndSubscription = nil
             searchBeginSubscription = nil
             searchController = newSearch
@@ -463,9 +499,7 @@ final class TelegramSideColumnView: UIView {
                 // A search that opens from a button takes the row at once and stays open with the keyboard down,
                 // as a chat's does, until its close button: the field clears as it would, then the screen hears
                 // it's done.
-                if search.delegate?.responds(to: #selector(UISearchControllerDelegate.didDismissSearchController(_:)))
-                    == true
-                {
+                if Self.opensFromButton(search) {
                     field.followsFocus = false
                     field.onClose = { [weak field, weak search] in
                         guard let field, let search else { return }
@@ -512,6 +546,152 @@ final class TelegramSideColumnView: UIView {
             searchView?.setPlaceholder(search.searchBar.placeholder ?? L10n.telegram("Common.Search"))
         }
         setNeedsLayout()
+        if opensButtonSearch, let field = searchView {
+            runOpenSearchMorph(from: rowBefore, field: field)
+        } else if let closingField {
+            runCloseSearchMorph(field: closingField)
+        }
+    }
+
+    /// The row's glass as it shows, in the bar's coordinates, leading first and the right sections outermost first,
+    /// with the items it shows and where. The row is about to be rebuilt: its old items leave their glass and the morph
+    /// carries them, live. Back stays in its glass, hidden, so a new one stands in for it.
+    private func rowShapes() -> (leading: [RowCapture], trailing: [RowCapture]) {
+        layoutIfNeeded()
+        func capture(_ platter: TelegramGlassPlatter) -> RowCapture? {
+            guard !platter.isHidden, !platter.isInSideColumn, platter.hasVisibleItems, platter.alpha > 0 else {
+                return nil
+            }
+            let views = platter.visibleItems.map { view -> (UIView, CGRect) in
+                guard view === backButton else { return (view, view.frame) }
+                return (UIButton.telegramGlassIcon(UIImage(systemName: "chevron.left")), view.frame)
+            }
+            return RowCapture(frame: platter.convert(platter.bounds, to: self), views: views)
+        }
+        return (
+            ([leadingPlatter] + leadingSectionPlatters).compactMap(capture),
+            trailingPlatters.compactMap(capture),
+        )
+    }
+
+    /// The live row's glass, for the closing morph to lend.
+    private func liveRowShapes() -> (leading: [MorphShape], trailing: [MorphShape]) {
+        func shape(of platter: TelegramGlassPlatter) -> MorphShape? {
+            guard !platter.isHidden, !platter.isInSideColumn, platter.hasVisibleItems else { return nil }
+            return (platter.convert(platter.bounds, to: self), TelegramGlassLoan(platter: platter))
+        }
+        return (
+            ([leadingPlatter] + leadingSectionPlatters).compactMap(shape(of:)),
+            trailingPlatters.compactMap(shape(of:)),
+        )
+    }
+
+    /// TelegramNavigationBar's openButtonSearch: the innermost right section becomes the field, the others draw
+    /// together into the close button, and the left glass goes.
+    private func runOpenSearchMorph(
+        from captured: (leading: [RowCapture], trailing: [RowCapture]),
+        field: ChatListNavigationSearchView,
+    ) {
+        layoutIfNeeded()
+        var homes = [UIView]()
+        let row = (
+            leading: captured.leading.map { $0.shape(keeping: &homes) },
+            trailing: captured.trailing.map { $0.shape(keeping: &homes) },
+        )
+        let search = field.glassShapes(in: self)
+        var shapes = [TelegramGlassInPlaceMorph.Shape]()
+        let button = row.trailing.last
+        shapes.append(.init(
+            from: button?.frame,
+            fromItems: button?.items,
+            to: search[0].frame,
+            toItems: search[0].items,
+        ))
+        let others = row.trailing.dropLast()
+        for (index, shape) in others.enumerated() {
+            shapes.append(.init(
+                from: shape.frame,
+                fromItems: shape.items,
+                to: search[1].frame,
+                toItems: index == 0 ? search[1].items : nil,
+            ))
+        }
+        if others.isEmpty { shapes.append(.init(to: search[1].frame, toItems: search[1].items)) }
+        for shape in row.leading {
+            shapes.append(.init(from: shape.frame, fromItems: shape.items))
+        }
+        fadeTitle(from: 1, to: 0)
+        TelegramGlassInPlaceMorph.run(
+            in: self,
+            shapes: shapes,
+            spacing: TelegramGlassPlatter.interSectionSpacing,
+            handOver: { field.setGlassHidden(true) },
+            completion: {
+                field.setGlassHidden(false)
+                // The old items went back to their stand-ins, which go with them.
+                withExtendedLifetime(homes) {}
+            },
+        )
+    }
+
+    /// The reverse: the field goes back into the innermost right section, the close button parts into the others,
+    /// and the left glass comes back. The closed field stays until the morph has taken its content back.
+    private func runCloseSearchMorph(field: ChatListNavigationSearchView) {
+        layoutIfNeeded()
+        let search = field.glassShapes(in: self)
+        let row = liveRowShapes()
+        var shapes = [TelegramGlassInPlaceMorph.Shape]()
+        let button = row.trailing.last
+        shapes.append(.init(
+            from: search[0].frame,
+            fromItems: search[0].items,
+            to: button?.frame,
+            toItems: button?.items,
+        ))
+        let others = row.trailing.dropLast()
+        for (index, shape) in others.enumerated() {
+            shapes.append(.init(
+                from: search[1].frame,
+                fromItems: index == 0 ? search[1].items : nil,
+                to: shape.frame,
+                toItems: shape.items,
+            ))
+        }
+        if others.isEmpty { shapes.append(.init(from: search[1].frame, fromItems: search[1].items)) }
+        for shape in row.leading {
+            shapes.append(.init(to: shape.frame, toItems: shape.items))
+        }
+        let platters = glassPlatters
+        fadeTitle(from: 0, to: 1)
+        TelegramGlassInPlaceMorph.run(
+            in: self,
+            shapes: shapes,
+            spacing: TelegramGlassPlatter.interSectionSpacing,
+            handOver: {
+                field.setGlassHidden(true)
+                for platter in platters {
+                    platter.glassView.isHidden = true
+                }
+            },
+            completion: {
+                for platter in platters {
+                    platter.glassView.isHidden = false
+                }
+                field.removeFromSuperview()
+            },
+        )
+    }
+
+    private func fadeTitle(from start: CGFloat, to end: CGFloat) {
+        let labels = [titleLabel, subtitleLabel] + [customTitle].compactMap(\.self)
+        for label in labels {
+            label.alpha = start
+        }
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            for label in labels {
+                label.alpha = end
+            }
+        }
     }
 
     /// The platters for `count` sections: the ones there stay, so that one the push morph holds hidden remains the one
