@@ -1190,6 +1190,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
     }
 
+    /// A preview's content opens something (a link, a screen): the menu closes first and `completion` runs once it is
+    /// gone, so the new screen hangs off the window's own controllers.
+    fileprivate func dismissForPreviewNavigation(_ completion: @escaping () -> Void) {
+        dismissMenu(completion: completion)
+    }
+
     private func configureViews() {
         view.backgroundColor = .clear
 
@@ -4285,4 +4291,30 @@ private struct ContextPreviewExpansion {
     let titleStart: CGPoint
     let titleFontSize: CGFloat
     let titleRightToLeft: Bool
+}
+
+extension UIViewController {
+    /// Whether this controller is a context menu's preview, or inside one (ContextControllerImpl's `.controller`
+    /// source): its own presentations would hang off a controller the window doesn't present.
+    var isInsideContextMenuPreview: Bool {
+        var controller: UIViewController? = self
+        while let current = controller {
+            if current is TelegramContextMenuController { return true }
+            controller = current.parent
+        }
+        return false
+    }
+
+    /// Closes the open context menu, then runs `completion` with the window's root controller, whose presentations a
+    /// preview's link or screen opens over instead.
+    func leavingContextMenuPreview(_ completion: @escaping (UIViewController?) -> Void) {
+        let window = view.window
+        guard isInsideContextMenuPreview, let menu = TelegramContextMenuController.activeController, menu.isOpen else {
+            completion(self)
+            return
+        }
+        menu.dismissForPreviewNavigation {
+            completion(window?.rootViewController)
+        }
+    }
 }

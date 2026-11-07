@@ -97,6 +97,13 @@ enum WebBrowser: String, CaseIterable {
             UIApplication.shared.open(url)
             return
         }
+        // A link tapped in a context menu's chat preview opens once the menu has closed, over the window's own
+        // controllers: presented from the preview, the browser stayed blank and its dismissal left the menu's dimmed
+        // backdrop behind.
+        if let presenter, presenter.isInsideContextMenuPreview {
+            presenter.leavingContextMenuPreview { host in open(url, from: host) }
+            return
+        }
         let browser = current
         if browser == .telegram, let presenter = presenter?.topmostPresented {
             let controller = SFSafariViewController(url: url)
