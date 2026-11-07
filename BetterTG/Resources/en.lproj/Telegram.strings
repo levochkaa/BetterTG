@@ -4005,3 +4005,5 @@
 "Settings.CopyPhoneNumber" = "Copy Phone Number";
 "Settings.CopyUsername" = "Copy Username";
 "SharedMedia.CalendarTooltip" = "Tap on this icon for calendar view";
+"Chat.SimilarChannels.Join" = "Join";
+"Chat.SimilarChannels.JoinedChannel" = "You joined channel **%@**.";

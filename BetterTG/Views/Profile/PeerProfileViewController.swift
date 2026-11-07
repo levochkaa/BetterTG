@@ -1957,6 +1957,23 @@ ClientRestorableNavigationEntry {
         present(alert, animated: true)
     }
 
+    /// PeerInfoScreenNode.joinChannel: joinChat, then "You joined channel …".
+    private func joinSimilarChannel(_ chat: CustomChat) {
+        let client = client
+        let chatID = chat.id
+        let title = chat.chat.title
+        Task { [weak self] in
+            do {
+                _ = try await client.joinChat(chatId: chatID)
+            } catch {
+                if self?.contextIsCurrent == true { self?.presentChatListActionFailure() }
+                return
+            }
+            guard let self, contextIsCurrent else { return }
+            showInfoToast(L10n.telegram("Chat.SimilarChannels.JoinedChannel", title).withoutTelegramMarkup)
+        }
+    }
+
     /// Telegram's list items keep View in Chat in their context menu.
     @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
         if currentSharedTab.isStories {
@@ -1978,6 +1995,33 @@ ClientRestorableNavigationEntry {
                   ), !actions.isEmpty,
                   let cell = collectionView.cellForItem(at: path) else { return }
             presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
+            return
+        }
+        if currentSharedTab.isSimilar {
+            // paneContainerNode.openPeerContextAction: the chat's preview with Open, and Join for a recommended
+            // channel the account isn't in.
+            guard gesture.state == .began, contextIsCurrent,
+                  let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: path), let chat = similarByID[id],
+                  let cell = collectionView.cellForItem(at: path) else { return }
+            var actions = [TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.LinkDialogOpen"),
+                image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"),
+            ) { NavigationStorage.shared.push(.customChat(chat)) }]
+            if currentSharedTab == .similarChannels, case .supergroup(let group) = chat.type,
+               case .chatMemberStatusLeft = group.status
+            {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Chat.SimilarChannels.Join"), image: UIImage(systemName: "plus"),
+                ) { [weak self] in self?.joinSimilarChannel(chat) })
+            }
+            presentTelegramContextMenu(
+                sourceView: cell,
+                actions: actions,
+                tracking: gesture,
+                presentationStyle: .chatPreview,
+                previewController: ChatViewController(customChat: chat, presentationMode: .contextPreview),
+            )
             return
         }
         if currentSharedTab == .members {
