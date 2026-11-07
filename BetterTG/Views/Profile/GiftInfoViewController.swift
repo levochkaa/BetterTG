@@ -9,7 +9,8 @@ import UIKit
 /// gift's backdrop; the title (Received Gift on the account's own profile, Gift elsewhere, an upgraded gift's name
 /// and number), the description, then TableComponent's table and OK. A regular gift lists From, Date, Value,
 /// Availability, Status and its message; an upgraded one its Owner, Model, Backdrop and Symbol with their rarity,
-/// and how many were issued. The account's own upgraded gift gets Transfer and Wear or Take Off on its backdrop.
+/// and how many were issued. The account's own upgraded gift gets Transfer, Wear or Take Off and Sell or Unlist on its
+/// backdrop.
 final class GiftInfoViewController: UIViewController {
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -49,6 +50,8 @@ final class GiftInfoViewController: UIViewController {
     private let visibilityLabel = UILabel()
     private let isPremium: Bool
     private var isWearing: Bool
+    /// Whether the gift is listed for sale: Sell or Unlist.
+    private var isOnSale: Bool
     /// GiftViewScreen's header buttons for the account's own upgraded gift: Transfer when TDLib allows it, then Wear
     /// or Take Off.
     private var headerButtons = [GiftHeaderButton]()
@@ -107,6 +110,7 @@ final class GiftInfoViewController: UIViewController {
                 nil
             }
         self.isWearing = upgraded.map { GiftActions.isWearing($0, status: emojiStatus) } ?? false
+        self.isOnSale = upgraded?.resaleParameters != nil
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -594,6 +598,12 @@ final class GiftInfoViewController: UIViewController {
             tint: tint,
             isLocked: false,
         ) { [weak self] in self?.toggleWear(upgraded) })
+        buttons.append(GiftHeaderButton(
+            title: L10n.telegram(isOnSale ? "Gift.View.Unlist" : "Gift.View.Sell"),
+            symbol: isOnSale ? "tag.slash" : "tag",
+            tint: tint,
+            isLocked: upgraded.hostId != nil,
+        ) { [weak self] in self?.resell(upgraded) })
         buttons.forEach(scrollView.addSubview)
         headerButtons = buttons
         view.setNeedsLayout()
@@ -607,6 +617,82 @@ final class GiftInfoViewController: UIViewController {
             dismiss(animated: true) {
                 guard let host else { return }
                 TelegramUndoToast.show(text: text, in: host.view, bottomInset: 12, undo: nil)
+            }
+        }
+    }
+
+    /// resellGift: a gift hosted on Fragment is locked there and one TDLib can't list yet says when it can; a listed
+    /// gift asks to Unlist, any other opens Sell Gift. Either way setGiftResalePrice, the button turns and the toast
+    /// says so.
+    private func resell(_ upgraded: TDNativeUpgradedGift) {
+        guard upgraded.hostId == nil else {
+            GiftActions.presentLocked(upgraded, host: self)
+            return
+        }
+        if gift.nextResaleDate > Int(Date().timeIntervalSince1970) {
+            let date = ChatVM.fullDateString(Date(timeIntervalSince1970: TimeInterval(gift.nextResaleDate)))
+            let alert = UIAlertController(
+                title: L10n.telegram("Gift.Resale.Unavailable.Title"),
+                message: L10n.telegram("Gift.Resale.Unavailable.Text", date).withoutTelegramMarkup,
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            present(alert, animated: true)
+            return
+        }
+        let title = GiftActions.title(upgraded)
+        if isOnSale {
+            let alert = UIAlertController(
+                title: L10n.telegram("Gift.View.Resale.Unlist.Title"),
+                message: L10n.telegram("Gift.View.Resale.Unlist.Text"),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Gift.View.Resale.Unlist.Unlist"), style: .default) {
+                [weak self] _ in
+                self?.setResalePrice(nil, upgraded: upgraded, from: nil) {
+                    L10n.telegram("Gift.View.Resale.Unlist.Success", title)
+                }
+            })
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            present(alert, animated: true)
+            return
+        }
+        let priceScreen = GiftResalePriceViewController(client: client)
+        priceScreen.onSell = { [weak self, weak priceScreen] price in
+            self?.setResalePrice(price, upgraded: upgraded, from: priceScreen) {
+                L10n.telegram("Gift.View.Resale.List.Success", title)
+            }
+        }
+        present(UINavigationController(rootViewController: priceScreen), animated: true)
+    }
+
+    private func setResalePrice(
+        _ price: TDNativeGiftResalePrice?,
+        upgraded: TDNativeUpgradedGift,
+        from priceScreen: UIViewController?,
+        success: @escaping () -> String,
+    ) {
+        let client = client
+        let giftID = gift.receivedGiftId
+        Task { [weak self, weak priceScreen] in
+            do {
+                _ = try await client.send(TDNativeRequests.setGiftResalePrice(receivedGiftId: giftID, price: price))
+            } catch {
+                if let host = priceScreen ?? self { GiftActions.showError(error, in: host) }
+                return
+            }
+            guard let self else { return }
+            isOnSale = price != nil
+            makeHeaderButtons(upgraded)
+            onVisibilityChanged?()
+            let show = { [weak self] in
+                guard let self else { return }
+                TelegramUndoToast.show(text: success(), in: view, bottomInset: 12, undo: nil)
+            }
+            if let priceScreen {
+                priceScreen.dismiss(animated: true, completion: show)
+            } else {
+                show()
             }
         }
     }
