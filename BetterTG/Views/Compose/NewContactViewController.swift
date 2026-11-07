@@ -51,6 +51,7 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("NewContact.Title")
+        if !phoneNumber.isEmpty { phoneNumberChanged(phoneNumber) }
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
         )
@@ -90,6 +91,14 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
     private static func withoutLinkAction(_ text: String) -> String {
         guard let range = text.range(of: " [") else { return text }
         return String(text[..<range.lowerBound])
+    }
+
+    /// openAddContact from a phone number's menu: the screen opens with the number and the person's name filled in,
+    /// and looks the number up at once.
+    func prefill(firstName: String, lastName: String, phoneNumber: String) {
+        self.firstName = firstName
+        self.lastName = lastName
+        self.phoneNumber = phoneNumber
     }
 
     private func statusRows() -> [SettingsRow] {

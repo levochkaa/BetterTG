@@ -3540,3 +3540,4 @@
 "Settings.SuggestSetupPasswordTitle" = "Protect Your Account";
 "Settings.SuggestSetupPasswordText" = "Set a password that will be required each time you log in with this phone number.";
 "Settings.SuggestSetupPasswordAction" = "Set Additional Password";
+"Chat.Context.Phone.AddToContacts" = "Add to Contacts";

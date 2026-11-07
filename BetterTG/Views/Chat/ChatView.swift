@@ -10553,6 +10553,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         sheet.popoverPresentationController?.sourceView = textView
                         self?.present(sheet, animated: true)
                     },
+                    addContact: { [weak self] in
+                        let form = NewContactViewController()
+                        form.prefill(
+                            firstName: peer?.firstName ?? "", lastName: peer?.lastName ?? "", phoneNumber: number,
+                        )
+                        self?.navigationController?.pushViewController(form, animated: true)
+                    },
                     copied: copied,
                 )
                 showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)

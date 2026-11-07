@@ -156,9 +156,10 @@ import UIKit
 
         private static func verifyMenus() throws {
             let unknownPhone = MessagePhoneMenu(number: "+123", peer: nil)
-                .actions(sendMessage: { _ in }, openProfile: { _ in }, invite: {}, copied: { _ in })
-.map(\.title)
+                .actions(sendMessage: { _ in }, openProfile: { _ in }, invite: {}, addContact: {}, copied: { _ in })
+                .map(\.title)
             try require(unknownPhone == [
+                L10n.telegram("Chat.Context.Phone.AddToContacts"),
                 L10n.telegram("Chat.Context.Phone.InviteToTelegram"),
                 L10n.telegram("Chat.Context.Phone.CallViaCarrier"),
                 L10n.telegram("Chat.Context.Phone.CopyNumber"),

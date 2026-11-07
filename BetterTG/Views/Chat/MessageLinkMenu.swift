@@ -250,6 +250,8 @@ struct MessagePhoneMenu {
         let name: String
         let avatar: UIImage?
         let isSelf: Bool
+        var firstName = ""
+        var lastName = ""
     }
 
     /// inviteToTelegram: InviteText.SingleContact with Telegram's link, through the system share sheet.
@@ -274,6 +276,8 @@ struct MessagePhoneMenu {
             name: ServiceMessageText.displayTitle(user),
             avatar: avatar,
             isSelf: user.id == accountUserID,
+            firstName: user.firstName,
+            lastName: user.lastName,
         )
     }
 
@@ -281,9 +285,20 @@ struct MessagePhoneMenu {
         sendMessage: @escaping (Int64) -> Void,
         openProfile: @escaping (Int64) -> Void,
         invite: @escaping () -> Void,
+        addContact: (() -> Void)? = nil,
         copied: @escaping (String) -> Void,
     ) -> [TelegramContextMenuAction] {
         var actions = [TelegramContextMenuAction]()
+        // Add to Contacts opens the new contact form, then a separator; Telegram's Add to Existing Contact (the
+        // device's address book) is not ported.
+        if let addContact {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Phone.AddToContacts"),
+                image: UIImage(systemName: "person.badge.plus"),
+                handler: addContact,
+            ))
+        }
+        let firstIndexAfterAdd = actions.count
         if let peer {
             if !peer.isSelf {
                 actions.append(TelegramContextMenuAction(
@@ -318,6 +333,9 @@ struct MessagePhoneMenu {
                 copied(L10n.telegram("Conversation.PhoneCopied"))
             },
         ))
+        if firstIndexAfterAdd > 0, actions.indices.contains(firstIndexAfterAdd) {
+            actions[firstIndexAfterAdd].startsNewSection = true
+        }
         if let peer {
             var row = TelegramContextMenuAction(
                 title: peer.name,
