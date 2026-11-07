@@ -3734,3 +3734,4 @@
 "Notifications.PermissionsSuppressWarningText" = "You may miss important messages on Telegram due to your current settings.\n\nFor better results, enable alerts or banners and try muting certain chats or chat types in Telegram settings.";
 "Notifications.PermissionsKeepDisabled" = "Keep Disabled";
 "Notifications.PermissionsEnable" = "Enable";
+"PeerInfo.QRCode.Title" = "QR Code";

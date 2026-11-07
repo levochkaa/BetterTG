@@ -5708,7 +5708,7 @@ ClientRestorableNavigationEntry {
         presentTelegramContextMenu(sourceView: bioLabel, actions: actions, presentationStyle: .menuOnly)
     }
 
-    /// openUsernameContextMenu: Edit Username on My Profile, then Copy Username.
+    /// openUsernameContextMenu: Edit Username on My Profile, then Copy Username and the username's QR Code.
     private func openUsernameMenu(_ username: String) {
         var actions = [TelegramContextMenuAction]()
         if isMyProfile {
@@ -5725,6 +5725,20 @@ ClientRestorableNavigationEntry {
         ) { [weak self] in
             UIPasteboard.general.string = "@\(username)"
             self?.showInfoToast(L10n.telegram("Conversation.UsernameCopied"))
+        })
+        // The username row's QR icon (openQrCode): ChatQrCodeScreen for the username's link.
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.QRCode.Title"),
+            image: UIImage(systemName: "qrcode"),
+        ) { [weak self] in
+            guard let self else { return }
+            let screen = PeerQRCodeViewController(
+                username: username,
+                peer: SettingsPeer(chat: customChat.chat),
+                client: client,
+                accountID: accountID,
+            )
+            navigationController?.pushViewController(screen, animated: true)
         })
         presentTelegramContextMenu(sourceView: detailsLabel, actions: actions, presentationStyle: .menuOnly)
     }
