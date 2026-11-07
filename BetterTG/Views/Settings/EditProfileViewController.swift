@@ -23,6 +23,9 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     private var me: User?
     private var savedBio = ""
     private var birthdate: TDNativeBirthdate?
+    /// Who may see the bio and the birthday, for the notes under them; nil until read.
+    private var bioRule: PrivacyRuleState?
+    private var birthdayRule: PrivacyRuleState?
     private var firstName = ""
     private var lastName = ""
     private var bio = ""
@@ -31,6 +34,27 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     private var isSaving = false
     private var photoTask: Task<Void, Never>?
     private let headerView = EditProfileHeaderView()
+
+    /// settingsEditingItems' bio note: who sees it, by the rule's base, with Change; a few words while there is none.
+    private var bioFooter: String {
+        guard let bioRule, !savedBio.isEmpty else { return L10n.telegram("Settings.About.PrivacyHelpEmpty") }
+        return switch bioRule.base {
+        case .everybody: L10n.telegram("Settings.About.PrivacyHelpEveryone")
+        case .contacts: L10n.telegram("Settings.About.PrivacyHelpContacts")
+        case .nobody: L10n.telegram("Settings.About.PrivacyHelpNobody")
+        }
+    }
+
+    /// The birthday's note, as the bio's; none until the rule is read.
+    private var birthdayFooter: String? {
+        birthdayRule.map { rule in
+            switch rule.base {
+            case .everybody: L10n.telegram("Settings.Birthday.PrivacyHelpEveryone")
+            case .contacts: L10n.telegram("Settings.Birthday.PrivacyHelpContacts")
+            case .nobody: L10n.telegram("Settings.Birthday.PrivacyHelpNobody")
+            }
+        }
+    }
 
     deinit {
         photoTask?.cancel()
@@ -79,7 +103,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                     self?.updateDoneButton()
                 })),
             ]),
-            SettingsSection(footer: L10n.telegram("Settings.About.PrivacyHelp").withoutTelegramLinks, rows: [
+            SettingsSection(footer: bioFooter, rows: [
                 SettingsRow(title: "", style: .input(SettingsTextInput(
                     text: bio,
                     placeholder: L10n.telegram("UserInfo.About.Placeholder"),
@@ -89,7 +113,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                     self?.bio = text
                     self?.updateDoneButton()
                 })),
-            ]),
+            ], footerLinks: ["default": { [weak self] in self?.openPrivacy(.bio) }]),
         ]
         var birthdayRows = [SettingsRow(
             title: L10n.telegram("Settings.Birthday"),
@@ -103,8 +127,9 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
             ) { [weak self] in self?.removeBirthdate() })
         }
         sections.append(SettingsSection(
-            footer: L10n.telegram("Settings.Birthday.Help").withoutTelegramLinks,
+            footer: birthdayFooter,
             rows: birthdayRows,
+            footerLinks: ["default": { [weak self] in self?.openPrivacy(.birthday) }],
         ))
         let username = me?.usernames?.editableUsername ?? ""
         sections.append(SettingsSection(rows: [SettingsRow(
@@ -196,6 +221,12 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         Task { [weak self] in
             guard let me = try? await client.getMe() else { return }
             let fullInfo = try? await client.getUserFullInfo(userId: me.id)
+            let bioRules = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
+                setting: .userPrivacySettingShowBio,
+            ))
+            let birthdayRules = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
+                setting: .userPrivacySettingShowBirthdate,
+            ))
             let limit: Int? =
                 if case .optionValueInteger(let value) = try? await client.getOption(name: "bio_length_max") {
                     Int(clamping: value.value)
@@ -207,6 +238,8 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
             self.me = me
             savedBio = fullInfo?.bio?.text ?? ""
             birthdate = fullInfo?.birthdate
+            bioRule = bioRules.map(PrivacyRuleState.init(rules:))
+            birthdayRule = birthdayRules.map(PrivacyRuleState.init(rules:))
             if let limit, limit > 0 { bioLimit = limit }
             if !wasLoaded {
                 firstName = me.firstName
@@ -216,12 +249,24 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                 reload()
                 openIfAsked()
             } else {
-                // Keep the fields being edited; refresh the photo, birthday and username rows.
-                reload(sections: IndexSet([2, 3]))
+                // Keep the fields being edited; refresh the photo, birthday and username rows, and the bio's note.
+                reload(sections: IndexSet([1, 2, 3]))
             }
             headerView.configure(user: me, client: client, accountID: accountID)
             updateDoneButton()
         }
+    }
+
+    /// openBioPrivacy and openBirthdatePrivacy: the rule's editor; its change updates the note.
+    private func openPrivacy(_ kind: PrivacyKind) {
+        guard let state = kind == .bio ? bioRule : birthdayRule else { return }
+        let editor = PrivacyRuleEditorViewController(kind: kind, state: state, phoneNumber: me?.phoneNumber ?? "")
+        editor.onChange = { [weak self] state in
+            guard let self else { return }
+            if kind == .bio { bioRule = state } else { birthdayRule = state }
+            reload(sections: IndexSet([1, 2]))
+        }
+        navigationController?.pushViewController(editor, animated: true)
     }
 
     private func updateDoneButton() {

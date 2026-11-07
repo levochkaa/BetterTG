@@ -3838,3 +3838,10 @@
 "WebBrowser.Exceptions.ClearConfirmation.Text" = "Are you sure you want to clear this list?";
 "WebBrowser.Exceptions.ClearConfirmation.Clear" = "Clear";
 "PrivacySettings.InviteSectionFooter" = "You can restrict which users are allowed to add you to groups and channels.";
+"Settings.About.PrivacyHelpEmpty" = "A few words about you.";
+"Settings.About.PrivacyHelpEveryone" = "Everyone can see your bio. [Change >]()";
+"Settings.About.PrivacyHelpContacts" = "Only your contacts can see your bio. [Change >]()";
+"Settings.About.PrivacyHelpNobody" = "Nobody can see your bio. [Change >]()";
+"Settings.Birthday.PrivacyHelpEveryone" = "Everyone can see your birthday. [Change >]()";
+"Settings.Birthday.PrivacyHelpContacts" = "Only your contacts can see your birthday. [Change >]()";
+"Settings.Birthday.PrivacyHelpNobody" = "Nobody can see your birthday. [Change >]()";
