@@ -338,6 +338,11 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         source?.frameRate
     }
 
+    /// How long one pass of the decoded animation lasts, once it has loaded.
+    var animationDuration: TimeInterval? {
+        source?.duration
+    }
+
     private var isShown: Bool {
         fileRequest?.isCurrent == true && playbackVisible && window != nil
     }

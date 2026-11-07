@@ -451,6 +451,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var linkPress: (anchor: UIView, highlight: UIView)?
     /// ChatControllerNode's `previousConfettiAnimationTimestamp`: confetti starts at most once per 0.1 s.
     private var lastConfettiTime: CFTimeInterval?
+    /// The interaction effects of big animated emoji on screen
+    /// (ChatMessageAnimatedStickerItemNode.additionalAnimationNodes).
+    private var activeEmojiEffects = [TGSStickerView]()
     #if DEBUG
         private var messageNavigationGeometry: ChatMessageNavigationGeometry?
         private var viewportCompletionProbe: ChatViewportCompletionProbe?
@@ -2081,6 +2084,47 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
+
+    /// playEffectAnimation: the effect at three times the emoji's size, its centre a width away from the emoji toward
+    /// the chat, nudged up to 30 pt either way, mirrored for an incoming message, played once over everything, at
+    /// most four at a time.
+    func playEmojiEffect(_ sticker: Sticker, around sourceView: UIView, isIncoming: Bool) {
+        guard activeEmojiEffects.count < 4, sourceView.window != nil else { return }
+        let emojiFrame = sourceView.convert(sourceView.bounds, to: view)
+        var frame = emojiFrame.insetBy(dx: -emojiFrame.width, dy: -emojiFrame.height)
+            .offsetBy(dx: isIncoming ? emojiFrame.width - 10 : -emojiFrame.width + 10, dy: 0)
+        frame = frame.offsetBy(dx: .random(in: -30...30), dy: .random(in: -30...30))
+        let effect = TGSStickerView(frame: frame)
+        effect.isUserInteractionEnabled = false
+        if isIncoming { effect.transform = CGAffineTransform(scaleX: -1, y: 1) }
+        view.addSubview(effect)
+        activeEmojiEffects.append(effect)
+        effect.configure(
+            file: sticker.sticker,
+            client: chatVM.client,
+            thumbnail: nil,
+            displaySize: frame.size,
+            onTap: nil,
+        )
+        effect.isUserInteractionEnabled = false
+        effect.playbackMode = .once(startedAt: CACurrentMediaTime())
+        effect.onFirstFrameReady = { [weak self, weak effect] in
+            guard let effect else { return }
+            // The pass starts once the frames are ready; it ends at the animation's length from then.
+            effect.playbackMode = .once(startedAt: CACurrentMediaTime())
+            let duration = effect.animationDuration ?? 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self, weak effect] in
+                guard let effect else { return }
+                self?.removeEmojiEffect(effect)
+            }
+        }
+        effect.setPlaybackVisible(true)
+        // An effect that never loads goes after a while.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self, weak effect] in
+            guard let effect else { return }
+            self?.removeEmojiEffect(effect)
+        }
+    }
 
     /// Calls `ready` once the first page of history is on screen, or the chat turns out to have none.
     fileprivate func whenHistoryShown(_ ready: @escaping () -> Void) {
@@ -4812,6 +4856,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 pendingJoinRequests = ChatJoinRequestsInfo(totalCount: 3, userIds: [userID])
             }
         #endif
+        // The other side tapped a big animated emoji: TDLib passes its effect to play on the message here too.
+        nc.scopedPublisher(&cancellables, for: .updateAnimatedEmojiMessageClicked) { [weak self] update in
+            guard let self, presentationMode == .full, update.source.matches(chatVM.location),
+                  update.value.chatId == chatVM.chatID,
+                  let emojiView = animatedEmojiView(for: update.value.messageId)
+            else { return }
+            playEmojiEffect(update.value.sticker, around: emojiView.view, isIncoming: emojiView.isIncoming)
+        }
         nc.scopedPublisher(&cancellables, for: .updateChatPendingJoinRequests) { [weak self] update in
             guard let self, update.source.matches(chatVM.location), update.value.chatId == chatVM.chatID else { return }
             pendingJoinRequests = update.value.pendingJoinRequests
@@ -7511,6 +7563,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 [weak self] outcome in
                 self?.pollAnswered(outcome, messageID: messageID)
             }
+        case .animatedEmojiTapped(let messageID, let sourceView):
+            let ownSticker: Sticker? =
+                if case .messageAnimatedEmoji(let emoji) = message.sourceMessages
+                        .first(where: { $0.id == messageID })?
+                        .content
+                {
+                    emoji.animatedEmoji.sticker
+                } else {
+                    nil
+                }
+            playAnimatedEmojiInteraction(
+                messageID: messageID,
+                sourceView: sourceView,
+                isIncoming: !message.message.isOutgoing,
+                ownSticker: ownSticker,
+            )
         case .diceSucceeded:
             // ChatController's animateDiceSuccess: a haptic and confetti.
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -8100,6 +8168,63 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// ChatControllerNode.playConfettiAnimation: confetti over the history, at most once per 0.1 s.
+    /// ChatMessageAnimatedStickerItemNode's tap on a big animated emoji: clickAnimatedEmojiMessage gives its
+    /// interaction
+    /// effect, which TDLib also sends to the other side of a private chat, or none for an emoji without one.
+    private func playAnimatedEmojiInteraction(
+        messageID: Int64,
+        sourceView: UIView,
+        isIncoming: Bool,
+        ownSticker: Sticker?,
+    ) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let client = chatVM.client
+        let chatID = chatVM.chatID
+        Task { [weak self, weak sourceView] in
+            var effect = try? await client.send(TDNativeRequests.clickAnimatedEmojiMessage(
+                chatId: chatID,
+                messageId: messageID,
+            ))
+            #if DEBUG
+                // `-ui-probe-emoji-effect`: where TDLib has no effect (Saved Messages), the emoji's own sticker stands in
+                // for one to show where an effect plays.
+                if effect == nil, ProcessInfo.processInfo.arguments.contains("-ui-probe-emoji-effect") {
+                    effect = ownSticker
+                }
+            #endif
+            guard let effect, let self, let sourceView, sourceView.window === view.window else { return }
+            playEmojiEffect(effect, around: sourceView, isIncoming: isIncoming)
+        }
+    }
+
+    /// The big animated emoji of a message on screen, and whether its message is incoming.
+    private func animatedEmojiView(for messageID: Int64) -> (view: UIView, isIncoming: Bool)? {
+        guard let displayedID = chatVM.displayedMessageID(containing: messageID),
+              let indexPath = dataSource.indexPath(for: .message(displayedID)),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+              let message = message(for: displayedID)
+        else { return nil }
+        func find(_ view: UIView) -> UIView? {
+            if let source = view as? AnimatedEmojiEffectSource, source.effectMessageID == messageID { return view }
+            for subview in view.subviews {
+                if let found = find(subview) { return found }
+            }
+            return nil
+        }
+        return find(cell.contentView).map { ($0, !message.message.isOutgoing) }
+    }
+
+    private func removeEmojiEffect(_ effect: TGSStickerView) {
+        guard let index = activeEmojiEffects.firstIndex(where: { $0 === effect }) else { return }
+        activeEmojiEffects.remove(at: index)
+        UIView.animate(withDuration: 0.2) {
+            effect.alpha = 0
+        } completion: { _ in
+            effect.prepareForReuse()
+            effect.removeFromSuperview()
+        }
+    }
+
     private func playConfettiAnimation() {
         guard view.bounds.width > 0 else { return }
         let now = CACurrentMediaTime()

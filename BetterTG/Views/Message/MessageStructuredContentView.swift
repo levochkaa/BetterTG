@@ -24,6 +24,9 @@ enum MessageContentAction {
     case diceTapped(emoji: String)
     /// The user's own throw reached its winning frame: Telegram's animateDiceSuccess plays a haptic and confetti.
     case diceSucceeded
+    /// A big animated emoji was tapped: ChatMessageAnimatedStickerItemNode asks for its interaction effect
+    /// (clickAnimatedEmojiMessage) and plays it around `sourceView`.
+    case animatedEmojiTapped(messageID: Int64, sourceView: UIView)
     /// A service row was tapped: open the message its action refers to.
     case openServiceTarget(messageID: Int64)
     /// A changed chat photo in a service row was tapped.
@@ -544,7 +547,17 @@ final class MessageStructuredContentView: UIView {
         let view: (UIView & MessageSupplementView)? =
             switch presentation.supplement {
             case .animatedEmoji(let emoji, let content):
-                StickerGlyphContentView(emoji: emoji, sticker: content.sticker, client: client)
+                StickerGlyphContentView(
+                    emoji: emoji,
+                    sticker: content.sticker,
+                    client: client,
+                    messageID: messageID,
+                    onTap: chatID == 0
+                        ? nil
+                        : { view in
+                            onAction(.animatedEmojiTapped(messageID: messageID, sourceView: view))
+                        },
+                )
             case .audio(let audio):
                 TelegramFileMessageView(
                     audio: audio,
@@ -3086,14 +3099,33 @@ private final class PollExplanationView: UIView {
     }
 }
 
+// MARK: - AnimatedEmojiEffectSource
+
+/// A view an animated emoji's interaction effect plays around, found by its message.
+@MainActor protocol AnimatedEmojiEffectSource: AnyObject {
+    var effectMessageID: Int64 { get }
+}
+
 // MARK: - StickerGlyphContentView
 
-private final class StickerGlyphContentView: UIView, MessageSupplementView {
+private final class StickerGlyphContentView: UIControl, MessageSupplementView, AnimatedEmojiEffectSource {
+    let effectMessageID: Int64
+
     private let emojiLabel = UILabel()
     private var stickerView: CustomEmojiInlineView?
+    private let onTap: ((UIView) -> Void)?
 
-    init(emoji: String, sticker: Sticker?, client: TDLibClient) {
+    init(
+        emoji: String,
+        sticker: Sticker?,
+        client: TDLibClient,
+        messageID: Int64 = 0,
+        onTap: ((UIView) -> Void)? = nil,
+    ) {
+        self.onTap = onTap
+        self.effectMessageID = messageID
         super.init(frame: .zero)
+        if onTap != nil { addTarget(self, action: #selector(tapped), for: .touchUpInside) }
         emojiLabel.translatesAutoresizingMaskIntoConstraints = false
         emojiLabel.text = emoji
         emojiLabel.textAlignment = .center
@@ -3103,6 +3135,8 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
 
         if let sticker {
             let stickerView = CustomEmojiInlineView()
+            // The control takes the tap, as a die's sticker views leave it to theirs.
+            stickerView.isUserInteractionEnabled = false
             stickerView.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .once)
             stickerView.translatesAutoresizingMaskIntoConstraints = false
             stickerView.configure(sticker: sticker, client: client)
@@ -3139,6 +3173,10 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
 
     func setPlaybackVisible(_ isVisible: Bool) {
         stickerView?.setPlaybackVisible(isVisible)
+    }
+
+    @objc private func tapped() {
+        onTap?(self)
     }
 }
 
@@ -3894,6 +3932,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("dice")
                     case .diceSucceeded:
                         actions.append("dice-success")
+                    case .animatedEmojiTapped:
+                        actions.append("animated-emoji")
                     case .openServiceTarget:
                         actions.append("service-target")
                     case .openOriginal,
