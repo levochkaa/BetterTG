@@ -285,14 +285,6 @@ import UIKit
         retryClientRestoration()
     }
 
-    /// Telegram's `muteForIntervalString` / `mutedForTimeIntervalString`: hours below a day, days above.
-    private static func intervalText(_ prefix: String, seconds: Int) -> String {
-        let (key, count) = seconds < 24 * 60 * 60
-            ? ("\(prefix).Hours", max(1, seconds / (60 * 60)))
-            : ("\(prefix).Days", max(1, seconds / (24 * 60 * 60)))
-        return L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
-    }
-
     /// RootVM.isMuted for the forum's latest settings: its own mute, else its scope's.
     private static func forumIsMuted(_ settings: ChatNotificationSettings, scope: ScopeNotificationSettings?) -> Bool {
         if settings.useDefaultMuteFor, let scope { return scope.muteFor > 0 }
@@ -1533,72 +1525,15 @@ import UIKit
         return actions
     }
 
-    /// Muted: a direct Unmute. Otherwise Telegram's submenu: Mute for… presets and Custom, the sound toggle,
-    /// Customize and Mute Forever.
     private func muteAction(for topic: ForumTopic) -> TelegramContextMenuAction {
-        let settings = topic.notificationSettings
-        guard !isMuted(topic) else {
-            return TelegramContextMenuAction(
-                title: L10n.telegram("ChatList.Context.Unmute"),
-                image: UIImage(systemName: "speaker.wave.2.fill"),
-            ) { [weak self] in self?.updateNotifications(of: topic, to: settings.replacingMuteFor(0)) }
-        }
-        let presets = [60 * 60, 8 * 60 * 60, 24 * 60 * 60, 7 * 24 * 60 * 60]
-        let soundEnabled = settings.useDefaultSound || settings.soundId != 0
-        return TelegramContextMenuAction(
-            title: L10n.telegram("ChatList.Context.Mute"),
-            image: UIImage(systemName: "speaker.slash.fill"),
-            children: [
-                TelegramContextMenuAction(
-                    title: L10n.telegram("PeerInfo.MuteFor"),
-                    image: UIImage(systemName: "clock"),
-                    children: presets.map { seconds in
-                        TelegramContextMenuAction(title: Self.intervalText(
-                            "MuteFor",
-                            seconds: seconds,
-                        )) { [weak self] in
-                            self?.updateNotifications(
-                                of: topic,
-                                to: settings.replacingMuteFor(seconds),
-                                toast: L10n.telegram(
-                                    "PeerInfo.TooltipMutedFor",
-                                    Self.intervalText("MutedForTime", seconds: seconds),
-                                ),
-                            )
-                        }
-                    } + [TelegramContextMenuAction(title: L10n.telegram("PeerInfo.MuteForCustom")) { [weak self] in
-                        self?.openCustomMute(for: topic)
-                    }],
-                ),
-                TelegramContextMenuAction(
-                    title: L10n.telegram(soundEnabled ? "PeerInfo.DisableSound" : "PeerInfo.EnableSound"),
-                    image: UIImage(systemName: soundEnabled ? "bell.slash" : "bell"),
-                    startsNewSection: true,
-                ) { [weak self] in
-                    self?.updateNotifications(
-                        of: topic,
-                        to: settings.replacingSound(enabled: !soundEnabled),
-                        toast: L10n.telegram(
-                            soundEnabled ? "PeerInfo.TooltipSoundDisabled" : "PeerInfo.TooltipSoundEnabled",
-                        ),
-                    )
-                },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("PeerInfo.NotificationsCustomize"),
-                    image: UIImage(systemName: "slider.horizontal.3"),
-                ) { [weak self] in self?.customizeNotifications(of: topic) },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("PeerInfo.MuteForever"),
-                    image: UIImage(systemName: "speaker.slash.fill"),
-                    isDestructive: true,
-                ) { [weak self] in
-                    self?.updateNotifications(
-                        of: topic,
-                        to: settings.replacingMuteFor(Int(Int32.max)),
-                        toast: L10n.telegram("PeerInfo.TooltipMutedForever"),
-                    )
-                },
-            ],
+        ForumTopicMuteMenu.action(
+            settings: topic.notificationSettings,
+            isMuted: isMuted(topic),
+            update: { [weak self] settings, toast in
+                self?.updateNotifications(of: topic, to: settings, toast: toast)
+            },
+            openCustomMute: { [weak self] in self?.openCustomMute(for: topic) },
+            customize: { [weak self] in self?.customizeNotifications(of: topic) },
         )
     }
 
@@ -2015,6 +1950,79 @@ import UIKit
             guard let self, owns(model, binding: binding) else { return }
             if succeeded { onSuccess?() } else { onFailure?() }
         }
+    }
+}
+
+// MARK: - ForumTopicMuteMenu
+
+/// ChatContextMenus' topic mute item: a muted topic gets a direct Unmute; otherwise the submenu of Mute for… presets
+/// and Custom, the sound toggle, Customize and Mute Forever. The topic list and a forum's chat list row share it.
+@MainActor enum ForumTopicMuteMenu {
+    static func action(
+        settings: ChatNotificationSettings,
+        isMuted: Bool,
+        update: @escaping (ChatNotificationSettings, String?) -> Void,
+        openCustomMute: @escaping () -> Void,
+        customize: @escaping () -> Void,
+    ) -> TelegramContextMenuAction {
+        guard !isMuted else {
+            return TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Unmute"),
+                image: UIImage(systemName: "speaker.wave.2.fill"),
+            ) { update(settings.replacingMuteFor(0), nil) }
+        }
+        let presets = [60 * 60, 8 * 60 * 60, 24 * 60 * 60, 7 * 24 * 60 * 60]
+        let soundEnabled = settings.useDefaultSound || settings.soundId != 0
+        return TelegramContextMenuAction(
+            title: L10n.telegram("ChatList.Context.Mute"),
+            image: UIImage(systemName: "speaker.slash.fill"),
+            children: [
+                TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.MuteFor"),
+                    image: UIImage(systemName: "clock"),
+                    children: presets.map { seconds in
+                        TelegramContextMenuAction(title: intervalText("MuteFor", seconds: seconds)) {
+                            update(
+                                settings.replacingMuteFor(seconds),
+                                L10n.telegram(
+                                    "PeerInfo.TooltipMutedFor",
+                                    intervalText("MutedForTime", seconds: seconds),
+                                ),
+                            )
+                        }
+                    } + [TelegramContextMenuAction(title: L10n.telegram("PeerInfo.MuteForCustom")) {
+                        openCustomMute()
+                    }],
+                ),
+                TelegramContextMenuAction(
+                    title: L10n.telegram(soundEnabled ? "PeerInfo.DisableSound" : "PeerInfo.EnableSound"),
+                    image: UIImage(systemName: soundEnabled ? "bell.slash" : "bell"),
+                    startsNewSection: true,
+                ) {
+                    update(
+                        settings.replacingSound(enabled: !soundEnabled),
+                        L10n.telegram(soundEnabled ? "PeerInfo.TooltipSoundDisabled" : "PeerInfo.TooltipSoundEnabled"),
+                    )
+                },
+                TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.NotificationsCustomize"),
+                    image: UIImage(systemName: "slider.horizontal.3"),
+                ) { customize() },
+                TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.MuteForever"),
+                    image: UIImage(systemName: "speaker.slash.fill"),
+                    isDestructive: true,
+                ) { update(settings.replacingMuteFor(Int(Int32.max)), L10n.telegram("PeerInfo.TooltipMutedForever")) },
+            ],
+        )
+    }
+
+    /// Telegram's `muteForIntervalString` / `mutedForTimeIntervalString`: hours below a day, days above.
+    static func intervalText(_ prefix: String, seconds: Int) -> String {
+        let (key, count) = seconds < 24 * 60 * 60
+            ? ("\(prefix).Hours", max(1, seconds / (60 * 60)))
+            : ("\(prefix).Days", max(1, seconds / (24 * 60 * 60)))
+        return L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 }
 

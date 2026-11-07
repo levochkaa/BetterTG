@@ -1775,11 +1775,164 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
-            actions: menu(for: chat),
+            actions: previewedTopic.map { topicMenu(for: $0, in: chat, client: client) } ?? menu(for: chat),
             tracking: gesture,
             presentationStyle: .chatPreview,
             previewController: previewController,
         )
+    }
+
+    /// ChatContextMenus' chatForumTopicMenuItems as the chat list asks for them (no pin state, no Select): Mark as
+    /// Read while the topic is unread, Mute or Unmute, Close or Reopen Topic and Delete for whoever may.
+    private func topicMenu(
+        for topic: ForumTopic,
+        in chat: CustomChat,
+        client: TDLibClient,
+    ) -> [TelegramContextMenuAction] {
+        let chatID = chat.id
+        let topicID = topic.info.forumTopicId
+        let isGeneral = topic.info.isGeneral
+        let canOpenClose = chat.canManageForumTopics || topic.info.isOutgoing
+        var actions = [TelegramContextMenuAction]()
+        if topic.unreadCount > 0, let lastMessageID = topic.lastMessage?.id {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.MarkAsRead"),
+                image: UIImage(systemName: "envelope.open"),
+            ) { [weak self] in
+                self?.performTopicRequest(chatID: chatID, client: client) { client in
+                    _ = try await client.viewMessages(
+                        chatId: chatID,
+                        forceRead: true,
+                        messageIds: [lastMessageID],
+                        source: .messageSourceForumTopicHistory,
+                    )
+                }
+            })
+        }
+        // A topic's own mute, else the forum's (ChatContextMenus' `.default` case).
+        let settings = topic.notificationSettings
+        let isMuted = settings.useDefaultMuteFor ? rootVM.isMuted(chat) : settings.muteFor > 0
+        actions.append(ForumTopicMuteMenu.action(
+            settings: settings,
+            isMuted: isMuted,
+            update: { [weak self] settings, toast in
+                self?.updateTopicNotifications(topicID, in: chatID, to: settings, toast: toast, client: client)
+            },
+            openCustomMute: { [weak self] in
+                guard let self else { return }
+                PeerProfileTimerPickerViewController(mode: .muteUntil(onApply: { [weak self] seconds in
+                    let until = Foundation.Date(timeIntervalSinceNow: TimeInterval(seconds))
+                    self?.updateTopicNotifications(
+                        topicID,
+                        in: chatID,
+                        to: settings.replacingMuteFor(seconds),
+                        toast: L10n.telegram(
+                            "PeerInfo.TooltipMutedUntil",
+                            PeerProfileTimerPickerViewController.preciseText(for: until),
+                        ),
+                        client: client,
+                    )
+                })).present(from: overlayHost)
+            },
+            customize: { [weak self] in
+                guard let self else { return }
+                NotificationExceptionViewController(
+                    title: topic.info.name,
+                    scope: chat.notificationSettingsScope,
+                    settings: settings,
+                    offersStories: false,
+                ) { [weak self] settings in
+                    self?.updateTopicNotifications(
+                        topicID,
+                        in: chatID,
+                        to: settings,
+                        toast: settings.muteFor > 0 ? L10n.telegram("PeerInfo.TooltipMutedForever") : nil,
+                        client: client,
+                    )
+                }.present(from: overlayHost)
+            },
+        ))
+        if !isGeneral, canOpenClose {
+            let isClosed = topic.info.isClosed
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isClosed ? "ChatList.Context.ReopenTopic" : "ChatList.Context.CloseTopic"),
+                image: UIImage(systemName: isClosed ? "play" : "pause"),
+            ) { [weak self] in
+                self?.performTopicRequest(chatID: chatID, client: client) { client in
+                    _ = try await client.send(TDNativeRequests.toggleForumTopicIsClosed(
+                        chatId: chatID, forumTopicId: topicID, isClosed: !isClosed,
+                    ))
+                }
+            })
+        }
+        if !isGeneral, chat.canDeleteAllMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDeleteTopic(topicID, in: chatID, client: client) })
+        }
+        return actions
+    }
+
+    private func updateTopicNotifications(
+        _ topicID: Int,
+        in chatID: Int64,
+        to settings: ChatNotificationSettings,
+        toast: String?,
+        client: TDLibClient,
+    ) {
+        performTopicRequest(chatID: chatID, client: client) { client in
+            _ = try await client.send(TDNativeRequests.setForumTopicNotificationSettings(
+                chatId: chatID, forumTopicId: topicID, notificationSettings: settings,
+            ))
+        } onSuccess: { [weak self] in
+            guard let toast else { return }
+            self?.showUndoToast(toast)
+        }
+    }
+
+    /// Telegram asks in an action sheet before deleting a topic with all its messages.
+    private func confirmDeleteTopic(_ topicID: Int, in chatID: Int64, client: TDLibClient) {
+        guard overlayHost.presentedViewController == nil else { return }
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegram("ChatList.DeleteTopicConfirmationText"),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram("ChatList.DeleteTopicConfirmationAction"),
+            style: .destructive,
+        ) { [weak self] _ in
+            self?.performTopicRequest(chatID: chatID, client: client) { client in
+                _ = try await client.send(TDNativeRequests.deleteForumTopic(chatId: chatID, forumTopicId: topicID))
+            }
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = overlayHost.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: overlayHost.view.bounds.midX,
+            y: overlayHost.view.bounds.midY,
+            width: 0,
+            height: 0,
+        )
+        overlayHost.present(sheet, animated: true)
+    }
+
+    /// Runs a topic request on the row's client; the row reads its recent topics again once it succeeds, as a
+    /// closed, read or deleted topic changes the line without a new last message.
+    private func performTopicRequest(
+        chatID: Int64,
+        client: TDLibClient,
+        _ request: @escaping (TDLibClient) async throws -> Void,
+        onSuccess: (() -> Void)? = nil,
+    ) {
+        Task { [weak self] in
+            guard await (try? request(client)) != nil else { return }
+            ChatListForumTopics.shared.invalidateRecentTopics(chatID: chatID, client: client)
+            guard self != nil, TDLib.shared.activeClient.id == client.id else { return }
+            onSuccess?()
+        }
     }
 
     /// Shown on the screen that owns this page, above the folder picker on the main list.

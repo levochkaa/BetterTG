@@ -98,6 +98,14 @@ import UIKit
         return cached?.topics ?? []
     }
 
+    /// Drops the forum's recent topics, so the next row configuration reads them again.
+    func invalidateRecentTopics(chatID: Int64, client: TDLibClient) {
+        let key = ChatKey(clientID: client.id, chatID: chatID)
+        recent[key] = nil
+        recentPending[key] = nil
+        changes.send(chatID)
+    }
+
     /// A recent topic of the forum, as the chat list last read it.
     func recentTopic(chatID: Int64, topicID: Int, client: TDLibClient) -> ForumTopic? {
         recent[ChatKey(clientID: client.id, chatID: chatID)]?.topics.first { $0.id == topicID }?.topic
