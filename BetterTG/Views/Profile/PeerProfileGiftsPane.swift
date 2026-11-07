@@ -62,6 +62,9 @@ import UIKit
         filter.value != .all
     }
 
+    /// The pane's owner, for a screen that lists the same gifts.
+    var owner: MessageSender { ownerID }
+
     init(ownerID: MessageSender, client: TDLibClient, isCurrent: @escaping () -> Bool) {
         self.ownerID = ownerID
         self.client = client
@@ -242,6 +245,16 @@ import UIKit
         reload()
         runCollectionChange(host: host) { client, ownerID in
             _ = try await client.send(TDNativeRequests.deleteGiftCollection(ownerId: ownerID, collectionId: id))
+        }
+    }
+
+    /// AddGiftsScreen's result: addGiftCollectionGifts with the picked gifts.
+    func addGifts(_ giftIDs: [String], toCollection id: Int, host: UIViewController) {
+        guard !giftIDs.isEmpty else { return }
+        runCollectionChange(host: host) { client, ownerID in
+            _ = try await client.send(TDNativeRequests.addGiftCollectionGifts(
+                ownerId: ownerID, collectionId: id, receivedGiftIds: giftIDs,
+            ))
         }
     }
 
@@ -584,6 +597,9 @@ final class ProfileGiftCell: UICollectionViewCell {
     private var ribbonStyle: RibbonStyle?
     private var avatarTask: Task<Void, Never>?
     private var hasBackdrop = false
+    /// GiftItemComponent's `.select` check at the top left: 26 pt over an upgraded gift's backdrop, 22 pt otherwise.
+    private let checkView = UIImageView()
+    private var isSelecting = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -680,6 +696,8 @@ final class ProfileGiftCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        checkView.isHidden = true
+        contentView.alpha = 1
         avatarTask?.cancel()
         avatarTask = nil
         patternTask?.cancel()
@@ -726,6 +744,31 @@ final class ProfileGiftCell: UICollectionViewCell {
             }
             shape.withRenderingMode(.alwaysOriginal).draw(in: rect, blendMode: .destinationIn, alpha: 1)
         }
+    }
+
+    /// The select mode of AddGiftsScreen: a check instead of the sender and pin, and a gift already in the collection
+    /// at 0.3.
+    func setSelection(isSelecting: Bool, isSelected: Bool, isDimmed: Bool) {
+        self.isSelecting = isSelecting
+        if checkView.superview == nil { contentView.addSubview(checkView) }
+        checkView.isHidden = !isSelecting || isDimmed
+        contentView.alpha = isDimmed ? 0.3 : 1
+        if isSelecting {
+            avatarView.isHidden = true
+            pinView.isHidden = true
+        }
+        let side: CGFloat = hasBackdrop ? 26 : 22
+        let configuration = UIImage.SymbolConfiguration(pointSize: side - 2, weight: .regular)
+        checkView.image =
+            if isSelected {
+                UIImage(systemName: "checkmark.circle.fill", withConfiguration: configuration)?
+                    .applyingSymbolConfiguration(.init(paletteColors: [.white, .tintColor]))
+            } else {
+                UIImage(systemName: "circle", withConfiguration: configuration)?
+                    .withTintColor(hasBackdrop ? .white : .secondaryLabel, renderingMode: .alwaysOriginal)
+            }
+        checkView.frame = CGRect(x: hasBackdrop ? 4 : 6, y: hasBackdrop ? 4 : 6, width: side, height: side)
+        accessibilityTraits = isSelected ? [.button, .selected] : .button
     }
 
     func setPlaybackVisible(_ visible: Bool) {

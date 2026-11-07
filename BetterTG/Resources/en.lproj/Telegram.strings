@@ -3559,3 +3559,7 @@
 "PeerInfo.Gifts.ShareCollection" = "Share";
 "PeerInfo.Gifts.CollectionLimitReached.Title" = "Limit Reached";
 "PeerInfo.Gifts.CollectionLimitReached.Text" = "Please remove one of the existing collections to add a new one.";
+"PeerInfo.Gifts.AddGifts" = "Add Gifts";
+"AddGifts.Title" = "Add Gifts";
+"AddGifts.AddGifts_1" = "Add %@ Gift";
+"AddGifts.AddGifts_any" = "Add %@ Gifts";

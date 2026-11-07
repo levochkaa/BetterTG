@@ -1290,6 +1290,19 @@ ClientRestorableNavigationEntry {
         )
     }
 
+    /// addGiftsToCollection: AddGiftsScreen over the profile's gifts, then the picked ones join the collection.
+    private func presentAddGifts(toCollection id: Int) {
+        guard let giftsPane else { return }
+        let picker = GiftSelectionViewController(ownerID: giftsPane.owner, collectionID: id, client: client)
+        picker.onAdd = { [weak self] giftIDs in
+            guard let self else { return }
+            self.giftsPane?.addGifts(giftIDs, toCollection: id, host: self)
+        }
+        let navigation = UINavigationController(rootViewController: picker)
+        navigation.sheetPresentationController?.detents = [.large()]
+        present(navigation, animated: true)
+    }
+
     /// The folder tab's view with its handlers.
     /// PeerInfoGiftsPaneNode's TabSelectorComponent: All Gifts, then the profile's collections.
     private func configureGiftCollectionTabs(_ view: StoryAlbumTabsView?) {
@@ -1371,6 +1384,10 @@ ClientRestorableNavigationEntry {
     private func openGiftCollectionMenu(_ id: Int, source: UIView, gesture: UIGestureRecognizer) {
         guard let collection = giftsPane?.collections.first(where: { $0.id == id }) else { return }
         presentTelegramContextMenu(sourceView: source, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.AddGifts"),
+                image: UIImage(systemName: "plus.square.on.square"),
+            ) { [weak self] in self?.presentAddGifts(toCollection: id) },
             TelegramContextMenuAction(
                 title: L10n.telegram("PeerInfo.Gifts.RenameCollection"),
                 image: UIImage(systemName: "pencil"),
@@ -3641,29 +3658,34 @@ ClientRestorableNavigationEntry {
     private func openGiftsFilterMenu() {
         guard contextIsCurrent, currentSharedTab == .gifts, let giftsPane,
               let source = giftsFilterItem.telegramChromeView else { return }
-        var actions = giftsPane.filterMenuActions(hasVisibility: isMyProfile)
-        // PeerInfoScreenDisplayGiftsContextMenu's management items above the sort: Add Collection in All Gifts,
-        // Delete Collection in a collection.
+        var filters = giftsPane.filterMenuActions(hasVisibility: isMyProfile)
+        // PeerInfoScreenDisplayGiftsContextMenu's items above the sort: in All Gifts, Add Collection; in a collection,
+        // Add Gifts and Delete Collection, then Share for a profile with a username.
+        var management = [TelegramContextMenuAction]()
         if isMyProfile {
             if let id = giftsPane.selectedCollectionID {
-                actions.insert(TelegramContextMenuAction(
+                management.append(TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.Gifts.AddGifts"),
+                    image: UIImage(systemName: "plus.square.on.square"),
+                ) { [weak self] in self?.presentAddGifts(toCollection: id) })
+                management.append(TelegramContextMenuAction(
                     title: L10n.telegram("PeerInfo.Gifts.DeleteCollection"),
                     image: UIImage(systemName: "trash"),
                     isDestructive: true,
-                ) { [weak self] in self?.confirmDeleteGiftCollection(id) }, at: 0)
-                if let share = shareGiftCollectionAction(id) {
-                    var share = share
-                    share.startsNewSection = true
-                    actions.insert(share, at: 1)
-                }
+                ) { [weak self] in self?.confirmDeleteGiftCollection(id) })
             } else {
-                actions.insert(TelegramContextMenuAction(
+                management.append(TelegramContextMenuAction(
                     title: L10n.telegram("PeerInfo.Gifts.AddCollection"),
                     image: UIImage(systemName: "folder.badge.plus"),
-                ) { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) }, at: 0)
+                ) { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) })
             }
-            if actions.count > 1 { actions[1].startsNewSection = true }
         }
+        if let id = giftsPane.selectedCollectionID, var share = shareGiftCollectionAction(id) {
+            share.startsNewSection = !management.isEmpty
+            management.append(share)
+        }
+        if !management.isEmpty, !filters.isEmpty { filters[0].startsNewSection = true }
+        let actions = management + filters
         presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
     }
 
