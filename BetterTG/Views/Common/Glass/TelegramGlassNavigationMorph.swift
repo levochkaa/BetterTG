@@ -58,6 +58,9 @@ import UIKit
         /// Where an unpaired platter starts or ends: its partner's frame, or nil to (de)materialize in place.
         var partnerFrame: CGRect?
         var identicalItems = false
+        /// A change of screens in place with the same items on both bars: the items ride inside their glass, as the
+        /// system's glyph moves with its platter, instead of staying where each bar has them.
+        var ridesWithGlass = false
 
         init(key: Key, glass: UIVisualEffectView) {
             self.key = key
@@ -99,6 +102,8 @@ import UIKit
     private var transitionEnded = false
     private var springsSettled = false
     private var finished = false
+    /// A tab switch, with no screens sliding for the items to ride.
+    private var isInPlace = false
 
     private init(navigationView: UIView) {
         self.navigationView = navigationView
@@ -172,6 +177,7 @@ import UIKit
             morph.finish()
         }
         let morph = TelegramGlassNavigationMorph(navigationView: view)
+        morph.isInPlace = true
         morph.begin(source: source, destination: destination)
         guard !morph.pieces.isEmpty else {
             morph.finish()
@@ -307,6 +313,7 @@ import UIKit
             piece.destination = incoming
             if let outgoing, let incoming {
                 piece.identicalItems = Self.signature(of: outgoing) == Self.signature(of: incoming)
+                piece.ridesWithGlass = isInPlace && piece.identicalItems
             } else if let incoming {
                 // A title pill with no platter in its slot on the other bar shows in place, never out of a neighbour.
                 if incoming.role != .title { piece.sourcePartner = Self.partner(of: key, in: from) }
@@ -370,7 +377,16 @@ import UIKit
                     piece.glass.transform = Self.materializeScale(for: frame.size)
                 }
                 let glassFrame = piece.sourceFrame ?? piece.partnerFrame ?? frame
-                let items = lendItems(of: incoming, frame: frame, to: piece, glassFrame: glassFrame)
+                // Riding items start where the outgoing ones stand, in the middle of the glass.
+                let start = piece.ridesWithGlass
+                    ? CGRect(
+                        x: glassFrame.midX - frame.width / 2,
+                        y: glassFrame.midY - frame.height / 2,
+                        width: frame.width,
+                        height: frame.height,
+                    )
+                    : frame
+                let items = lendItems(of: incoming, frame: start, to: piece, glassFrame: glassFrame)
                 items.host.alpha = 0
                 if !piece.identicalItems || piece.sourceItems == nil {
                     items.host.transform = CGAffineTransform(scaleX: Spring.itemScale, y: Spring.itemScale)
@@ -409,8 +425,13 @@ import UIKit
                     piece.glass.transform = Self.materializeScale(for: piece.glass.bounds.size)
                     piece.glass.effect = nil
                 }
-                // On the glass's spring, against it: each bar's items keep their place on screen.
-                if let glassTarget = piece.destinationFrame ?? piece.partnerFrame {
+                // On the glass's spring: riding items keep to its middle; otherwise against it, each bar's items
+                // keeping their place on screen.
+                if piece.ridesWithGlass, let glassTarget = piece.destinationFrame {
+                    let middle = CGPoint(x: glassTarget.width / 2, y: glassTarget.height / 2)
+                    piece.sourceItems?.host.center = middle
+                    piece.destinationItems?.host.center = middle
+                } else if let glassTarget = piece.destinationFrame ?? piece.partnerFrame {
                     if let host = piece.sourceItems?.host, let source = piece.sourceFrame {
                         host.center = Self.center(of: source, in: glassTarget)
                     }
@@ -418,13 +439,14 @@ import UIKit
                         host.center = Self.center(of: destination, in: glassTarget)
                     }
                 }
-                if let items = piece.sourceItems?.host {
+                // The same glyph riding shows once: the outgoing one, until the bars take their items back.
+                if let items = piece.sourceItems?.host, !piece.ridesWithGlass {
                     if !piece.identicalItems {
                         items.transform = CGAffineTransform(scaleX: Spring.itemScale, y: Spring.itemScale)
                     }
                     items.alpha = 0
                 }
-                if let items = piece.destinationItems?.host {
+                if let items = piece.destinationItems?.host, !piece.ridesWithGlass {
                     items.transform = .identity
                     items.alpha = 1
                 }
