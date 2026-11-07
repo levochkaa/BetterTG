@@ -261,6 +261,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = MessageMediaStatusLabel()
+    /// ChatMessageAnimatedStickerItemNode's free-standing date for a big animated emoji or a die, which have no bubble:
+    /// the media's capsule over the content's corner.
+    private let freestandingTimestampLabel = MessageMediaStatusLabel()
     private let commentFooterView = MessageCommentFooterView()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
@@ -613,6 +616,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timestampLabel.text = nil
         mediaTimestampLabel.isHidden = true
         mediaTimestampLabel.text = nil
+        freestandingTimestampLabel.isHidden = true
+        freestandingTimestampLabel.text = nil
         bubbleBackground.fillColor = .clear
         // Context menus may currently own this view outside the cell hierarchy.
         // Conceal it without stealing the menu's view or return constraints.
@@ -862,10 +867,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centered: isCentered,
         )
 
-        // ChatMessageBubbleItemNode: stickers and instant videos stand alone; a GIF is media in its bubble.
+        // ChatMessageBubbleItemNode: stickers, big animated emoji, dice (ChatMessageAnimatedStickerItemNode) and instant
+        // videos stand alone; a GIF is media in its bubble.
         let isUnframedMediaMessage =
             switch message.message.content {
-            case .messageSticker,
+            case .messageAnimatedEmoji,
+                 .messageDice,
+                 .messageSticker,
                  .messageVideoNote: true
             default: false
             }
@@ -883,7 +891,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         // and round videos get a separate button there instead, and service messages none.
         let hasSeparateCommentButton =
             switch message.message.content {
-            case .messageSticker,
+            case .messageAnimatedEmoji,
+                 .messageDice,
+                 .messageSticker,
                  .messageVideoNote: true
             default: false
             }
@@ -1112,7 +1122,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             color: delivery == .failed ? .systemRed : .white,
         )
         let hasVisualMedia = hasMedia && message.hasVisualMedia
+        let isFreestandingSupplement = isStandaloneUnframedMedia && !hasVisualMedia && !isCentered
+        freestandingTimestampLabel.attributedText = mediaTimestampLabel.attributedText
+        freestandingTimestampLabel.isHidden = !isFreestandingSupplement
+        structuredContentView.bringSubviewToFront(freestandingTimestampLabel)
         timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || isCentered
+            || isFreestandingSupplement
         mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || isCentered
         mediaView.bringSubviewToFront(mediaTimestampLabel)
 
@@ -1408,6 +1423,26 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timestampLabel.isHidden = true
         commentFooterView.isHidden = true
 
+        freestandingTimestampLabel.translatesAutoresizingMaskIntoConstraints = false
+        freestandingTimestampLabel.font = Self.statusFont
+        freestandingTimestampLabel.textAlignment = .center
+        freestandingTimestampLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        freestandingTimestampLabel.layer.cornerRadius = 8
+        freestandingTimestampLabel.clipsToBounds = true
+        freestandingTimestampLabel.isHidden = true
+        structuredContentView.addSubview(freestandingTimestampLabel)
+        NSLayoutConstraint.activate([
+            freestandingTimestampLabel.trailingAnchor.constraint(
+                equalTo: structuredContentView.trailingAnchor,
+                constant: -6,
+            ),
+            freestandingTimestampLabel.bottomAnchor.constraint(
+                equalTo: structuredContentView.bottomAnchor,
+                constant: -5,
+            ),
+            freestandingTimestampLabel.heightAnchor.constraint(equalToConstant: 17),
+            freestandingTimestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
+        ])
         mediaTimestampLabel.translatesAutoresizingMaskIntoConstraints = false
         mediaTimestampLabel.font = Self.statusFont
         mediaTimestampLabel.textAlignment = .center
