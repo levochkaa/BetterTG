@@ -41,6 +41,9 @@ import UIKit
     private(set) var collections = [(id: Int, name: String, giftCount: Int)]()
     private(set) var selectedCollectionID: Int?
 
+    /// Gifts pinned by a tap while reordering, saved with the order at Done.
+    private(set) var locallyPinned = Set<Int64>()
+
     private let ownerID: MessageSender
     private let client: TDLibClient
     private let isCurrent: () -> Bool
@@ -71,7 +74,7 @@ import UIKit
     /// Gifts.
     var reorderableCount: Int {
         if selectedCollectionID != nil { return items.count }
-        return items.prefix { gifts[$0]?.isPinned == true }.count
+        return items.prefix(while: isPinned).count
     }
 
     /// GiftsListView.updateIsReordering's start condition: something to move.
@@ -95,6 +98,30 @@ import UIKit
         formatter.numberStyle = .decimal
         formatter.groupingSeparator = ","
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    func isPinned(_ id: Int64) -> Bool {
+        gifts[id]?.isPinned == true || locallyPinned.contains(id)
+    }
+
+    /// GiftsListView's tap while reordering All Gifts: an upgraded gift not yet pinned joins the pinned ones after
+    /// the last; false at the limit (the caller shows ToastPinLimit) or for a gift that can't be pinned.
+    func pinWhileReordering(_ id: Int64, limit: Int) -> Bool {
+        guard selectedCollectionID == nil, let gift = gifts[id], !isPinned(id),
+              case .sentGiftUpgraded = gift.gift else { return false }
+        let pinnedCount = reorderableCount
+        guard pinnedCount < limit else { return false }
+        locallyPinned.insert(id)
+        items.removeAll { $0 == id }
+        items.insert(id, at: min(pinnedCount, items.count))
+        return true
+    }
+
+    /// Whether a tap while reordering pins `id`, or would but for the limit.
+    func canPinWhileReordering(_ id: Int64) -> Bool {
+        guard selectedCollectionID == nil, let gift = gifts[id],
+              case .sentGiftUpgraded = gift.gift else { return false }
+        return !isPinned(id)
     }
 
     func gift(for id: Int64) -> TDNativeReceivedGift? {
@@ -183,6 +210,7 @@ import UIKit
 
     /// Reads the list again from its first page after a change, keeping the shown gifts until it arrives.
     func reload() {
+        locallyPinned = []
         cancel()
         offset = ""
         hasMore = true
@@ -826,7 +854,9 @@ final class ProfileGiftCell: UICollectionViewCell {
         stickerView.setPlaybackVisible(visible)
     }
 
-    func configure(gift received: TDNativeReceivedGift, client: TDLibClient) {
+    /// `isPinned` overrides the gift's own pin, as a gift pinned while reordering shows it before Done saves it.
+    func configure(gift received: TDNativeReceivedGift, client: TDLibClient, isPinned pinnedOverride: Bool? = nil) {
+        let isPinned = pinnedOverride ?? received.isPinned
         let sticker: Sticker
         var ribbon: (text: String, style: RibbonStyle)?
         var showsSender: Bool
@@ -856,7 +886,7 @@ final class ProfileGiftCell: UICollectionViewCell {
             showsSender = !received.text.text.isEmpty && !received.isPrivate
             accessibilityLabel = gift.title.isEmpty ? L10n.telegram("PeerInfo.PaneGifts") : gift.title
         }
-        if received.isPinned { showsSender = false }
+        if isPinned { showsSender = false }
 
         hasBackdrop = backdrop != nil
         CATransaction.begin()
@@ -892,7 +922,7 @@ final class ProfileGiftCell: UICollectionViewCell {
         stickerView.configure(sticker: sticker, client: client)
         stickerView.setPlaybackVisible(window != nil)
 
-        pinView.isHidden = !received.isPinned
+        pinView.isHidden = !isPinned
         pinView.tintColor = backdrop == nil ? .secondaryLabel : .white
         let isHidden = !received.isSaved
         hiddenBackground.isHidden = !isHidden

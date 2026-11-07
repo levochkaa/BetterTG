@@ -157,6 +157,8 @@ ClientRestorableNavigationEntry {
     #endif
 
     private static let giftCollectionsLimit = 6
+    /// stargifts_pinned_to_top_limit's default.
+    private static let giftPinLimit = 6
 
     var onOpenMessage: ((Int64) -> Void)?
     var onPrepareGalleryReturn: ((Int64) async -> Bool)?
@@ -1156,6 +1158,25 @@ ClientRestorableNavigationEntry {
         }
         if currentSharedTab == .gifts {
             collectionView.deselectItem(at: indexPath, animated: true)
+            // While reordering, a tap pins an upgraded gift after the pinned ones, as GiftsListView does.
+            if isReorderingGifts {
+                guard let id = dataSource.itemIdentifier(for: indexPath), let giftsPane,
+                      giftsPane.canPinWhileReordering(id) else { return }
+                if giftsPane.pinWhileReordering(id, limit: Self.giftPinLimit) {
+                    giftOrderChanged = true
+                    applySnapshot()
+                } else {
+                    TelegramUndoToast.show(
+                        text: L10n.telegramPlural(
+                            "PeerInfo.Gifts.ToastPinLimit.Text",
+                            count: Self.giftPinLimit,
+                            formattedCount: "\(Self.giftPinLimit)",
+                        ),
+                        in: view, bottomInset: 12, undo: nil,
+                    )
+                }
+                return
+            }
             // GiftsListView opens GiftViewScreen for the tapped gift.
             guard contextIsCurrent, !isReorderingGifts, let id = dataSource.itemIdentifier(for: indexPath),
                   let gift = giftsPane?.gift(for: id) else { return }
@@ -2647,7 +2668,7 @@ ClientRestorableNavigationEntry {
                           withReuseIdentifier: ProfileGiftCell.reuseIdentifier, for: indexPath,
                       ) as? ProfileGiftCell
                 else { return UICollectionViewCell() }
-                cell.configure(gift: gift, client: client)
+                cell.configure(gift: gift, client: client, isPinned: giftsPane?.isPinned(id))
                 return cell
             }
             if currentSharedTab.isStories {
