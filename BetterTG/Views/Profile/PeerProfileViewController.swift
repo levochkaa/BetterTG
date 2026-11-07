@@ -211,6 +211,9 @@ ClientRestorableNavigationEntry {
     private let titleBadgeView = UIImageView()
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
+    private let personalChannelView = PersonalChannelCardView()
+    private var personalChannelID: Int64 = 0
+    private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
     private let actionStack = UIStackView()
     private lazy var messageActionButton = profileButton(
@@ -2468,6 +2471,12 @@ ClientRestorableNavigationEntry {
         actionStack.addArrangedSubview(moreActionButton)
         updateActionAvailability()
 
+        personalChannelView.isHidden = true
+        personalChannelView.onOpen = { [weak self] in self?.openPersonalChannel() }
+        headerStack.setCustomSpacing(20, after: actionStack)
+        headerStack.addArrangedSubview(personalChannelView)
+        personalChannelView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
+
         if let tab = restoration?.tab { selectedSharedTab = tab }
         sharedTabs.translatesAutoresizingMaskIntoConstraints = false
         // Until the counts arrive only a restored pane shows, as Telegram shows no panes before it knows them.
@@ -2497,7 +2506,12 @@ ClientRestorableNavigationEntry {
             openAppButton.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             openAppButton.heightAnchor.constraint(equalToConstant: 52),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
-            actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
+            {
+                // Below the stack's hiding constraint, which collapses an empty row.
+                let height = actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48)
+                height.priority = .required - 1
+                return height
+            }(),
             sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
             sharedTabs.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor),
             sharedTabs.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor),
@@ -3380,12 +3394,53 @@ ClientRestorableNavigationEntry {
             photo: selectedPhoto,
         )
         applyGiftCount(info.giftCount)
+        loadPersonalChannel(info.personalChatId)
         if !isSelfProfile, groupsInCommonCount != info.groupInCommonCount {
             groupsInCommonCount = info.groupInCommonCount
             updateSharedTabAvailability()
         }
         if roleSignatureChanged, !photoIDWillChange, activeAvatarGallery != nil {
             resetAvatarGalleryForMetadataChange()
+        }
+    }
+
+    /// PeerInfoProfileItems' personal channel: the user's channel (getChat, its subscribers from getSupergroup) under
+    /// the
+    /// buttons; nothing while the user has none.
+    private func loadPersonalChannel(_ chatID: Int64) {
+        guard chatID != personalChannelID else { return }
+        personalChannelID = chatID
+        personalChannelTask?.cancel()
+        guard chatID != 0 else {
+            personalChannelView.isHidden = true
+            return
+        }
+        let client = client
+        let accountID = accountID
+        personalChannelTask = Task { [weak self] in
+            guard let chat = try? await client.getChat(chatId: chatID) else { return }
+            var subscribers = 0
+            if case .chatTypeSupergroup(let type) = chat.type,
+               let supergroup = try? await client.getSupergroup(supergroupId: type.supergroupId)
+            {
+                subscribers = supergroup.memberCount
+            }
+            guard let self, !Task.isCancelled, personalChannelID == chatID else { return }
+            personalChannelView.configure(chat: chat, subscribers: subscribers, client: client, accountID: accountID)
+            personalChannelView.isHidden = false
+            view.setNeedsLayout()
+        }
+    }
+
+    private func openPersonalChannel() {
+        let chatID = personalChannelID
+        guard chatID != 0, contextIsCurrent else { return }
+        let client = client
+        Task { [weak self] in
+            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
+                  self?.contextIsCurrent == true
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat))
         }
     }
 
@@ -3589,6 +3644,11 @@ ClientRestorableNavigationEntry {
             case .chatMemberStatusCreator(let creator)?: !creator.isMember
             default: true
             }
+        // A row whose buttons are all hidden (My Profile) takes no room.
+        actionStack.isHidden = actionStack.arrangedSubviews.allSatisfy(\.isHidden)
+        (actionStack.superview as? UIStackView)?.setCustomSpacing(
+            actionStack.isHidden ? 20 : UIStackView.spacingUseDefault, after: detailsLabel,
+        )
         let canEdit =
             if let user = customChat.user {
                 // A contact's name and notes are the account's to edit, as PeerInfoScreen's edit mode for one.

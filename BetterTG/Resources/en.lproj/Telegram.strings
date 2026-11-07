@@ -3928,3 +3928,4 @@
 "AuthSessions.AddedDeviceTitle" = "Login Successful";
 "AuthSessions.AddDevice.InvalidQRCode" = "Invalid QR Code";
 "SettingsSearch.Synonyms.Devices.LinkDesktopDevice" = " ";
+"Profile.PersonalChannelSectionTitle" = "CHANNEL";
