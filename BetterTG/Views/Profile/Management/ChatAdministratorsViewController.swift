@@ -310,6 +310,15 @@ final class ChatAdminRightsViewController: SettingsListViewController {
     private var isSaving = false
     /// ChannelAdminControllerState's `adminRights` for an invited bot: off adds it as a member.
     private var addsBotAsAdmin = true
+    /// The admin is a person, not a bot or a deleted account, as ownership can only go to one.
+    private var memberCanOwn = false
+
+    /// ChannelAdminController's canTransfer: the owner of a supergroup or channel sees Transfer Ownership for a person
+    /// once every right of this chat is on but anonymity (areAllAdminRightsEnabled, except canBeAnonymous).
+    private var canTransferOwnership: Bool {
+        guard botInvite == nil, target.isCreator, target.supergroupID != nil, memberCanOwn else { return false }
+        return items.filter { $0.key != \AdminRightsSet.isAnonymous }.allSatisfy { rights[keyPath: $0.key] }
+    }
 
     /// A group's bot that isn't an admin yet may join as a member instead (Bot.AddToChat.Add.AdminRights).
     private var offersMemberInvite: Bool {
@@ -405,6 +414,7 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Save"), style: .prominent, target: self, action: #selector(savePressed),
         )
+        loadOwnershipCandidate()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -444,6 +454,15 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 rows: rows,
             ))
         }
+        if canTransferOwnership {
+            sections.append(SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram(target.isChannel
+                    ? "Channel.EditAdmin.TransferOwnership"
+                    : "Group.EditAdmin.TransferOwnership"),
+                style: .action(destructive: false),
+                isEnabled: !isSaving,
+            ) { [weak self] in self?.transferOwnership() }]))
+        }
         if !target.isChannel, editsRights {
             sections.append(SettingsSection(
                 header: L10n.telegram("Group.EditAdmin.MemberTagTitle"),
@@ -471,9 +490,31 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         return sections
     }
 
+    private func loadOwnershipCandidate() {
+        guard target.isCreator, target.supergroupID != nil, let userID = member.userID else { return }
+        let client = client
+        Task { [weak self] in
+            let user = try? await client.getUser(userId: userID)
+            guard let self, contextIsCurrent, let user else { return }
+            var canOwn = false
+            if case .userTypeRegular = user.type { canOwn = true }
+            #if DEBUG
+                // `-ui-probe-ownership-any-admin` lets a test group's bot stand in for a person, to walk the checks.
+                canOwn = canOwn || ProcessInfo.processInfo.arguments.contains("-ui-probe-ownership-any-admin")
+            #endif
+            if canOwn {
+                memberCanOwn = true
+                reload()
+            }
+        }
+    }
+
     private func setRight(_ key: WritableKeyPath<AdminRightsSet, Bool>, _ value: Bool) {
+        let couldTransfer = canTransferOwnership
         rights[keyPath: key] = value
-        if key == \AdminRightsSet.canPromoteMembers {
+        if canTransferOwnership != couldTransfer {
+            reload()
+        } else if key == \AdminRightsSet.canPromoteMembers {
             reload(sections: IndexSet(integer: offersMemberInvite ? 2 : 1))
         }
     }
@@ -563,6 +604,193 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
             }
         }
+    }
+
+    // MARK: Ownership transfer
+
+    /// ChannelAdminController's transferOwnership: TDLib's canTransferOwnership stands in for
+    /// checkOwnershipTranfserAvailability, then channelOwnershipTransferController explains a refusal or confirms.
+    private func transferOwnership() {
+        guard canTransferOwnership, !isSaving, contextIsCurrent else { return }
+        isSaving = true
+        reload()
+        let client = client
+        Task { [weak self] in
+            let result = try? await client.canTransferOwnership()
+            guard let self else { return }
+            isSaving = false
+            reload()
+            guard contextIsCurrent else { return }
+            switch result {
+            case .canTransferOwnershipResultOk:
+                confirmOwnershipTransfer()
+            case .canTransferOwnershipResultPasswordNeeded:
+                showOwnershipSecurityCheck(comeBackLater: false, offersPasswordSetup: true)
+            case .canTransferOwnershipResultPasswordTooFresh,
+                 .canTransferOwnershipResultSessionTooFresh:
+                showOwnershipSecurityCheck(comeBackLater: true, offersPasswordSetup: false)
+            case nil:
+                presentAlert(title: nil, message: L10n.telegram("Login.UnknownError"))
+            }
+        }
+    }
+
+    /// channelOwnershipTransferController: the security requirements, with "come back later" while the password or
+    /// the session is too fresh, and Enable 2-Step Verification while there is no password.
+    private func showOwnershipSecurityCheck(comeBackLater: Bool, offersPasswordSetup: Bool) {
+        var text = L10n.telegram("OwnershipTransfer.SecurityRequirements")
+        if comeBackLater { text += L10n.telegram("OwnershipTransfer.ComeBackLater") }
+        let alert = UIAlertController(
+            title: L10n.telegram("OwnershipTransfer.SecurityCheck"),
+            message: text.replacing("**", with: ""),
+            preferredStyle: .alert,
+        )
+        if offersPasswordSetup {
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("OwnershipTransfer.SetupTwoStepAuth"),
+                style: .default,
+            ) { [weak self] _ in self?.openTwoStepVerification() })
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        } else {
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        }
+        chatListTopPresenter.present(alert, animated: true)
+    }
+
+    private func openTwoStepVerification() {
+        guard contextIsCurrent else { return }
+        let service = TDLibTwoStepVerificationService(client: client)
+        Task { [weak self] in
+            let configuration = try? await service.configuration()
+            guard let self, contextIsCurrent else { return }
+            navigationController?.pushViewController(
+                TwoStepVerificationViewController.entry(for: configuration, service: service),
+                animated: true,
+            )
+        }
+    }
+
+    /// confirmChannelOwnershipTransferController: what the transfer means, Change Owner or Cancel.
+    private func confirmOwnershipTransfer() {
+        let key = target.isChannel
+            ? "Channel.OwnershipTransfer.DescriptionInfo"
+            : "Group.OwnershipTransfer.DescriptionInfo"
+        let alert = UIAlertController(
+            title: L10n.telegram(target.isChannel
+                ? "Channel.OwnershipTransfer.Title"
+                : "Group.OwnershipTransfer.Title"),
+            message: L10n.telegram(key, target.chat.title, member.peer.title).replacing("**", with: ""),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(
+            title: L10n.telegram("Channel.OwnershipTransfer.ChangeOwner"),
+            style: .default,
+        ) { [weak self] _ in self?.presentOwnershipPassword(isRetry: false) })
+        let cancel = UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel)
+        alert.addAction(cancel)
+        alert.preferredAction = cancel
+        chatListTopPresenter.present(alert, animated: true)
+    }
+
+    /// commitChannelOwnershipTransferController: the 2-Step Verification password, whose Transfer stays off while the
+    /// field is empty. A wrong password asks again (Telegram shakes the field).
+    private func presentOwnershipPassword(isRetry: Bool) {
+        guard contextIsCurrent else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Channel.OwnershipTransfer.EnterPassword"),
+            message: L10n.telegram(isRetry
+                ? "TwoStepAuth.EnterPasswordInvalid"
+                : "Channel.OwnershipTransfer.EnterPasswordText"),
+            preferredStyle: .alert,
+        )
+        let transfer = UIAlertAction(
+            title: L10n.telegram("OwnershipTransfer.Transfer"),
+            style: .default,
+        ) { [weak self, weak alert] _ in
+            self?.commitOwnershipTransfer(password: alert?.textFields?.first?.text ?? "")
+        }
+        transfer.isEnabled = false
+        alert.addTextField { [weak transfer] field in
+            field.isSecureTextEntry = true
+            field.textContentType = .password
+            field.placeholder = L10n.telegram("Channel.OwnershipTransfer.PasswordPlaceholder")
+            field.addAction(UIAction { [weak field] _ in
+                transfer?.isEnabled = field?.text?.isEmpty == false
+            }, for: .editingChanged)
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(transfer)
+        alert.preferredAction = transfer
+        chatListTopPresenter.present(alert, animated: true)
+    }
+
+    /// transferChatOwnership, then the admins list with TransferCompleted; the errors as
+    /// commitChannelOwnershipTransferController shows them.
+    private func commitOwnershipTransfer(password: String) {
+        guard let userID = member.userID, !isSaving, contextIsCurrent else { return }
+        isSaving = true
+        navigationItem.rightBarButtonItem?.isEnabled = false
+        reload()
+        let client = client
+        let chatID = target.chatID
+        let completed = L10n.telegram(
+            "Channel.OwnershipTransfer.TransferCompleted",
+            member.peer.title,
+            target.chat.title,
+        )
+        .replacing("**", with: "")
+        Task { [weak self] in
+            var failure: Error?
+            do {
+                _ = try await client.send(TDNativeRequests.transferChatOwnership(
+                    chatId: chatID, userId: userID, password: password,
+                ))
+            } catch {
+                failure = error
+            }
+            guard let self else { return }
+            isSaving = false
+            navigationItem.rightBarButtonItem?.isEnabled = true
+            reload()
+            guard contextIsCurrent else { return }
+            guard let failure else {
+                let list = navigationController?.viewControllers
+                    .last { $0 is ChatAdministratorsViewController } as? ChatAdministratorsViewController
+                popToAdministrators()
+                list?.showToast(completed)
+                return
+            }
+            showOwnershipTransferError(failure)
+        }
+    }
+
+    private func showOwnershipTransferError(_ error: Error) {
+        let tdError = error as? TDLibError
+        let description = tdError?.message ?? ""
+        switch description {
+        case "PASSWORD_HASH_INVALID":
+            presentOwnershipPassword(isRetry: true)
+            return
+        case "PASSWORD_MISSING":
+            showOwnershipSecurityCheck(comeBackLater: false, offersPasswordSetup: true)
+            return
+        case _ where description.hasPrefix("PASSWORD_TOO_FRESH_") || description.hasPrefix("SESSION_TOO_FRESH_"):
+            showOwnershipSecurityCheck(comeBackLater: true, offersPasswordSetup: false)
+            return
+        default:
+            break
+        }
+        let kind = target.isChannel ? "Channel" : "Group"
+        let key =
+            switch description {
+            case _ where tdError?.code == 429 || description.hasPrefix("FLOOD_WAIT"): "TwoStepAuth.FloodError"
+            case "ADMINS_TOO_MUCH": "\(kind).OwnershipTransfer.ErrorAdminsTooMuch"
+            case "CHANNELS_ADMIN_PUBLIC_TOO_MUCH": "Channel.OwnershipTransfer.ErrorPublicChannelsTooMuch"
+            case "USER_BLOCKED",
+                 "USER_PRIVACY_RESTRICTED": "\(kind).OwnershipTransfer.ErrorPrivacyRestricted"
+            default: "Login.UnknownError"
+            }
+        presentAlert(title: nil, message: L10n.telegram(key))
     }
 
     private func popToAdministrators() {
