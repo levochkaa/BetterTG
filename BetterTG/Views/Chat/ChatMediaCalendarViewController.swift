@@ -19,6 +19,11 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
     private let client: TDLibClient
     private let initialDate: Date
     private let onSelectDay: (Date) -> Void
+    /// The media the circles show: photos and videos, or one kind, as Shared Media's pane shows them.
+    private let filter: SearchMessagesFilter
+    /// CalendarMessageScreen's `canNavigateToEmptyDays`: the chat's calendar opens any past day, Shared Media's only
+    /// a day with media.
+    private let selectsEmptyDays: Bool
     private let scrollView = ChatCalendarScrollView()
     private let calendar = Calendar.current
     private var months = [ChatCalendarMonth]()
@@ -35,8 +40,12 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
         topic: MessageTopic?,
         client: TDLibClient,
         initialDate: Date,
+        filter: SearchMessagesFilter = .searchMessagesFilterPhotoAndVideo,
+        selectsEmptyDays: Bool = true,
         onSelectDay: @escaping (Date) -> Void,
     ) {
+        self.filter = filter
+        self.selectsEmptyDays = selectsEmptyDays
         self.chatID = chatID
         self.topic = topic
         self.client = client
@@ -157,6 +166,7 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
                 monthView = ChatCalendarMonthView()
                 monthView.transform = CGAffineTransform(rotationAngle: .pi)
                 monthView.onSelectDay = { [weak self] day in self?.select(day) }
+                monthView.selectsEmptyDays = selectsEmptyDays
                 monthViews[index] = monthView
                 scrollView.addSubview(monthView)
             }
@@ -206,7 +216,7 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
                 guard let page = try? await client.send(TDNativeRequests.getChatMessageCalendar(
                     chatId: chatID,
                     topicId: topic,
-                    filter: .searchMessagesFilterPhotoAndVideo,
+                    filter: filter,
                     fromMessageId: fromMessageID,
                 )), !Task.isCancelled else { return }
                 let messages = page.days.map(\.message)
@@ -311,8 +321,10 @@ final class ChatCalendarMonthView: UIView {
     }
 
     var onSelectDay: ((Date) -> Void)?
+    var selectsEmptyDays = true
 
     private let titleLabel = UILabel()
+    private var media = [Date: Message]()
     private var weekdayLabels = [UILabel]()
     private var dayViews = [ChatCalendarDayView]()
     private var month: ChatCalendarMonth?
@@ -369,6 +381,7 @@ final class ChatCalendarMonthView: UIView {
     }
 
     func configure(month: ChatCalendarMonth, media: [Date: Message], client: TDLibClient, chatID: Int64) {
+        self.media = media
         let calendar = Calendar.current
         if self.month?.firstDay != month.firstDay {
             self.month = month
@@ -408,7 +421,9 @@ final class ChatCalendarMonthView: UIView {
 
     @objc private func dayTapped(_ dayView: ChatCalendarDayView) {
         guard let month, dayView.tag <= month.lastEnabledDay else { return }
-        onSelectDay?(month.day(dayView.tag, calendar: Calendar.current))
+        let day = month.day(dayView.tag, calendar: Calendar.current)
+        guard selectsEmptyDays || media[day] != nil else { return }
+        onSelectDay?(day)
     }
 }
 

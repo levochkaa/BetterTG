@@ -286,6 +286,7 @@ ClientRestorableNavigationEntry {
 
     private var mediaContentType = MediaContentType.photoOrVideo
     private var mediaOptionsTask: Task<Void, Never>?
+    private var mediaJumpTask: Task<Void, Never>?
     private lazy var mediaOptionsItem: UIBarButtonItem = {
         let item = UIBarButtonItem(primaryAction: UIAction(
             image: UIImage(systemName: "ellipsis"),
@@ -3403,6 +3404,13 @@ ClientRestorableNavigationEntry {
         zoomOut.keepsMenuOpen = true
         zoomOut.selectableUpdates = mediaColumnsSubject.map { $0 < 12 }.removeDuplicates().eraseToAnyPublisher()
         var actions = [zoomIn, zoomOut]
+        // The pane's calendar: TDLib has none for a forum topic or a message thread.
+        if topic == nil {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("SharedMedia.ShowCalendar"),
+                image: UIImage(systemName: "calendar"),
+            ) { [weak self] in self?.openMediaCalendar() })
+        }
         guard showsKinds else { return actions }
         let showsPhotos = mediaContentType != .video
         let showsVideos = mediaContentType != .photo
@@ -3421,6 +3429,56 @@ ClientRestorableNavigationEntry {
             self?.toggleMediaKind(.video)
         })
         return actions
+    }
+
+    /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
+    /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
+    private func openMediaCalendar() {
+        guard contextIsCurrent, currentSharedTab == .media, presentedViewController == nil,
+              let filter = effectiveSharedFilter else { return }
+        let topID = collectionView.indexPathsForVisibleItems.min().flatMap { dataSource.itemIdentifier(for: $0) }
+        let topDate = topID.flatMap { messagesByID[$0] }.map { Date(timeIntervalSince1970: TimeInterval($0.date)) }
+        let picker = ChatMediaCalendarViewController(
+            chatID: customChat.id,
+            topic: topic,
+            client: client,
+            initialDate: topDate ?? Date(),
+            filter: filter,
+            selectsEmptyDays: false,
+        ) { [weak self] day in self?.scrollMedia(to: day) }
+        let navigation = UINavigationController(rootViewController: picker)
+        // The months scroll in a turned scroll view, which a sheet's pull to dismiss would take over.
+        navigation.isModalInPresentation = true
+        navigation.sheetPresentationController?.detents = [.large()]
+        present(navigation, animated: true)
+    }
+
+    /// PeerInfoVisualMediaPaneNode.scrollToItem: the grid reads its pages on to the chosen day and puts the day's
+    /// newest photo or video in view.
+    private func scrollMedia(to day: Date) {
+        mediaJumpTask?.cancel()
+        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: day))
+        else { return }
+        let endTimestamp = Int(end.timeIntervalSince1970)
+        mediaJumpTask = Task { [weak self] in
+            for _ in 0..<100 {
+                guard let self, !Task.isCancelled, contextIsCurrent, currentSharedTab == .media else { return }
+                if let target = sortedSharedMessages.first(where: { $0.date < endTimestamp }),
+                   let indexPath = dataSource.indexPath(for: target.id)
+                {
+                    collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+                    mediaJumpTask = nil
+                    return
+                }
+                guard hasMore, historyError == nil else { break }
+                if historyTask == nil { loadMore() }
+                guard let task = historyTask else { break }
+                await task.value
+                // The page's snapshot lands on the next turn of the main loop.
+                await Task.yield()
+            }
+            self?.mediaJumpTask = nil
+        }
     }
 
     /// SparseItemGrid's zoom levels from 12 to 2 to a row: a negative step zooms in, to fewer and larger tiles.
