@@ -129,8 +129,10 @@ import UIKit
         // A swipe back can start while the push's springs still settle, with its overlay holding the bars' glass: the
         // bars take their platters back first, or the new morph would find none to pair and the swipe would run
         // without one.
-        for morph in active where morph.navigationView === navigationView {
-            morph.finish()
+        if finishActive(in: navigationView) {
+            // The items went back to bars whose pills lost their width without them: lay the bars out before the new
+            // morph measures the pills, or a title pill is taken at no width and the swipe drags its title bare.
+            navigationView.layoutIfNeeded()
         }
         let morph = TelegramGlassNavigationMorph(navigationView: navigationView)
         morph.begin(source: source, destination: destination)
@@ -173,9 +175,7 @@ import UIKit
         destinationView: UIView,
     ) {
         guard !source.isEmpty || !destination.isEmpty, view.window != nil else { return }
-        for morph in active where morph.navigationView === view {
-            morph.finish()
-        }
+        if finishActive(in: view) { view.layoutIfNeeded() }
         let morph = TelegramGlassNavigationMorph(navigationView: view)
         morph.isInPlace = true
         morph.begin(source: source, destination: destination)
@@ -188,6 +188,15 @@ import UIKit
         UIView.performWithoutAnimation { morph.resolveDestination(in: destinationView) }
         // No transition's curve to keep out of here: the springs start at once.
         morph.animate()
+    }
+
+    /// Hands the bars back their platters from any morph still settling in `view`; true when one was.
+    private static func finishActive(in view: UIView) -> Bool {
+        let running = active.filter { $0.navigationView === view }
+        for morph in running {
+            morph.finish()
+        }
+        return !running.isEmpty
     }
 
     private static func keys(of platters: [TelegramGlassPlatter]) -> [Key: TelegramGlassPlatter] {
