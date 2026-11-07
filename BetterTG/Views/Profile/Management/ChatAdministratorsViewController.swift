@@ -383,7 +383,9 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         self.target = target
         self.member = member
         self.isNew = isNew
-        self.grantable = target.rights ?? .none
+        // ChannelAdminController's accountUserRightsFlags: the owner grants the whole mask, anonymity included, whether
+        // or not they stay anonymous themselves; an admin only the rights they hold.
+        self.grantable = target.isCreator ? .all(isAnonymous: true) : target.rights ?? .none
         self.botInvite = botInvite
         self.tag = member.tag
         if let requested = botInvite?.requestedRights {
