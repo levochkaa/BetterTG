@@ -1911,7 +1911,9 @@ ClientRestorableNavigationEntry {
             guard gesture.state == .began, contextIsCurrent, !isReorderingGifts,
                   let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
                   let id = dataSource.itemIdentifier(for: path),
-                  let actions = giftsPane?.menuActions(for: id, canManage: isMyProfile, host: self), !actions.isEmpty,
+                  let actions = giftsPane?.menuActions(
+                      for: id, canManage: isMyProfile, isPremium: customChat.user?.isPremium == true, host: self,
+                  ), !actions.isEmpty,
                   let cell = collectionView.cellForItem(at: path) else { return }
             presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
             return

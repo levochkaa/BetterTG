@@ -405,7 +405,12 @@ import UIKit
     /// PeerInfoGiftsPaneNode.contextAction: on the account's own profile Pin or Unpin for an upgraded gift, then for
     /// an upgraded gift Copy Link and Share (its t.me/nft link), then Hide or Show on the profile. Add to Collection,
     /// Reorder, Wear and Transfer are not offered.
-    func menuActions(for id: Int64, canManage: Bool, host: UIViewController) -> [TelegramContextMenuAction] {
+    func menuActions(
+        for id: Int64,
+        canManage: Bool,
+        isPremium: Bool = false,
+        host: UIViewController,
+    ) -> [TelegramContextMenuAction] {
         guard let gift = gifts[id] else { return [] }
         var actions = [TelegramContextMenuAction]()
         if canManage, !gift.receivedGiftId.isEmpty {
@@ -425,6 +430,24 @@ import UIKit
             ) { [weak self, weak host] in
                 guard let self, let host else { return }
                 setPinned(gift, upgraded: upgraded, pinned: !isPinned, host: host)
+            })
+        }
+        // Wear, for the account's own upgraded gift: its emoji status from getUpgradedGiftEmojiStatuses for Premium,
+        // Telegram's Premium tooltip otherwise.
+        if canManage, let upgraded, case .messageSenderUser = ownerID {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.Context.Wear"),
+                image: UIImage(systemName: "crown"),
+            ) { [weak self, weak host] in
+                guard let self, let host else { return }
+                if isPremium {
+                    wear(upgraded, host: host)
+                } else {
+                    TelegramUndoToast.show(
+                        text: L10n.telegram("Gift.View.TooltipPremiumWearing").withoutTelegramMarkup,
+                        in: host.view, bottomInset: 62, undo: nil,
+                    )
+                }
             })
         }
         if let upgraded, !upgraded.name.isEmpty {
@@ -479,6 +502,27 @@ import UIKit
         guard isFiltered else { return }
         filter.send(.all)
         reload()
+    }
+
+    /// setStarGiftStatus: the gift's emoji status, as TDLib lists the account's upgraded gifts' statuses.
+    private func wear(_ upgraded: TDNativeUpgradedGift, host: UIViewController) {
+        let client = client
+        Task { [weak host] in
+            do {
+                let statuses = try await client.send(TDNativeRequests.getUpgradedGiftEmojiStatuses())
+                let status = statuses.emojiStatuses.first { status in
+                    if case .emojiStatusTypeUpgradedGift(let value) = status.type {
+                        value.upgradedGiftId == upgraded.id
+                    } else {
+                        false
+                    }
+                }
+                guard let status else { return }
+                _ = try await client.send(TDNativeRequests.setEmojiStatus(emojiStatus: status))
+            } catch {
+                if let host { Self.showError(error, in: host) }
+            }
+        }
     }
 
     /// Runs a change, then reads the collections and the list again; a failure shows TDLib's error.

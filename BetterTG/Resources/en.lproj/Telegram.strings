@@ -3580,3 +3580,5 @@
 "Gift.Convert.Success.Text" = "You received **%1$@** instead.";
 "Gift.Convert.Success.Text.Stars_1" = "%@ Star";
 "Gift.Convert.Success.Text.Stars_any" = "%@ Stars";
+"Gift.View.TooltipPremiumWearing" = "Subscribe to [Telegram Premium]() to wear collectibles.";
+"PeerInfo.Gifts.Context.Wear" = "Wear";
