@@ -341,7 +341,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     }
 
     /// What a Settings row opens; `indexPath` places Log Out's sheet beside its row.
-    private func perform(_ row: Row, from indexPath: IndexPath?) {
+    private func perform(_ row: Row, from _: IndexPath?) {
         switch row {
         case .account(let id):
             guard id != TDLib.shared.activeAccountID else { return }
@@ -392,7 +392,10 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         case .termsOfService:
             if let url = URL(string: "https://bettertg.su/terms") { WebBrowser.open(url, from: self) }
         case .logOut:
-            confirmLogout(from: indexPath)
+            // PeerInfoScreenSettingsActions' logout: the alternatives first (LogoutOptionsController).
+            LogoutOptionsViewController.present(from: self) { [weak self] in
+                self?.performAccountOperation { try TDLib.shared.logOutActiveAccount() }
+            }
         case .suggestionInfo(let reminder):
             // The phone reminder's Learn more opens the FAQ's answer on a new number.
             guard reminder == .checkPhoneNumber,
@@ -839,25 +842,6 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 self?.showError(error.localizedDescription)
             }
         }
-    }
-
-    private func confirmLogout(from indexPath: IndexPath?) {
-        let accountName = TDLib.shared.activeAccount?.localizedTitle ?? L10n.betterTG("Accounts.ThisAccount")
-        let alert = UIAlertController(
-            title: L10n.telegram("Settings.LogoutConfirmationTitle"),
-            message: L10n.betterTG("Accounts.RemoveFromDevice", accountName),
-            preferredStyle: .actionSheet,
-        )
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.telegram("Settings.Logout"), style: .destructive) { [weak self] _ in
-            self?.performAccountOperation { try TDLib.shared.logOutActiveAccount() }
-        })
-        if let popover = alert.popoverPresentationController {
-            let cell = indexPath.flatMap { tableView.cellForRow(at: $0) }
-            popover.sourceView = cell ?? view
-            popover.sourceRect = cell?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-        }
-        present(alert, animated: true)
     }
 
     private func showError(_ message: String) {
