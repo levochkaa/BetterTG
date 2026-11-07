@@ -15,6 +15,8 @@ final class ProfileInfoCardView: UIView {
         case address(label: String, text: String, opens: Bool)
         /// PeerInfoScreenActionItem: an accent title that acts on a tap, as Add to Contacts.
         case action(title: String)
+        /// PeerInfoScreenDisclosureEncryptionKeyItem: a title with the key's picture and a chevron on the right.
+        case disclosure(title: String, image: UIImage?)
     }
 
     /// TDLib's businessOpeningHours in the business's time zone and the account's, minutes from Monday 00:00.
@@ -85,6 +87,11 @@ final class ProfileInfoCardView: UIView {
                             }
                             : nil,
                     )
+                case .disclosure(let title, let image):
+                    ProfileInfoActionRowView(title: title, image: image) { [weak self] in
+                        guard let self, rows.indices.contains(index) else { return }
+                        onAction?(rows[index])
+                    }
                 case .action(let title):
                     ProfileInfoActionRowView(title: title) { [weak self] in
                         guard let self, rows.indices.contains(index) else { return }
@@ -92,7 +99,10 @@ final class ProfileInfoCardView: UIView {
                     }
                 }
             if index > 0 { addSeparator(to: view) }
-            if case .action = row {} else {
+            switch row {
+            case .action,
+                 .disclosure: break
+            default:
                 view.addGestureRecognizer(UILongPressGestureRecognizer(
                     target: self,
                     action: #selector(longPressed(_:)),
@@ -211,22 +221,48 @@ private final class ProfileInfoActionRowView: UIControl {
 
     private let action: () -> Void
 
-    init(title: String, action: @escaping () -> Void) {
+    /// An accent title alone, or, with an image, a disclosure row: the title in the primary colour, then the image and
+    /// a
+    /// chevron on the right.
+    init(title: String, image: UIImage? = nil, action: @escaping () -> Void) {
         self.action = action
         super.init(frame: .zero)
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 17)
-        label.textColor = .tintColor
+        label.textColor = image == nil ? .tintColor : .label
         label.isUserInteractionEnabled = false
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
             label.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
         ])
+        if let image {
+            let imageView = UIImageView(image: image)
+            imageView.layer.magnificationFilter = .nearest
+            let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+            chevron.tintColor = .tertiaryLabel
+            chevron.preferredSymbolConfiguration = .init(pointSize: 13, weight: .semibold)
+            for view in [imageView, chevron] {
+                view.isUserInteractionEnabled = false
+                view.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(view)
+            }
+            NSLayoutConstraint.activate([
+                chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
+                chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+                imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                imageView.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10),
+                imageView.widthAnchor.constraint(equalToConstant: 24),
+                imageView.heightAnchor.constraint(equalToConstant: 24),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: imageView.leadingAnchor, constant: -8),
+            ])
+            accessibilityTraits = .button
+        } else {
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16).isActive = true
+        }
         isAccessibilityElement = true
         accessibilityLabel = title
         accessibilityTraits = .button

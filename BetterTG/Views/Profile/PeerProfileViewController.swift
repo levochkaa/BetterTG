@@ -217,6 +217,9 @@ ClientRestorableNavigationEntry {
     private var infoBirthdate: TDNativeBirthdate?
     private var lastUserFullInfo: UserFullInfo?
     private var addedToContacts = false
+    /// The secret chat's keyHash once it's ready, for Encryption Key.
+    private var secretKeyHash: Data?
+    private var secretKeyTask: Task<Void, Never>?
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -2484,7 +2487,13 @@ ClientRestorableNavigationEntry {
         infoCardView.isHidden = true
         infoCardView.onOpenAddress = { [weak self] in self?.openBusinessLocation() }
         infoCardView.onMenu = { [weak self] row, view in self?.openInfoRowMenu(row, from: view) }
-        infoCardView.onAction = { [weak self] _ in self?.presentAddContact() }
+        infoCardView.onAction = { [weak self] row in
+            if case .disclosure = row {
+                self?.openSecretChatKey()
+            } else {
+                self?.presentAddContact()
+            }
+        }
         headerStack.setCustomSpacing(20, after: personalChannelView)
         headerStack.addArrangedSubview(infoCardView)
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
@@ -3472,6 +3481,15 @@ ClientRestorableNavigationEntry {
                 opens: location.location != nil,
             ))
         }
+        // PeerInfoProfileItems' Encryption Key in a secret chat whose key is set.
+        if let keyHash = secretKeyHash {
+            rows.append(.disclosure(
+                title: L10n.telegram("Profile.EncryptionKey"),
+                image: SecretChatKeyViewController.keyImage(keyHash, side: 24),
+            ))
+        } else {
+            loadSecretKeyIfNeeded()
+        }
         // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet.
         if !isMyProfile, !addedToContacts, let user = customChat.user, !user.isContact,
            case .userTypeRegular = user.type
@@ -3547,7 +3565,8 @@ ClientRestorableNavigationEntry {
                     "MyProfile.ToastBirthdayCopied",
                 ))
             }
-        case .action:
+        case .action,
+             .disclosure:
             break
         case .hours(let hours):
             actions.append(copy(
@@ -3566,6 +3585,41 @@ ClientRestorableNavigationEntry {
         }
         guard !actions.isEmpty else { return }
         presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// getSecretChat's keyHash once the secret chat is ready; the rows follow.
+    private func loadSecretKeyIfNeeded() {
+        guard secretKeyTask == nil else { return }
+        #if DEBUG
+            // `-ui-probe-secret-key`: My Profile shows a made-up key.
+            if isSelfProfile, ProcessInfo.processInfo.arguments.contains("-ui-probe-secret-key") {
+                secretKeyTask = Task {}
+                secretKeyHash = Data((0..<36).map { UInt8(truncatingIfNeeded: $0 &* 37 &+ 11) })
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let info = lastUserFullInfo else { return }
+                    applyInfoRows(info)
+                }
+                return
+            }
+        #endif
+        guard case .chatTypeSecret(let secret) = customChat.chat.type else { return }
+        let client = client
+        secretKeyTask = Task { [weak self] in
+            guard let chat = try? await client.getSecretChat(secretChatId: secret.secretChatId),
+                  case .secretChatStateReady = chat.state, !chat.keyHash.isEmpty,
+                  let self, contextIsCurrent else { return }
+            secretKeyHash = chat.keyHash
+            if let info = lastUserFullInfo { applyInfoRows(info) }
+        }
+    }
+
+    /// PeerInfoScreen's openEncryptionKey.
+    private func openSecretChatKey() {
+        guard contextIsCurrent, let keyHash = secretKeyHash else { return }
+        navigationController?.pushViewController(
+            SecretChatKeyViewController(keyHash: keyHash, name: customChat.user?.compactDisplayTitle ?? profileTitle()),
+            animated: true,
+        )
     }
 
     /// openAddPersonContact: the person's name to keep, then addContact without sharing the account's number; the row
