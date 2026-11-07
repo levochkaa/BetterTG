@@ -241,6 +241,11 @@ struct SettingsSearchSection {
                 breadcrumbs: ["Settings.Devices"], target: .row(.devices),
             ),
             item(
+                "devices/link-desktop", "AuthSessions.LinkDesktopDevice",
+                synonyms: "SettingsSearch.Synonyms.Devices.LinkDesktopDevice", icon: .devices,
+                breadcrumbs: ["Settings.Devices"], target: .row(.devices),
+            ),
+            item(
                 "folders", "Settings.ChatFolders", synonyms: "SettingsSearch.Synonyms.ChatFolders",
                 icon: .chatFolders, target: .row(.chatFolders),
             ),

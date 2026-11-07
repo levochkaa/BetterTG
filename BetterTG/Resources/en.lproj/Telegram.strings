@@ -3927,3 +3927,4 @@
 "AuthSessions.AddDevice.ScanInstallInfo" = "Go to [getdesktop.telegram.org](desktop) or [web.telegram.org](web) to get the QR code";
 "AuthSessions.AddedDeviceTitle" = "Login Successful";
 "AuthSessions.AddDevice.InvalidQRCode" = "Invalid QR Code";
+"SettingsSearch.Synonyms.Devices.LinkDesktopDevice" = " ";
