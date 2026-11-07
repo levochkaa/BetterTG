@@ -218,6 +218,9 @@ struct TelegramContextMenuAction {
     var slider: TelegramContextMenuSlider?
     /// The row a too-tall menu opens scrolled to, as the list scrolls to its selected action.
     var isChosen = false
+    /// A ContextMenuActionItem whose action doesn't call `f(.default)`, such as the gift filters' toggles: the action
+    /// runs and the menu stays open, its rows updating through their publishers.
+    var keepsMenuOpen = false
     /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
     /// 30 pt avatar in the icon slot, ringed in the accent colour when chosen.
     var leadingPeer: TelegramContextMenuPeerIcon?
@@ -2442,6 +2445,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
         if !button.menuAction.children.isEmpty {
             openSubmenu(from: button)
+            return
+        }
+        if button.menuAction.keepsMenuOpen {
+            button.menuAction.handler()
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.selectionHighlightHold) { [weak self] in
+                self?.setHighlight(nil)
+            }
             return
         }
         isPerformingAction = true
