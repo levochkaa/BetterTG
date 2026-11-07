@@ -4048,3 +4048,7 @@
 "Chat.SendAllowedContentTypeSticker" = "stickers & GIFs";
 "Chat.ContextMenu.OpenInBrowser" = "Open in Browser";
 "Chat.ContextMenu.OpenInApp" = "Open In-App";
+"WebBrowser.Exception.OpenInApp" = "Always open this site in-app";
+"WebBrowser.Exception.OpenInBrowser" = "Always open this site in browser";
+"WebBrowser.ExceptionAdded.Title" = "Exception Added";
+"WebBrowser.ExceptionAdded.Text" = "This site will always open in-app.";

@@ -10680,6 +10680,49 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
+    /// presentOpenLinkConfirmation: "Open link?" with the address before opening it the other way. Telegram's check
+    /// "Always open this site in browser" (or in-app) is a third button here, which also adds the site to the
+    /// exceptions (toggleWebBrowserSettingsException); an in-app open then says "Exception Added".
+    private func confirmReverseOpen(_ url: URL, inApp: Bool) {
+        guard presentedViewController == nil else { return }
+        var shown = url.absoluteString.replacing("\u{202e}", with: "")
+        if shown.count > 180 { shown = String(shown.prefix(178)) + "..." }
+        let alert = UIAlertController(
+            title: L10n.telegram("OpenLinkConfirmation.Title"), message: shown, preferredStyle: .alert,
+        )
+        let open = UIAlertAction(title: L10n.telegram("OpenLinkConfirmation.Open"), style: .default) { [weak self] _ in
+            WebBrowser.open(url, from: self, inApp: inApp)
+        }
+        alert.addAction(open)
+        alert.addAction(UIAlertAction(
+            title: L10n.telegram(inApp ? "WebBrowser.Exception.OpenInApp" : "WebBrowser.Exception.OpenInBrowser"),
+            style: .default,
+        ) { [weak self] _ in
+            if let domain = url.host?.lowercased(), !WebBrowser.exceptions.contains(domain) {
+                WebBrowser.exceptions.append(domain)
+            }
+            WebBrowser.open(url, from: self, inApp: inApp)
+            guard inApp else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                guard var presented = self?.view.window?.rootViewController else { return }
+                while let next = presented.presentedViewController {
+                    presented = next
+                }
+                guard let view = presented.view else { return }
+                TelegramUndoToast.show(
+                    title: L10n.telegram("WebBrowser.ExceptionAdded.Title"),
+                    text: L10n.telegram("WebBrowser.ExceptionAdded.Text"),
+                    in: view,
+                    bottomInset: 12,
+                    undo: nil,
+                )
+            }
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.preferredAction = open
+        present(alert, animated: true)
+    }
+
     /// ChatControllerOpenMessageContextMenu's tip: why the message can't be copied or forwarded, or, three times in
     /// all, how to select the text of a message of three words or more.
     private func contextMenuTip(for message: CustomMessage, selectsText: Bool) -> TelegramContextMenuTip? {
@@ -10743,7 +10786,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let reverseOpen = webURL.flatMap { target in
                 WebBrowser.opensInApp(target).map { opensInApp in
                     (opensInApp: opensInApp, handler: { [weak self] in
-                        WebBrowser.open(target, from: self, inApp: !opensInApp)
+                        guard let self else { return }
+                        confirmReverseOpen(target, inApp: !opensInApp)
                     })
                 }
             }
