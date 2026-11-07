@@ -24,6 +24,8 @@ struct MessageTextLink: Equatable {
         case bankCard(String)
         /// A phone number as written.
         case phone(String)
+        /// A date as shown, and its time.
+        case date(String, unixTime: Int)
     }
 
     let target: Target
@@ -36,6 +38,7 @@ struct MessageTextLink: Equatable {
         case .url(let url): url.replacing("mailto:", with: "")
         case .bankCard(let text),
              .botCommand(let text),
+             .date(let text, _),
              .hashtag(let text),
              .mention(let text),
              .phone(let text),
@@ -166,6 +169,7 @@ struct MessageMentionMenu {
             )
         case .bankCard,
              .botCommand,
+             .date,
              .hashtag,
              .phone,
              .timecode,
@@ -332,6 +336,35 @@ struct MessagePhoneMenu {
             actions.append(row)
         }
         return actions
+    }
+}
+
+// MARK: - MessageDateMenu
+
+/// ChatControllerOpenDateContextMenu: Copy, the long date and time ("Date copied to clipboard"), and Add to Calendar,
+/// an hour's event at that time in the system editor. Set Reminder (a scheduled forward to Saved Messages) is not
+/// ported.
+enum MessageDateMenu {
+    static func actions(
+        unixTime: Int,
+        addToCalendar: @escaping () -> Void,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Date.Copy"),
+                image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+                handler: {
+                    UIPasteboard.general.string = MessageEntityDate.fullString(unixTime: unixTime)
+                    copied(L10n.telegram("Conversation.DateCopied"))
+                },
+            ),
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Date.AddToCalendar"),
+                image: UIImage(systemName: "calendar.badge.plus"),
+                handler: addToCalendar,
+            ),
+        ]
     }
 }
 

@@ -27,7 +27,9 @@ struct MessageTextSpoilerPresentation {
     let text: FormattedText
     let ranges: [NSRange]
 
-    init(_ original: FormattedText) {
+    init(_ source: FormattedText) {
+        // Dates with a formatting type read as the formatted date, as stringWithAppliedEntities shows them.
+        let original = source.applyingFormattedDates()
         let utf16 = original.text as NSString
         let length = utf16.length
         let entities = original.entities.filter { entity in
@@ -160,6 +162,7 @@ struct MessageTextSpoilerPresentation {
             case .textEntityTypeMediaTimestamp(let value): return (.timecode(raw, seconds: value.mediaTimestamp), range)
             case .textEntityTypeBankCardNumber: return (.bankCard(raw), range)
             case .textEntityTypePhoneNumber: return (.phone(raw), range)
+            case .textEntityTypeDateTime(let value): return (.date(raw, unixTime: value.unixTime), range)
             default: continue
             }
         }

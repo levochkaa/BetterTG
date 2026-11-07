@@ -44,6 +44,7 @@ import UIKit
                 do {
                     try verifyTargets()
                     try verifyMenus()
+                    try verifyDates()
                     try await render()
                     result = "Entity menu probe passed: targets/copy/menus/rendered=true"
                 } catch {
@@ -112,6 +113,45 @@ import UIKit
             )
             try require(MessageLinkMenu(url: "mailto:a@b.io").copiedText == "a@b.io", "copied email")
             try require(MessageLinkMenu(url: "https://a.io/x").copiedText == "https://a.io/x", "copied url")
+        }
+
+        /// A relative date "X" three hours back reads "3 hours ago", and the hashtag after it moves with it.
+        private static func verifyDates() throws {
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            let text = "see X #tag"
+            let formatted = FormattedText(entities: [
+                TextEntity(length: 1, offset: 4, type: .textEntityTypeDateTime(.init(
+                    unixTime: 1_800_000_000 - 3 * 3600, formattingType: .dateTimeFormattingTypeRelative,
+                ))),
+                TextEntity(length: 4, offset: 6, type: .textEntityTypeHashtag),
+            ], text: text)
+            let shown = formatted.applyingFormattedDates(now: now)
+            let expected = "see " + L10n.telegramPlural("FormattedDate.HoursAgo", count: 3, formattedCount: "3") + " #tag"
+            try require(shown.text == expected, "relative date \(shown.text)")
+            let tag = shown.entities.first {
+                if case .textEntityTypeHashtag = $0.type {
+                    true
+                } else {
+                    false
+                }
+            }
+            try require(
+                tag.map { (shown.text as NSString).substring(with: NSRange(location: $0.offset, length: $0.length)) }
+                == "#tag",
+                "entity after the date",
+            )
+            let absolute = MessageEntityDate.string(
+                unixTime: 1_800_000_000,
+                format: .dateTimeFormattingTypeAbsolute(.init(
+                    timePrecision: .dateTimePartPrecisionNone, datePrecision: .dateTimePartPrecisionLong,
+                    showDayOfWeek: false,
+                )),
+            )
+            try require(absolute.contains("2027"), "long date \(absolute)")
+            let dates = MessageDateMenu.actions(unixTime: 0, addToCalendar: {}, copied: { _ in }).map(\.title)
+            try require(dates == [
+                L10n.telegram("Chat.Context.Date.Copy"), L10n.telegram("Chat.Context.Date.AddToCalendar"),
+            ], "date menu \(dates)")
         }
 
         private static func verifyMenus() throws {

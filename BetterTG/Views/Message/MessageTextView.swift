@@ -908,6 +908,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             switch entity.type {
             case .textEntityTypeBotCommand,
                  .textEntityTypeCashtag,
+                 .textEntityTypeDateTime,
                  .textEntityTypeHashtag,
                  .textEntityTypeMediaTimestamp:
                 result.addAttribute(

@@ -2,6 +2,8 @@
 
 import AVFoundation
 import Combine
+import EventKit
+import EventKitUI
 import Photos
 import TDLibKit
 import UIKit
@@ -322,6 +324,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram's ChatSearchDomain: picking a member after "from:", or the member whose messages are searched.
     private var messageSearchChoosesMember = false
     private var messageSearchMember: ChatSearchMemberListView.Member?
+    /// Closes the date menu's event editor, whichever button ends it.
+    private let calendarEventDelegate = CalendarEventEditDelegate()
     private var messageDateJumpTask: Task<Void, Never>?
     /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
     private var favoriteStickerFileIDs = Set<Int>()
@@ -10522,6 +10526,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let actions = MessageBankCardMenu.actions(number: number, title: info?.title, copied: copied)
                 showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
             }
+        case .date(_, let unixTime):
+            let actions = MessageDateMenu.actions(
+                unixTime: unixTime,
+                addToCalendar: { [weak self] in self?.presentCalendarEvent(at: unixTime) },
+                copied: copied,
+            )
+            showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
         case .phone(let number):
             // The menu waits for the number's account, as Telegram's does behind its progress.
             let client = chatVM.client
@@ -10578,6 +10589,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
             }
         }
+    }
+
+    /// The date menu's Add to Calendar: EKEventEditViewController with an hour's event starting then.
+    private func presentCalendarEvent(at unixTime: Int) {
+        let store = EKEventStore()
+        let event = EKEvent(eventStore: store)
+        event.startDate = Date(timeIntervalSince1970: TimeInterval(unixTime))
+        event.endDate = event.startDate.addingTimeInterval(3600)
+        let editor = EKEventEditViewController()
+        editor.eventStore = store
+        editor.event = event
+        editor.editViewDelegate = calendarEventDelegate
+        present(editor, animated: true)
     }
 
     private func showLinkMenu(
@@ -12840,4 +12864,13 @@ extension ChatViewController: TelegramTransitionReadiness {
 extension ChatViewController: TelegramBackMenuTitled {
     /// The chat's or topic's name, which its header draws.
     var telegramBackMenuTitle: String? { chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle }
+}
+
+// MARK: - CalendarEventEditDelegate
+
+/// EKEventEditViewDelegate for an editor presented over a chat: it closes once saved or cancelled.
+final class CalendarEventEditDelegate: NSObject, EKEventEditViewDelegate {
+    func eventEditViewController(_ controller: EKEventEditViewController, didCompleteWith _: EKEventEditViewAction) {
+        controller.dismiss(animated: true)
+    }
 }
