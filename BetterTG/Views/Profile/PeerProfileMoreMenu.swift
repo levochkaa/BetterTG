@@ -96,11 +96,48 @@ import UIKit
         if canSetAutoDelete {
             actions.append(autoDeleteAction())
         }
+        if let report = reportAction() {
+            actions.append(report)
+        }
         if let clear = clearMessagesAction() {
             actions.append(clear)
         }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Report
+
+    /// ReportPeer.Report for a group or channel the account doesn't own or administer (a basic group's admins may
+    /// report it), opening ContentReportScreen over the chat; Telegram's toast once it's sent.
+    private func reportAction() -> TelegramContextMenuAction? {
+        let isChannel: Bool
+        switch customChat.type {
+        case .group(let group):
+            if case .chatMemberStatusCreator = group.status { return nil }
+            isChannel = false
+        case .supergroup(let group):
+            switch group.status {
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusCreator: return nil
+            default: break
+            }
+            isChannel = group.isChannel
+        case .bot,
+             .user:
+            return nil
+        }
+        let chatID = customChat.chat.id
+        return TelegramContextMenuAction(
+            title: L10n.telegram("ReportPeer.Report"),
+            image: UIImage(systemName: "exclamationmark.bubble"),
+        ) { [weak host] in
+            guard let host else { return }
+            ReportContentViewController.present(chatID: chatID, isChannel: isChannel, from: host) { [weak host] in
+                guard let view = host?.view else { return }
+                TelegramUndoToast.show(text: L10n.telegram("Report.Succeed"), in: view, bottomInset: 12, undo: nil)
+            }
+        }
     }
 
     // MARK: Secret Chat

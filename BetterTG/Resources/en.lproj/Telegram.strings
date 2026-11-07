@@ -3860,3 +3860,6 @@
 "UserInfo.StartSecretChat" = "Start Secret Chat";
 "UserInfo.StartSecretChatConfirmation" = "Are you sure you want to start a secret chat with %@?";
 "UserInfo.StartSecretChatStart" = "Start";
+"ReportPeer.Report" = "Report";
+"Report.Title.Group" = "Report Group";
+"Report.Title.Channel" = "Report Channel";

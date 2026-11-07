@@ -14,6 +14,8 @@ final class ReportContentViewController: SettingsListViewController {
     enum Subject {
         case messages(chatID: Int64, messageIDs: [Int64])
         case story(chatID: Int64, storyID: Int)
+        /// A whole chat, as the profile's Report sends it (reportChat without messages), under its title.
+        case chat(chatID: Int64, title: String)
     }
 
     enum Page {
@@ -57,6 +59,7 @@ final class ReportContentViewController: SettingsListViewController {
             switch subject {
             case .messages: L10n.telegram("Report.Title.Message")
             case .story: L10n.telegram("Report.Title.Story")
+            case .chat(_, let title): title
             }
         if navigationController?.viewControllers.first === self {
             navigationItem.leftBarButtonItem = UIBarButtonItem(
@@ -121,6 +124,17 @@ final class ReportContentViewController: SettingsListViewController {
         present(.messages(chatID: chatID, messageIDs: messageIDs), from: presenter, onReported: onReported)
     }
 
+    /// The profile's Report for a group or channel: Report Group or Report Channel over TDLib's reasons.
+    static func present(
+        chatID: Int64,
+        isChannel: Bool,
+        from presenter: UIViewController,
+        onReported: @escaping () -> Void,
+    ) {
+        let title = L10n.telegram(isChannel ? "Report.Title.Channel" : "Report.Title.Group")
+        present(.chat(chatID: chatID, title: title), from: presenter, onReported: onReported)
+    }
+
     /// makeContentReportScreen with the `.stories` subject, as the story viewer's Report opens it.
     static func present(
         storyChatID: Int64,
@@ -162,7 +176,14 @@ final class ReportContentViewController: SettingsListViewController {
         client: TDLibClient,
     ) async throws -> Outcome {
         switch subject {
-        case .messages(let chatID, let messageIDs):
+        case .chat,
+             .messages:
+            let (chatID, messageIDs): (Int64, [Int64]) =
+                switch subject {
+                case .messages(let chatID, let messageIDs): (chatID, messageIDs)
+                case .chat(let chatID, _): (chatID, [])
+                case .story: (0, [])
+                }
             let result = try await client.send(TDNativeRequests.reportChat(
                 chatId: chatID,
                 optionId: optionID,
