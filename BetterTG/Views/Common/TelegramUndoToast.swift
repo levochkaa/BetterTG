@@ -131,9 +131,16 @@ import UIKit
         bottomInset: CGFloat,
         actionTitle: String? = nil,
         undo: (() -> Void)?,
+        tap: (() -> Void)? = nil,
     ) {
         current?.dismiss(animated: false)
         let toast = TelegramUndoToast(title: title, text: text, actionTitle: actionTitle, undo: undo)
+        // UndoOverlayController's `.info` action: a tap on the panel opens what the text names.
+        if let tap {
+            toast.tapAction = tap
+            toast.accessibilityTraits.insert(.button)
+            toast.addGestureRecognizer(UITapGestureRecognizer(target: toast, action: #selector(panelTapped)))
+        }
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
         NSLayoutConstraint.activate([

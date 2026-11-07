@@ -49,6 +49,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var voicePlaybackOpenTask: Task<Void, Never>?
     /// This client's shared live locations, newest first.
     private var liveLocationBroadcasts = [LiveLocationBroadcast]()
+    /// The login waiting for review in the header panels (ChatListNotice.reviewLogin).
+    private var sessionReview: UnconfirmedSessionStore.Review?
+    private var headerPanelsWidth: CGFloat = 0
     private var liveLocationChatTitles = [Int64: String]()
     private var liveLocationTitleTask: Task<Void, Never>?
     private var liveLocationOpenTask: Task<Void, Never>?
@@ -155,6 +158,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureHeaderPanels()
         configureVoicePlaybackHeader()
         configureLiveLocationPanel()
+        configureSessionReview()
         applyFolderTabsPosition()
 
         rootVM.objectWillChange
@@ -202,6 +206,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         loadAccountPeer()
+        UnconfirmedSessionStore.shared.refresh()
         if actionAuthority.isCurrent, restoresSearchFocus {
             restoresSearchFocus = false
             isRestoringSearchFocus = true
@@ -210,6 +215,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         // A modal or interactive navigation transition can defer epoch recovery.
         DispatchQueue.main.async { NavigationStorage.shared.retryClientRestoration() }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The notice wraps its text to the width.
+        if sessionReview != nil, view.bounds.width != headerPanelsWidth { updateHeaderPanels(animated: false) }
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -933,6 +944,56 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         TelegramUndoToast.show(text: text, in: view, bottomInset: 66, undo: nil)
     }
 
+    /// ChatListNoticeItem's reviewLogin for this list's account. Yes, it's me confirms the login with Telegram's
+    /// "New Login Allowed" toast, whose tap opens Devices; No, it's not me! ends that session and shows
+    /// NewSessionInfoScreen.
+    private func configureSessionReview() {
+        headerPanels.sessionNotice.onConfirm = { [weak self] in self?.resolveSessionReview(isPositive: true) }
+        headerPanels.sessionNotice.onReject = { [weak self] in self?.resolveSessionReview(isPositive: false) }
+        UnconfirmedSessionStore.shared
+            .$review
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] review in
+                guard let self else { return }
+                let review = review.flatMap { $0.accountID == self.navigationClientSource?.accountID ? $0 : nil }
+                guard review != sessionReview else { return }
+                sessionReview = review
+                if let review { headerPanels.sessionNotice.configure(review) }
+                updateHeaderPanels(animated: true)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func resolveSessionReview(isPositive: Bool) {
+        guard let review = sessionReview else { return }
+        UnconfirmedSessionStore.shared.resolve(review)
+        let client = actionAuthority.client
+        let sessionID = review.sessionID
+        if isPositive {
+            TelegramUndoToast.show(
+                title: L10n.telegram("ChatList.SessionReview.ConfirmToastTitle"),
+                text: L10n.telegram("ChatList.SessionReview.ConfirmToastText").withoutTelegramMarkup,
+                in: view,
+                bottomInset: 66,
+                undo: nil,
+                tap: { [weak self] in
+                    self?.navigationController?.pushViewController(ActiveSessionsViewController(), animated: true)
+                },
+            )
+            #if DEBUG
+                guard sessionID != 0 else { return }
+            #endif
+            Task { _ = try? await client.send(TDNativeRequests.confirmSession(sessionId: sessionID)) }
+        } else {
+            present(NewSessionInfoViewController(review: review), animated: true)
+            #if DEBUG
+                // The probe's made-up login has no session to end.
+                guard sessionID != 0 else { return }
+            #endif
+            Task { _ = try? await client.send(TDNativeRequests.terminateSession(sessionId: sessionID)) }
+        }
+    }
+
     private func configureLiveLocationPanel() {
         liveLocationPanel.onOpen = { [weak self] in self?.openLiveLocation() }
         liveLocationPanel.onClose = { [weak self] in self?.closeLiveLocation() }
@@ -975,7 +1036,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let searching = searchActive ?? customNavigationBar.isSearchActive
         let shows = display != nil && !searching && !isShowingSearchResults
         let showsLiveLocation = updateLiveLocationPanelContent() && !searching && !isShowingSearchResults
-        guard headerPanels.setVisiblePanels(voice: shows, liveLocation: showsLiveLocation) else { return }
+        let showsNotice = sessionReview != nil && !searching && !isShowingSearchResults
+        headerPanels.fallbackWidth = view.bounds.width
+        headerPanelsWidth = view.bounds.width
+        let changed = headerPanels.setVisiblePanels(
+            notice: showsNotice,
+            voice: shows,
+            liveLocation: showsLiveLocation,
+        )
+        // The notice's text can change its height with the panels as they are.
+        guard changed || heightConstraint.constant != headerPanels.contentHeight else { return }
         heightConstraint.constant = headerPanels.contentHeight
         let changes = {
             for folderController in self.folderControllers {
