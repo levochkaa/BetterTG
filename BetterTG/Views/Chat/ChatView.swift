@@ -144,6 +144,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || AVAudioApplication.shared.recordPermission == .denied
     }
 
+    /// `-ui-probe-copy-protection`: every chat's selection reads as protected.
+    private static var probesCopyProtection: Bool {
+        #if DEBUG
+            ProcessInfo.processInfo.arguments.contains("-ui-probe-copy-protection")
+        #else
+            false
+        #endif
+    }
+
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
         presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
     }
@@ -3664,6 +3673,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         messageSelectionToolbar.onForward = { [weak self] in
             self?.forwardSelectedMessages()
+        }
+        messageSelectionToolbar.onCopyProtectionTip = { [weak self] source in
+            self?.showCopyProtectionTip(from: source)
         }
         view.addSubview(messageSelectionToolbar)
         messageSelectionToolbarHeightConstraint = messageSelectionToolbar.heightAnchor.constraint(
@@ -10647,6 +10659,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
+    /// displayCopyProtectionTip over Forward: forwards from this group, channel or bot are restricted, or, in a
+    /// private chat, forwarding is.
+    private func showCopyProtectionTip(from source: UIView) {
+        guard let window = view.window else { return }
+        let chat = chatVM.customChat
+        let key =
+            switch chat.type {
+            case .bot: "Bot"
+            case .user: "Secret"
+            case .supergroup(let group): group.isChannel ? "Channel" : "Group"
+            case .group: "Group"
+            }
+        TelegramTextTooltipView.show(
+            L10n.telegram("Conversation.CopyProtectionForwardingDisabled\(key)"),
+            source: source.convert(source.bounds, to: window),
+            in: window,
+            topInset: window.safeAreaInsets.top,
+        )
+    }
+
     /// ChatControllerOpenMessageContextMenu's tip: why the message can't be copied or forwarded, or, three times in
     /// all, how to select the text of a message of three words or more.
     private func contextMenuTip(for message: CustomMessage, selectsText: Bool) -> TelegramContextMenuTip? {
@@ -12037,7 +12069,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard isSelectingMessages else { return }
         let sourceIDs = selectedSourceMessageIDs
         let messages = selectedDisplayedMessages
-        let canForward = !sourceIDs.isEmpty && sourceIDs.count <= 100
+        let probesProtection = Self.probesCopyProtection
+        let canForward = !probesProtection && !sourceIDs.isEmpty && sourceIDs.count <= 100
             && messages.allSatisfy { canForwardMessageContent($0) }
             && (messages.allSatisfy(\.properties.canBeForwarded)
                 || messages.allSatisfy(\.properties.canBeCopied))
@@ -12046,10 +12079,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         synchronizeNativeSelection()
         customNavigationBar.setSelectionCount(sourceIDs.count)
+        let isCopyProtected = probesProtection || chatVM.customChat.chat.hasProtectedContent || messages.contains {
+            $0.properties.hasProtectedContentByCurrentUser || $0.properties.hasProtectedContentByOtherUser
+        }
         messageSelectionToolbar.update(
             selectedCount: sourceIDs.count,
             canDelete: canDelete,
             canForward: canForward,
+            isCopyProtected: !canForward && isCopyProtected,
             isBusy: isBusy,
         )
         if let reconfigureIDs {

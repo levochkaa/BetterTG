@@ -156,6 +156,11 @@ final class MessageSelectionToolbar: UIView {
 
     var onDelete: (() -> Void)?
     var onForward: (() -> Void)?
+    /// ChatMessageSelectionInputPanelNode's displayCopyProtectionTip: Forward on protected messages stays tappable,
+    /// dimmed, and says why instead.
+    var onCopyProtectionTip: ((UIView) -> Void)?
+
+    private var isCopyProtected = false
 
     private let blurView = TelegramBarBackgroundView(edge: .bottom)
     private let deleteButton = UIButton(type: .system)
@@ -175,13 +180,15 @@ final class MessageSelectionToolbar: UIView {
         selectedCount: Int,
         canDelete: Bool,
         canForward: Bool,
+        isCopyProtected: Bool = false,
         isBusy: Bool = false,
     ) {
         countLabel.text = L10n.telegramPlural("Conversation.ForwardOptions.Title", count: selectedCount)
+        self.isCopyProtected = isCopyProtected && selectedCount > 0
         deleteButton.isEnabled = canDelete && !isBusy
-        forwardButton.isEnabled = canForward && !isBusy
+        forwardButton.isEnabled = (canForward || self.isCopyProtected) && !isBusy
         deleteButton.alpha = deleteButton.isEnabled ? 1 : 0.35
-        forwardButton.alpha = forwardButton.isEnabled ? 1 : 0.35
+        forwardButton.alpha = canForward && !isBusy ? 1 : 0.35
         isUserInteractionEnabled = !isBusy
     }
 
@@ -248,6 +255,10 @@ final class MessageSelectionToolbar: UIView {
     }
 
     @objc private func forwardPressed() {
-        onForward?()
+        if isCopyProtected {
+            onCopyProtectionTip?(forwardButton)
+        } else {
+            onForward?()
+        }
     }
 }

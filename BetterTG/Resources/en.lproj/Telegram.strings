@@ -3997,3 +3997,7 @@
 "Chat.ScheduledForceSendProcessingVideo.Text" = "This video hasn't been converted and optimized yet. If you send it now, the viewers of the video may experience slow download speed.";
 "Chat.ScheduledForceSendProcessingVideo.Action" = "Send Anyway";
 "Chat.VideoProcessingInfo" = "The video will be published once converted and optimized.";
+"Conversation.CopyProtectionForwardingDisabledGroup" = "Forwards from this group are restricted";
+"Conversation.CopyProtectionForwardingDisabledChannel" = "Forwards from this channel are restricted";
+"Conversation.CopyProtectionForwardingDisabledBot" = "Forwards from this bot are restricted";
+"Conversation.CopyProtectionForwardingDisabledSecret" = "Forwarding is restricted";
