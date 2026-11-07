@@ -64,9 +64,7 @@ final class ChatManagementViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Common.Edit")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         photoHeader.onSetPhoto = { [weak self] source in self?.presentPhotoMenu(from: source) }
         photoPicker.onChange = { [weak self] image in self?.photoPicked(image) }
         session.publisher

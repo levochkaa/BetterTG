@@ -1689,13 +1689,18 @@ import UIKit
         tableView.setEditing(true, animated: true)
 
         var configuration = UIButton.Configuration.filled()
-        configuration.title = L10n.telegram("Common.Done")
+        configuration.image = UIBarButtonItem.doneImage
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 17,
+            weight: .semibold,
+        )
         configuration.cornerStyle = .capsule
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 28, bottom: 10, trailing: 28)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 13, leading: 28, bottom: 13, trailing: 28)
         let button = UIButton(
             configuration: configuration,
             primaryAction: UIAction { [weak self] _ in self?.endPinnedReorder() },
         )
+        button.accessibilityLabel = L10n.telegram("Common.Done")
         button.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(button)
         NSLayoutConstraint.activate([

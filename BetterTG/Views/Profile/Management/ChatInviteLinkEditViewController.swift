@@ -62,9 +62,7 @@ final class ChatInviteLinkEditViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram(link == nil ? "InviteLink.Create.Title" : "InviteLink.Create.EditTitle")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -312,9 +310,7 @@ private final class ChatInviteLinkDateSheet: UIViewController {
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"), style: .plain, target: self, action: #selector(cancelPressed),
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         picker.datePickerMode = .dateAndTime
         picker.preferredDatePickerStyle = .inline
         picker.minimumDate = Foundation.Date().addingTimeInterval(60)

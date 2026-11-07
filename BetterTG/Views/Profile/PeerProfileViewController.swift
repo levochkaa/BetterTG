@@ -4244,9 +4244,7 @@ ClientRestorableNavigationEntry {
         guard selectedMessageIDs == nil, selectedPostIDs == nil, !isReorderingPosts, !isReorderingGifts else { return }
         var items = [UIBarButtonItem]()
         if canEditProfile {
-            items.append(UIBarButtonItem(
-                title: L10n.telegram("Common.Edit"), style: .plain, target: self, action: #selector(editPressed),
-            ))
+            items.append(UIBarButtonItem.telegramEdit(target: self, action: #selector(editPressed)))
         }
         if currentSharedTab == .gifts, giftsPane != nil {
             items.append(giftsFilterItem)
@@ -5751,9 +5749,7 @@ ClientRestorableNavigationEntry {
         updateAlbumAddButton()
         configureAlbumTabs(albumTabsView)
         if reordering {
-            navigationItem.rightBarButtonItem = UIBarButtonItem(
-                title: L10n.telegram("Common.Done"),
-                style: .prominent,
+            navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(
                 target: self,
                 action: #selector(finishReorderingPosts),
             )
@@ -5807,9 +5803,7 @@ ClientRestorableNavigationEntry {
             configureGiftCollectionTabs(view as? StoryAlbumTabsView)
         }
         if reordering {
-            navigationItem.rightBarButtonItems = [UIBarButtonItem(
-                title: L10n.telegram("Common.Done"),
-                style: .prominent,
+            navigationItem.rightBarButtonItems = [UIBarButtonItem.telegramDone(
                 target: self,
                 action: #selector(finishReorderingGifts),
             )]

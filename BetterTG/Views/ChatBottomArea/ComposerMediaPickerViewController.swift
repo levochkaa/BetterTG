@@ -124,8 +124,7 @@ UIPageViewControllerDelegate {
         view.backgroundColor = presentationStyle == .input ? .clear : .systemBackground
         title = L10n.betterTG("Composer.EmojiAndStickersTitle")
         if presentationStyle == .sheet {
-            navigationItem.rightBarButtonItem = UIBarButtonItem(
-                title: L10n.telegram("Common.Done"), style: .plain,
+            navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(
                 target: self,
                 action: #selector(donePressed),
             )

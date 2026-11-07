@@ -66,9 +66,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("EditProfile.Title")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         navigationItem.rightBarButtonItem?.isEnabled = false
         headerView.onSetPhoto = { [weak self] source in self?.presentPhotoMenu(from: source) }
         headerView.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: EditProfileHeaderView.height)

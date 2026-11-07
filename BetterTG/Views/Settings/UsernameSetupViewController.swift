@@ -33,9 +33,7 @@ final class UsernameSetupViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Username.Title")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         navigationItem.rightBarButtonItem?.isEnabled = false
         load()
     }

@@ -181,8 +181,8 @@
                 throw Failure(description: "missing Done item")
             }
             try require(
-                // The title follows the selected language pack; the accessibility label stays fixed.
-                item.title == L10n.telegram("Common.Done") && item.style == .plain && item.image == nil
+                // A checkmark on prominent glass; the accessibility label stays fixed.
+                item.image == UIBarButtonItem.doneImage && item.style == .prominent
                     && item.accessibilityLabel == L10n
                         .telegram("Common.Done") && (item.target as? UIViewController) === controller
                     && item.action == NSSelectorFromString(action) && item.isEnabled == enabled,

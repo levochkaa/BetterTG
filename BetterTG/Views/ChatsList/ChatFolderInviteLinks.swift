@@ -572,9 +572,7 @@ final class ChatFolderInviteLinkViewController: UITableViewController, TelegramN
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(saveLink),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(saveLink))
         tableView.register(ChatFolderLeaveHeaderView.self, forHeaderFooterViewReuseIdentifier: Self.headerIdentifier)
         tableView.tableHeaderView = descriptionView()
         sessionObservation = session.bind(self) { [weak self] in self?.updateChrome() }

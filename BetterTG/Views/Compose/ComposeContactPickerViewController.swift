@@ -80,14 +80,9 @@ ComposeFlowScreen {
     }
 
     private var nextButton: UIBarButtonItem {
-        let title =
-            if case .addMembers = mode {
-                "Common.Done"
-            } else {
-                "Common.Next"
-            }
+        if case .addMembers = mode { return .telegramDone(target: self, action: #selector(nextPressed)) }
         return UIBarButtonItem(
-            title: L10n.telegram(title), style: .prominent, target: self, action: #selector(nextPressed),
+            title: L10n.telegram("Common.Next"), style: .prominent, target: self, action: #selector(nextPressed),
         )
     }
 

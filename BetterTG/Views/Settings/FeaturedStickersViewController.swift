@@ -84,12 +84,7 @@ UISearchBarDelegate {
         searchBar.searchBarStyle = .minimal
         searchBar.delegate = self
         navigationItem.titleView = searchBar
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"),
-            style: .prominent,
-            target: self,
-            action: #selector(doneTapped),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(doneTapped))
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .systemBackground

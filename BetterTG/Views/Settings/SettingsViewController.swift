@@ -429,12 +429,9 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         // the right items.
         let isPushed = !(parent is MainTabsViewController)
         navigationItem.leftBarButtonItem = isPushed ? nil : qrCode
-        let edit = UIBarButtonItem(
-            title: L10n.telegram("Common.Edit"),
-            primaryAction: UIAction { [weak self] _ in
-                self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
-            },
-        )
+        let edit = UIBarButtonItem.telegramEdit(primaryAction: UIAction { [weak self] _ in
+            self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
+        })
         let searchButton = UIBarButtonItem(
             image: UIImage(systemName: "magnifyingglass"),
             primaryAction: UIAction { [weak self] _ in self?.openSearch() },

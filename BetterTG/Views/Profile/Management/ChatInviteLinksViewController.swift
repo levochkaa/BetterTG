@@ -521,9 +521,7 @@ final class ChatInviteLinkViewController: SettingsListViewController {
         title = link.name.isEmpty ? L10n.telegram("InviteLink.InviteLink") : link.name
         navigationItem.rightBarButtonItem = link.isPrimary || link.isRevoked
             ? nil
-            : UIBarButtonItem(
-                title: L10n.telegram("Common.Edit"), style: .plain, target: self, action: #selector(editPressed),
-            )
+            : UIBarButtonItem.telegramEdit(target: self, action: #selector(editPressed))
     }
 
     private func load() {

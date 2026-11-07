@@ -281,6 +281,23 @@ final class TelegramListNavigationBar: UIView {
         leadingPlatter.refresh()
     }
 
+    /// An icon left button in place of a text one, such as the chat list's Edit and its Done: prominent, it takes the
+    /// tint colour as UIKit's Done does.
+    func setLeftIcon(_ image: UIImage?, accessibilityLabel: String, isProminent: Bool = false) {
+        UIView.performWithoutAnimation {
+            leftButton.setTitle(nil, for: .normal)
+            leftButton.setImage(image, for: .normal)
+            leftButton.tintColor = isProminent ? .white : .label
+            leftButton.accessibilityLabel = accessibilityLabel
+            leftButton.layoutIfNeeded()
+        }
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        if isProminent { effect.tintColor = .systemBlue }
+        leadingPlatter.glassView.effect = effect
+        leadingPlatter.refresh()
+    }
+
     /// The second right capsule's buttons in place of the secondary right one, such as Chats' archive and Settings
     /// while BetterTG's settings hide their tabs (Swiftgram's Settings button with Hide Tab Bar).
     func setSecondaryRightItems(_ items: [UIButton]) {
@@ -559,10 +576,11 @@ final class TelegramListNavigationBar: UIView {
         secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
         proxyButton.isHidden = true
         proxyButton.addAction(UIAction { [weak self] _ in self?.onProxyTap?() }, for: .touchUpInside)
-        // UIKit's Done is a prominent item: a pill of the tint color with white text.
+        // UIKit's Done is a prominent item: a checkmark in a circle of the tint color.
         doneButton.tintColor = .white
-        doneButton.setTitle(L10n.telegram("Common.Done"), for: .normal)
-        doneButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        doneButton.setImage(UIBarButtonItem.doneImage, for: .normal)
+        doneButton.setPreferredSymbolConfiguration(UIButton.telegramGlassIconConfiguration, forImageIn: .normal)
+        doneButton.accessibilityLabel = L10n.telegram("Common.Done")
         doneButton.isHidden = true
         doneButton.addAction(UIAction { [weak self] _ in self?.doneAction?() }, for: .touchUpInside)
         textActionButton.tintColor = .label

@@ -47,9 +47,7 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"), style: .plain, target: self, action: #selector(cancelPressed),
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         navigationItem.rightBarButtonItem?.isEnabled = false
         if onPickUser != nil { navigationItem.rightBarButtonItem = nil }
         searchController.searchResultsUpdater = self

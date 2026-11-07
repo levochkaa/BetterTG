@@ -45,9 +45,7 @@ final class PeerContactEditViewController: SettingsListViewController, PHPickerV
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Common.Edit")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         updateDoneButton()
         let client = client
         let userID = user.id

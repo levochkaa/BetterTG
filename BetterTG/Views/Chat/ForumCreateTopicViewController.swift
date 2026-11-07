@@ -45,12 +45,7 @@ import UIKit
     private let iconView = ForumTopicIconView()
     private let nameField = UITextField()
     private let iconGrid = ForumTopicIconGridView()
-    private lazy var doneItem = UIBarButtonItem(
-        title: L10n.telegram("Common.Done"),
-        style: .prominent,
-        target: self,
-        action: #selector(donePressed),
-    )
+    private lazy var doneItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
     private var isCreating = false
 
     private var trimmedName: String {

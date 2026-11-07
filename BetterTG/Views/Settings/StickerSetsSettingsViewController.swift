@@ -515,12 +515,9 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
             navigationItem.rightBarButtonItem = nil
             return
         }
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram(editing ? "Common.Done" : "Common.Edit"),
-            style: editing ? .prominent : .plain,
-            target: self,
-            action: editing ? #selector(doneTapped) : #selector(editTapped),
-        )
+        navigationItem.rightBarButtonItem = editing
+            ? .telegramDone(target: self, action: #selector(doneTapped))
+            : .telegramEdit(target: self, action: #selector(editTapped))
     }
 
     @objc private func editTapped() {

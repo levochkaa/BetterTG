@@ -282,12 +282,7 @@ final class ChatFolderOrderViewController: UITableViewController {
         super.viewDidLoad()
         title = L10n.telegram("ChatList.ReorderTabs")
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .plain,
-            target: self,
-            action: #selector(saveOrder),
-        )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.telegram("Common.Done")
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(saveOrder))
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderOrderCell")
         tableView.setEditing(true, animated: false)
         sessionObservation = session.bind(self)
@@ -1013,12 +1008,7 @@ TelegramNavigationSearchProvider {
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .never
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .plain,
-            target: self,
-            action: #selector(done),
-        )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.telegram("Common.Done")
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(done))
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("ChatListFilter.AddChatsSearchPlaceholder")

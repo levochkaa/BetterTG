@@ -65,11 +65,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private lazy var customNavigationBar = TelegramListNavigationBar(
         title: L10n.telegram("DialogList.Title"),
         placeholder: L10n.telegram("DialogList.SearchLabel"),
-        leftImage: nil,
+        leftImage: UIBarButtonItem.editImage,
         rightImage: UIImage(systemName: "square.and.pencil"),
         leftAction: { [weak self] in self?.editPressed() },
         rightAction: { [weak self] in self?.openCompose() },
-        leftTitle: L10n.telegram("Common.Edit"),
+        leftAccessibilityLabel: L10n.telegram("Common.Edit"),
         rightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
         opensSearchFromButton: true,
     )
@@ -681,8 +681,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         editingDone = done
         let change = { [self] in
             customNavigationBar.setEditing(title: title, done: done, showsDone: false)
-            customNavigationBar.setLeftTitle(
-                L10n.telegram(isSelectingChats ? "Common.Done" : "Common.Edit"),
+            customNavigationBar.setLeftIcon(
+                isSelectingChats ? UIBarButtonItem.doneImage : UIBarButtonItem.editImage,
+                accessibilityLabel: L10n.telegram(isSelectingChats ? "Common.Done" : "Common.Edit"),
                 isProminent: isSelectingChats,
             )
         }

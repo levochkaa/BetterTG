@@ -306,12 +306,7 @@ final class ProxyServerSettingsViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("SocksProxySetup.Title")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"),
-            style: .prominent,
-            target: self,
-            action: #selector(doneTapped),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(doneTapped))
         updateDone()
     }
 

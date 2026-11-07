@@ -52,9 +52,7 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
         super.viewDidLoad()
         title = L10n.telegram("NewContact.Title")
         if !phoneNumber.isEmpty { phoneNumberChanged(phoneNumber) }
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         updateDoneButton()
     }
 
