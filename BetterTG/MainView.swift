@@ -49,8 +49,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var voicePlaybackOpenTask: Task<Void, Never>?
     /// This client's shared live locations, newest first.
     private var liveLocationBroadcasts = [LiveLocationBroadcast]()
-    /// The login waiting for review in the header panels (ChatListNotice.reviewLogin).
+    /// The login waiting for review (ChatListNotice.reviewLogin).
     private var sessionReview: UnconfirmedSessionStore.Review?
+    /// The notice the header panels show first, a login to review before any suggestion.
+    private var chatListNotice: ChatListNotice?
+    /// Whether the account has set its birthday, read once a suggestion asks for one.
+    private var accountHasBirthdate: Bool?
+    private var isLoadingBirthdate = false
     private var headerPanelsWidth: CGFloat = 0
     private var liveLocationChatTitles = [Int64: String]()
     private var liveLocationTitleTask: Task<Void, Never>?
@@ -158,7 +163,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureHeaderPanels()
         configureVoicePlaybackHeader()
         configureLiveLocationPanel()
-        configureSessionReview()
+        configureChatListNotice()
         applyFolderTabsPosition()
 
         rootVM.objectWillChange
@@ -220,7 +225,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // The notice wraps its text to the width.
-        if sessionReview != nil, view.bounds.width != headerPanelsWidth { updateHeaderPanels(animated: false) }
+        if chatListNotice != nil, view.bounds.width != headerPanelsWidth { updateHeaderPanels(animated: false) }
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -944,24 +949,103 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         TelegramUndoToast.show(text: text, in: view, bottomInset: 66, undo: nil)
     }
 
-    /// ChatListNoticeItem's reviewLogin for this list's account. Yes, it's me confirms the login with Telegram's
-    /// "New Login Allowed" toast, whose tap opens Devices; No, it's not me! ends that session and shows
-    /// NewSessionInfoScreen.
-    private func configureSessionReview() {
-        headerPanels.sessionNotice.onConfirm = { [weak self] in self?.resolveSessionReview(isPositive: true) }
-        headerPanels.sessionNotice.onReject = { [weak self] in self?.resolveSessionReview(isPositive: false) }
+    /// The chat list notice for this list's account, as GlobalControlPanelsContext picks it: a login to review, then
+    /// a password to set up, a photo the account lacks, a birthday it hasn't set, then the server's own suggestion.
+    private func configureChatListNotice() {
+        let notice = headerPanels.notice
+        notice.onConfirm = { [weak self] in self?.resolveSessionReview(isPositive: true) }
+        notice.onReject = { [weak self] in self?.resolveSessionReview(isPositive: false) }
+        notice.onActivate = { [weak self] in self?.activateChatListNotice() }
+        notice.onClose = { [weak self] in self?.dismissChatListNotice() }
         UnconfirmedSessionStore.shared
             .$review
             .receive(on: DispatchQueue.main)
             .sink { [weak self] review in
                 guard let self else { return }
-                let review = review.flatMap { $0.accountID == self.navigationClientSource?.accountID ? $0 : nil }
-                guard review != sessionReview else { return }
-                sessionReview = review
-                if let review { headerPanels.sessionNotice.configure(review) }
-                updateHeaderPanels(animated: true)
+                sessionReview = review.flatMap { $0.accountID == self.navigationClientSource?.accountID ? $0 : nil }
+                updateChatListNotice()
             }
             .store(in: &cancellables)
+        SuggestedActionsStore.shared
+            .changes
+            .sink { [weak self] in self?.updateChatListNotice() }
+            .store(in: &cancellables)
+    }
+
+    private func updateChatListNotice() {
+        let next: ChatListNotice? =
+            if let sessionReview {
+                .reviewLogin(sessionReview)
+            } else {
+                SuggestedActionsStore.shared.chatListNotices(for: navigationClientSource).first { notice in
+                    switch notice {
+                    // A photo is asked for only while the account has none, once its peer has loaded.
+                    case .setupPhoto: return accountPeer != nil && accountPeer?.file == nil
+                    case .setupBirthday:
+                        loadBirthdateIfNeeded()
+                        return accountHasBirthdate == false
+                    default: return true
+                    }
+                }
+            }
+        guard next != chatListNotice else { return }
+        chatListNotice = next
+        if let next { headerPanels.notice.configure(next) }
+        updateHeaderPanels(animated: true)
+    }
+
+    private func loadBirthdateIfNeeded() {
+        guard accountHasBirthdate == nil, !isLoadingBirthdate else { return }
+        isLoadingBirthdate = true
+        let client = actionAuthority.client
+        Task { [weak self] in
+            let me = try? await client.getMe()
+            let info =
+                if let me {
+                    try? await client.send(TDNativeRequests.getUserFullInfo(userId: me.id))
+                } else {
+                    TDNativeUserFullInfo?.none
+                }
+            guard let self else { return }
+            isLoadingBirthdate = false
+            guard let info else { return }
+            accountHasBirthdate = info.birthdate != nil
+            updateChatListNotice()
+        }
+    }
+
+    /// ChatListControllerNode's activateAction: the password's setup, the photo's choices, the birthday's picker, or
+    /// the suggestion's link.
+    private func activateChatListNotice() {
+        guard let notice = chatListNotice else { return }
+        switch notice {
+        case .reviewLogin:
+            break
+        case .setupPassword:
+            let service = TDLibTwoStepVerificationService(client: actionAuthority.client)
+            Task { [weak self] in
+                let configuration = try? await service.configuration()
+                self?.navigationController?.pushViewController(
+                    TwoStepVerificationViewController.entry(for: configuration, service: service),
+                    animated: true,
+                )
+            }
+        case .setupBirthday,
+             .setupPhoto:
+            let profile = EditProfileViewController()
+            profile.opening = notice == .setupPhoto ? .photo : .birthday
+            navigationController?.pushViewController(profile, animated: true)
+        case .link(_, _, _, let link):
+            guard let url = URL(string: link) else { return }
+            TelegramLinkRouter.shared.open(url, from: self)
+        }
+    }
+
+    /// dismissChatListNotice: the suggestion is hidden on the server.
+    private func dismissChatListNotice() {
+        guard let notice = chatListNotice, let source = navigationClientSource else { return }
+        SuggestedActionsStore.shared.dismiss(notice, client: actionAuthority.client, source: source)
+        updateChatListNotice()
     }
 
     private func resolveSessionReview(isPositive: Bool) {
@@ -1036,7 +1120,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let searching = searchActive ?? customNavigationBar.isSearchActive
         let shows = display != nil && !searching && !isShowingSearchResults
         let showsLiveLocation = updateLiveLocationPanelContent() && !searching && !isShowingSearchResults
-        let showsNotice = sessionReview != nil && !searching && !isShowingSearchResults
+        let showsNotice = chatListNotice != nil && !searching && !isShowingSearchResults
         headerPanels.fallbackWidth = view.bounds.width
         headerPanelsWidth = view.bounds.width
         let changed = headerPanels.setVisiblePanels(
@@ -1328,6 +1412,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             isLoadingAccountPeer = false
             guard let peer, actionAuthority.isCurrent else { return }
             accountPeer = peer
+            updateChatListNotice()
             guard let accountID else { return }
             var photoPath: String?
             if let file = peer.file {

@@ -6,7 +6,7 @@ import UIKit
 /// interactive glass surface.
 /// The list's full-width navigation backdrop stays behind it; the controls themselves live inside the glass.
 final class TelegramHeaderPanelsView: UIView {
-    let sessionNotice = SessionReviewNoticeView()
+    let notice = ChatListNoticeView()
     let voiceHeader = VoicePlaybackHeaderView()
     let liveLocationPanel = LiveLocationPanelView()
     /// The owner's width, for the notice's height before this view has been laid out.
@@ -37,7 +37,7 @@ final class TelegramHeaderPanelsView: UIView {
     }
 
     private var noticeHeight: CGFloat {
-        showsNotice ? sessionNotice.height(forWidth: glassWidth) : 0
+        showsNotice ? notice.height(forWidth: glassWidth) : 0
     }
 
     override init(frame: CGRect) {
@@ -56,7 +56,7 @@ final class TelegramHeaderPanelsView: UIView {
             clip.clipsToBounds = true
             content.addSubview(clip)
         }
-        noticeClip.addSubview(sessionNotice)
+        noticeClip.addSubview(notice)
         voiceClip.addSubview(voiceHeader)
         locationClip.addSubview(liveLocationPanel)
         voiceHeader.showsSeparator = false
@@ -84,7 +84,7 @@ final class TelegramHeaderPanelsView: UIView {
         glass.frame = CGRect(x: 48 + safeAreaInsets.left, y: 32, width: width, height: height)
         content.frame = CGRect(x: 0, y: 0, width: width, height: height)
         noticeClip.frame = CGRect(x: 0, y: 0, width: width, height: noticeHeight)
-        sessionNotice.frame = CGRect(x: 0, y: 0, width: width, height: sessionNotice.height(forWidth: width))
+        notice.frame = CGRect(x: 0, y: 0, width: width, height: notice.height(forWidth: width))
         voiceClip.frame = CGRect(x: 0, y: noticeHeight, width: width, height: voiceHeight)
         voiceHeader.frame = CGRect(x: 0, y: 0, width: width, height: VoicePlaybackHeaderView.contentHeight)
         locationClip.frame = CGRect(x: 0, y: noticeHeight + voiceHeight, width: width, height: locationHeight)

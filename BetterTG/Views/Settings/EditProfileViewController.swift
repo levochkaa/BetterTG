@@ -11,6 +11,15 @@ import UIKit
 /// own actions.
 final class EditProfileViewController: SettingsListViewController, PHPickerViewControllerDelegate,
 UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    /// What a chat list notice opens the profile for: the photo's choices (openPhotoSetup) or the birthday's picker
+    /// (openBirthdaySetup), once the profile has loaded.
+    enum Opening {
+        case photo
+        case birthday
+    }
+
+    var opening: Opening?
+
     private var me: User?
     private var savedBio = ""
     private var birthdate: TDNativeBirthdate?
@@ -42,6 +51,11 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         load()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        openIfAsked()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -165,6 +179,15 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         picker.dismiss(animated: true)
     }
 
+    private func openIfAsked() {
+        guard let opening, isLoaded, viewIfLoaded?.window != nil else { return }
+        self.opening = nil
+        switch opening {
+        case .photo: presentPhotoMenu(from: headerView)
+        case .birthday: presentBirthdayPicker()
+        }
+    }
+
     // MARK: Loading
 
     private func load() {
@@ -191,6 +214,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                 bio = savedBio
                 isLoaded = true
                 reload()
+                openIfAsked()
             } else {
                 // Keep the fields being edited; refresh the photo, birthday and username rows.
                 reload(sections: IndexSet([2, 3]))

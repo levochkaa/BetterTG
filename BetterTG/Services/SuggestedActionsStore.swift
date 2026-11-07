@@ -30,6 +30,16 @@ import TDLibKit
     private var lists = [UUID: List]()
     private var cancellables = Set<AnyCancellable>()
 
+    private static func rank(_ notice: ChatListNotice) -> Int {
+        switch notice {
+        case .reviewLogin: 0
+        case .setupPassword: 1
+        case .setupPhoto: 2
+        case .setupBirthday: 3
+        case .link: 4
+        }
+    }
+
     func start() {
         guard cancellables.isEmpty else { return }
         nc.scopedPublisher(&cancellables, for: .updateSuggestedActions) { [weak self] update in
@@ -81,6 +91,62 @@ import TDLibKit
             return .setPassword
         }
         return nil
+    }
+
+    /// GlobalControlPanelsContext's suggested chat list notice for the account: a password to set up, then a photo, a
+    /// birthday, then the server's own suggestion. The caller drops the photo and birthday ones the account already
+    /// has.
+    func chatListNotices(for source: TdUpdateSource?) -> [ChatListNotice] {
+        #if DEBUG
+            // `-ui-probe-chat-list-notice password|photo|birthday|link` shows one on any account.
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-ui-probe-chat-list-notice") {
+                switch arguments[safe: index + 1] {
+                case "password": return [.setupPassword]
+                case "photo": return [.setupPhoto]
+                case "birthday": return [.setupBirthday]
+                default: return [.link(
+                    name: "probe", title: "Telegram Tips", text: "Learn what's new in Telegram.",
+                    url: "https://telegram.org/blog",
+                )]
+                }
+            }
+        #endif
+        guard let source, let list = lists[source.accountID], list.source == source else { return [] }
+        var notices = [ChatListNotice]()
+        for action in list.actions {
+            switch action {
+            case .suggestedActionSetPassword: notices.append(.setupPassword)
+            case .suggestedActionSetProfilePhoto: notices.append(.setupPhoto)
+            case .suggestedActionSetBirthdate: notices.append(.setupBirthday)
+            default: break
+            }
+        }
+        notices.sort { Self.rank($0) < Self.rank($1) }
+        for action in list.actions {
+            if case .suggestedActionCustom(let custom) = action {
+                notices.append(.link(
+                    name: custom.name, title: custom.title.text, text: custom.description.text, url: custom.url,
+                ))
+            }
+        }
+        return notices
+    }
+
+    /// dismissChatListNotice: the notice's suggestion is hidden on the server and leaves at once.
+    func dismiss(_ notice: ChatListNotice, client: TDLibClient, source: TdUpdateSource) {
+        let action: TDNativeSuggestedAction? = lists[source.accountID]?.actions.first { action in
+            switch (notice, action) {
+            case (.setupBirthday, .suggestedActionSetBirthdate),
+                 (.setupPassword, .suggestedActionSetPassword),
+                 (.setupPhoto, .suggestedActionSetProfilePhoto): true
+            case (.link(let name, _, _, _), .suggestedActionCustom(let custom)): custom.name == name
+            default: false
+            }
+        }
+        guard let action else { return }
+        apply(added: [], removed: [action], source: source)
+        Task { _ = try? await client.send(TDNativeRequests.hideSuggestedAction(action: action)) }
     }
 
     /// dismissServerProvidedSuggestion: hideSuggestedAction, and the reminder leaves at once.

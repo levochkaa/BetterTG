@@ -3816,3 +3816,7 @@
 "SessionReview.Title" = "New Login Prevented";
 "SessionReview.Text" = "We have terminated the login attempt from **%1$@**, **%2$@**";
 "SessionReview.OkAction" = "Got it";
+"ChatList.AddPhoto.Title" = "Add your photo! 📸";
+"ChatList.AddPhoto.Text" = "Help your friends spot you easily.";
+"ChatList.AddBirthdayTitle" = "Add your birthday! 🎂";
+"ChatList.AddBirthdayText" = "Let your contacts know when you're celebrating.";
