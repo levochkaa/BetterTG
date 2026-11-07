@@ -1647,7 +1647,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbar.onLeft = { [weak self] in self?.readSelectedChats() }
         toolbar.onMiddle = { [weak self] in self?.archiveSelectedChats() }
-        toolbar.onRight = { [weak self] in self?.deleteSelectedChat() }
+        toolbar.onRight = { [weak self] in self?.deleteSelectedChats() }
         let host: UIView = overlayHost.view
         host.addSubview(toolbar)
         NSLayoutConstraint.activate([
@@ -1736,7 +1736,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             middle: L10n.telegram(isArchivePage ? "ChatList.UnarchiveAction" : "ChatList.ArchiveAction"),
             middleEnabled: archivable,
             right: L10n.telegram("Common.Delete"),
-            rightEnabled: chats.count == 1,
+            rightEnabled: !chats.isEmpty,
         )
     }
 
@@ -1783,15 +1783,99 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    /// Delete for one selected chat runs its own sheet, as the chat's menu does. BetterTG doesn't remove several chats
-    /// at once (Telegram's removePeerChats), whose leaving and owner cases it can't confirm.
-    private func deleteSelectedChat() {
-        guard let selected = selectedChatIDs, selected.count == 1, let chat = selected.first.flatMap(chat(for:))
-        else { return }
+    /// Delete for one selected chat runs its own sheet, as the chat's menu does; several go through Telegram's
+    /// removePeerChats sheet: with a person or a secret chat among them Delete from both sides (where possible) and
+    /// Delete for me, otherwise Delete N Chats.
+    private func deleteSelectedChats() {
+        guard let selected = selectedChatIDs else { return }
+        let chats = selected.compactMap { chat(for: $0) }
+        guard !chats.isEmpty else { return }
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
+        if chats.count == 1, let chat = chats.first {
+            endChatSelection()
+            deleteChat(chat, scope: scope, client: client)
+            return
+        }
+        let privateChats = chats.filter { chat in
+            switch chat.chat.type {
+            case .chatTypePrivate,
+                 .chatTypeSecret: true
+            default: false
+            }
+        }
+        let hasPrivate = !privateChats.isEmpty
+        let hasNonPrivate = privateChats.count < chats.count
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        if hasPrivate {
+            sheet.addAction(UIAlertAction(
+                title: L10n.telegram(hasNonPrivate ? "ChatList.DeleteForAllWhenPossible" : "ChatList.DeleteForAll"),
+                style: .destructive,
+            ) { [weak self] _ in self?.removeChats(chats, globally: true, scope: scope, client: client) })
+        }
+        sheet.addAction(UIAlertAction(
+            title: hasPrivate
+                ? L10n.telegram("ChatList.DeleteForMe")
+                : L10n.telegramPlural("ChatList.DeleteConfirmation", count: chats.count),
+            style: .destructive,
+        ) { [weak self] _ in self?.removeChats(chats, globally: false, scope: scope, client: client) })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if traitCollection.horizontalSizeClass == .regular {
+            sheet.popoverPresentationController?.sourceView = view
+        }
+        chatListTopPresenter.present(sheet, animated: true)
+    }
+
+    /// removePeerChats behind "Deleted N chats" and Undo: the rows leave at once, and when the toast has gone a
+    /// person's
+    /// chat is deleted (for both sides when asked and TDLib can), a secret chat closed and deleted, a basic group left
+    /// and deleted, and a supergroup or channel left.
+    private func removeChats(_ chats: [CustomChat], globally: Bool, scope: ChatListActionScope, client: TDLibClient) {
+        guard scope.isCurrent else { return }
         endChatSelection()
-        deleteChat(chat, scope: scope, client: client)
+        var cancels = [() -> Void]()
+        for chat in chats {
+            let chatID = chat.id
+            let type = chat.chat.type
+            let revoke = globally && chat.chat.canBeDeletedForAllUsers
+            let cancel = PendingChatRemovals.shared.schedule(
+                PendingChatRemovals.Key(clientID: client.id, chatID: chatID),
+                hides: true,
+            ) { [weak self] in
+                guard scope.isCurrent else { return }
+                do {
+                    switch type {
+                    case .chatTypePrivate:
+                        _ = try await scope.perform {
+                            try await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: revoke)
+                        }
+                    case .chatTypeSecret(let secret):
+                        _ = try await scope.perform {
+                            try await client.send(TDNativeRequests.closeSecretChat(secretChatId: secret.secretChatId))
+                        }
+                        _ = try await scope.perform {
+                            try await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: true)
+                        }
+                    case .chatTypeBasicGroup:
+                        _ = try? await scope
+                            .perform { try await client.send(TDNativeRequests.leaveChat(chatId: chatID)) }
+                        _ = try await scope.perform {
+                            try await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: false)
+                        }
+                    case .chatTypeSupergroup:
+                        _ = try await scope
+                            .perform { try await client.send(TDNativeRequests.leaveChat(chatId: chatID)) }
+                    }
+                } catch {
+                    guard scope.isCurrent, let self else { return }
+                    presentChatListActionFailure()
+                }
+            }
+            cancels.append(cancel)
+        }
+        showUndoToast(L10n.telegramPlural("ChatList.DeletedChats", count: chats.count)) {
+            cancels.forEach { $0() }
+        }
     }
 
     /// Leaves reorder mode and shows the list as TDLib now orders it.
