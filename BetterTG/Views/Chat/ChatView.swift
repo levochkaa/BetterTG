@@ -647,6 +647,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         presentationMode == .contextPreview || navigationController?.topViewController === self
     }
 
+    /// enableMessageRangeDeletion: the calendar clears days only in a private or secret chat, not in a topic.
+    private var canClearMessageRanges: Bool {
+        guard location.topic == nil else { return false }
+        switch chatVM.customChat.chat.type {
+        case .chatTypePrivate,
+             .chatTypeSecret: return true
+        default: return false
+        }
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -8836,8 +8846,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             initialDate: Date(timeIntervalSince1970: TimeInterval(dayTimestamp)),
         ) { [weak self] date in self?.jumpToMessageSearchDate(date) }
         // ChatControllerOpenCalendarSearch's previewDay: holding a day previews the chat at its first message, history
-        // left unread, with Jump to Date. The private chats' Clear History and Select for a range aren't ported.
+        // left unread, with Jump to Date, and in a private chat Clear History and Select.
         let customChat = chatVM.customChat
+        let clearsRanges = canClearMessageRanges
+        if clearsRanges {
+            picker.onClearRange = { [weak self, weak picker] range, count in
+                guard let self, let picker else { return }
+                confirmClearMessageRange(range, dayCount: count, from: picker)
+            }
+        }
         let location = location
         let client = chatVM.client
         picker.previewDay = { [weak self, weak picker] day, _ in
@@ -8853,7 +8870,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ) { [weak self, weak picker] in
                 picker?.dismiss(animated: true) { self?.jumpToMessageSearchDate(day) }
             }
-            return (preview, [jump])
+            guard clearsRanges else { return (preview, [jump]) }
+            let clear = TelegramContextMenuAction(
+                title: L10n.telegram("DialogList.ClearHistoryConfirmation"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak picker] in picker?.openClearHistory(day) }
+            let select = TelegramContextMenuAction(
+                title: L10n.telegram("Common.Select"),
+                image: UIImage(systemName: "checkmark.circle"),
+                startsNewSection: true,
+            ) { [weak picker] in picker?.selectDay(day) }
+            return (preview, [jump, clear, select])
         }
         let navigation = UINavigationController(rootViewController: picker)
         // The months scroll in a turned scroll view, which a sheet's pull to dismiss would take over; it closes with
@@ -8861,6 +8889,83 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         navigation.isModalInPresentation = true
         navigation.sheetPresentationController?.detents = [.large()]
         present(navigation, animated: true)
+    }
+
+    /// CalendarMessageScreen's clear sheet: the days' count, then Delete for me and the person (not with a bot,
+    /// Saved Messages or a secret chat) and Delete just for me, or Delete Messages in Saved Messages and secret chats.
+    private func confirmClearMessageRange(_ range: ClosedRange<Date>, dayCount: Int, from picker: UIViewController) {
+        let customChat = chatVM.customChat
+        let isSecret =
+            if case .chatTypeSecret = customChat.chat.type {
+                true
+            } else {
+                false
+            }
+        let isBot =
+            if case .userTypeBot = customChat.user?.type {
+                true
+            } else {
+                false
+            }
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegramPlural("MessageCalendar.DeleteAlertText", count: dayCount),
+            preferredStyle: .actionSheet,
+        )
+        if !customChat.isSavedMessages, !isSecret, !isBot {
+            let name = customChat.user.map { $0.firstName.isEmpty ? $0.lastName : $0.firstName } ?? customChat.chat
+                .title
+            sheet.addAction(UIAlertAction(
+                title: L10n.telegram("ChatList.DeleteForEveryone", name), style: .destructive,
+            ) { [weak self, weak picker] _ in
+                picker?.dismiss(animated: true) {
+                    self?.clearMessageRange(range, dayCount: dayCount, revoke: true)
+                }
+            })
+        }
+        let forMeTitle = customChat.isSavedMessages || isSecret
+            ? L10n.telegram("Conversation.DeleteManyMessages")
+            : L10n.telegram("ChatList.DeleteForCurrentUser")
+        sheet.addAction(UIAlertAction(title: forMeTitle, style: .destructive) { [weak self, weak picker] _ in
+            picker?.dismiss(animated: true) {
+                self?.clearMessageRange(range, dayCount: dayCount, revoke: false)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        // Telegram's ActionSheetController stands at the bottom with Cancel; a popover only where a sheet can't.
+        if picker.traitCollection.horizontalSizeClass == .regular {
+            sheet.popoverPresentationController?.sourceView = picker.view
+            sheet.popoverPresentationController?.sourceRect = CGRect(
+                x: picker.view.bounds.midX, y: picker.view.bounds.maxY - 60, width: 1, height: 1,
+            )
+        }
+        picker.present(sheet, animated: true)
+    }
+
+    /// completedWithRemoveMessagesInRange: Messages for N days deleted (for both sides), with Undo; the days'
+    /// messages go (deleteChatMessagesByDate, from the first day's start to the day after the last) once the toast
+    /// has gone.
+    private func clearMessageRange(_ range: ClosedRange<Date>, dayCount: Int, revoke: Bool) {
+        guard chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        let chatID = chatVM.chatID
+        let minDate = Int(range.lowerBound.timeIntervalSince1970)
+        let maxDate = Int((Calendar.current.date(byAdding: .day, value: 1, to: range.upperBound) ?? range.upperBound)
+            .timeIntervalSince1970)
+        let commit = DispatchWorkItem {
+            Task {
+                _ = try? await client.send(TDNativeRequests.deleteChatMessagesByDate(
+                    chatId: chatID, minDate: minDate, maxDate: maxDate, revoke: revoke,
+                ))
+            }
+        }
+        showChatToast(
+            L10n.telegramPlural(
+                revoke ? "Chat.MessageRangeDeleted.ForBothSides" : "Chat.MessageRangeDeleted.ForMe", count: dayCount,
+            ),
+            actionTitle: L10n.telegram("Undo.Undo"),
+        ) { commit.cancel() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: commit)
     }
 
     private func presentMessageSearchCalendar() {

@@ -3674,3 +3674,15 @@
 "FileSize.KB" = "%@ KB";
 "FileSize.MB" = "%@ MB";
 "FileSize.GB" = "%@ GB";
+"Conversation.DeleteManyMessages" = "Delete Messages";
+"MessageCalendar.DaysSelectedTitle_1" = "1 day selected";
+"MessageCalendar.DaysSelectedTitle_any" = "%@ days selected";
+"MessageCalendar.DeleteAlertText_1" = "Are you sure you want to delete all messages for the selected day?";
+"MessageCalendar.DeleteAlertText_any" = "Are you sure you want to delete all messages for the selected %@ days?";
+"MessageCalendar.ClearHistoryForThisDay" = "Clear History For This Day";
+"MessageCalendar.ClearHistoryForTheseDays" = "Clear History For These Days";
+"MessageCalendar.EmptySelectionTooltip" = "Please select one or more days first.";
+"Chat.MessageRangeDeleted.ForMe_1" = "Messages for 1 day deleted.";
+"Chat.MessageRangeDeleted.ForMe_any" = "Messages for %@ days deleted.";
+"Chat.MessageRangeDeleted.ForBothSides_1" = "Messages for 1 day deleted for both sides.";
+"Chat.MessageRangeDeleted.ForBothSides_any" = "Messages for %@ days deleted for both sides.";
