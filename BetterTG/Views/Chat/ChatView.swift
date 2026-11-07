@@ -2389,8 +2389,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak self] in self?.chatVM.noteKeyboardRequestAnswered(keyboardMessageID: keyboardMessageID) }
     }
 
-    /// Telegram's Scheduled Messages for this chat or topic, from the input panel's button or after a message was
-    /// scheduled (ChatController.openScheduledMessages).
     /// UpdateChatPresentationInterfaceState's Conversation.SecretLinkPreviewAlert with Yes and No.
     private func askSecretLinkPreviews(_ answer: @escaping (Bool) -> Void) {
         let alert = UIAlertController(
@@ -2401,6 +2399,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
+    /// Telegram's Scheduled Messages for this chat or topic, from the input panel's button or after a message was
+    /// scheduled (ChatController.openScheduledMessages).
     private func openScheduledMessages() {
         guard presentationMode == .full, chatVM.locationContextIsCurrent,
               navigationController?.topViewController === self else { return }
