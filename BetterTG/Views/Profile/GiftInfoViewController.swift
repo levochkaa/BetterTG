@@ -25,6 +25,8 @@ final class GiftInfoViewController: UIViewController {
         return formatter
     }()
 
+    private static let convertPeriod = 90 * 86400
+
     /// Runs after Hide from Profile or Show on Profile, so the grid reads the gift again.
     var onVisibilityChanged: (() -> Void)?
 
@@ -44,6 +46,7 @@ final class GiftInfoViewController: UIViewController {
 
     private let visibilityLabel = UILabel()
     private var isSaved = false
+    private var senderName: String?
 
     private var upgraded: TDNativeUpgradedGift? {
         if case .sentGiftUpgraded(let value) = gift.gift { return value.gift }
@@ -58,6 +61,20 @@ final class GiftInfoViewController: UIViewController {
     /// elsewhere): GiftViewScreen's DisplayedInfoNew or HiddenInfoNew.
     private var showsVisibility: Bool {
         isOwnProfile && !gift.receivedGiftId.isEmpty
+    }
+
+    /// From (a regular gift's sender, Hidden Name without one) and Owner (an upgraded gift's) as PeerTableCellComponent
+    /// rows once TDLib names them.
+    /// GiftViewScreen's `value_convert`: the account's own regular gift that TDLib would sell, within
+    /// stargifts_convert_period_max (90 days by default) of its arrival.
+    private var canConvert: Bool {
+        guard isOwnProfile, !gift.receivedGiftId.isEmpty, gift.sellStarCount > 0,
+              case .sentGiftRegular = gift.gift else { return false }
+        #if DEBUG
+            // `-ui-probe-gift-convert` offers the conversion past its period, to see the pill and the alert.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-gift-convert") { return true }
+        #endif
+        return Int(Date().timeIntervalSince1970) <= gift.date + Self.convertPeriod
     }
 
     init(gift: TDNativeReceivedGift, isOwnProfile: Bool, client: TDLibClient) {
@@ -429,11 +446,20 @@ final class GiftInfoViewController: UIViewController {
                 ))
             }
             let stars = regular.starCount + max(0, gift.prepaidUpgradeStarCount)
-            rows.append(.init(
-                id: "value",
-                title: L10n.telegram("Gift.View.Value"),
-                value: .text(Self.formatted(Int(stars)) + "⭐️"),
-            ))
+            let valueText = Self.formatted(Int(stars)) + "⭐️"
+            if canConvert {
+                let count = Int(gift.sellStarCount)
+                let title = L10n.telegram("Gift.View.Sale", L10n.telegramPlural(
+                    "Gift.View.Sale.Stars", count: count, formattedCount: Self.formatted(count),
+                ))
+                rows.append(.init(
+                    id: "value",
+                    title: L10n.telegram("Gift.View.Value"),
+                    value: .valueAction(valueText, title) { [weak self] in self?.confirmConvert() },
+                ))
+            } else {
+                rows.append(.init(id: "value", title: L10n.telegram("Gift.View.Value"), value: .text(valueText)))
+            }
             if let limits = regular.overallLimits {
                 rows.append(.init(
                     id: "availability",
@@ -491,8 +517,60 @@ final class GiftInfoViewController: UIViewController {
         return rows
     }
 
-    /// From (a regular gift's sender, Hidden Name without one) and Owner (an upgraded gift's) as PeerTableCellComponent
-    /// rows once TDLib names them.
+    /// convertToStars: Convert Gift to Stars with the sender, the Stars and the days left, then sellGift, "Gift
+    /// Converted" and the sheet closes.
+    private func confirmConvert() {
+        let count = Int(gift.sellStarCount)
+        let daysLeft = max(
+            1,
+            Int(ceil(Double(gift.date + Self.convertPeriod - Int(Date().timeIntervalSince1970)) / 86400)),
+        )
+        let text = L10n.telegram(
+            "Gift.Convert.Period.Text",
+            senderName ?? L10n.telegram("Gift.View.HiddenName"),
+            L10n.telegramPlural("Gift.Convert.Period.Stars", count: count, formattedCount: Self.formatted(count)),
+            L10n.telegramPlural("Gift.Convert.Period.Days", count: daysLeft, formattedCount: "\(daysLeft)"),
+        )
+        .replacing("**", with: "")
+        let alert = UIAlertController(title: L10n.telegram("Gift.Convert.Title"), message: text, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Gift.Convert.Convert"), style: .default) { [weak self] _ in
+            self?.convert(count: count)
+        })
+        present(alert, animated: true)
+    }
+
+    private func convert(count: Int) {
+        let client = client
+        let giftID = gift.receivedGiftId
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.sellGift(businessConnectionId: "", receivedGiftId: giftID))
+            } catch {
+                guard let self else { return }
+                TelegramUndoToast.show(
+                    text: (error as? TDLibError)?.message ?? error.localizedDescription,
+                    in: view, bottomInset: 12, undo: nil,
+                )
+                return
+            }
+            guard let self else { return }
+            let host = presentingViewController
+            onVisibilityChanged?()
+            dismiss(animated: true) {
+                guard let host else { return }
+                TelegramUndoToast.show(
+                    title: L10n.telegram("Gift.Convert.Success.Title"),
+                    text: L10n.telegram("Gift.Convert.Success.Text", L10n.telegramPlural(
+                        "Gift.Convert.Success.Text.Stars", count: count, formattedCount: Self.formatted(count),
+                    ))
+                    .replacing("**", with: ""),
+                    in: host.view, bottomInset: 12, undo: nil,
+                )
+            }
+        }
+    }
+
     private func resolvePeers() {
         let sender: MessageSender?
         let rowID: String
@@ -508,6 +586,7 @@ final class GiftInfoViewController: UIViewController {
         let client = client
         Task { [weak self] in
             guard let peer = await SettingsPeer.resolve(sender, client: client), let self else { return }
+            senderName = peer.title
             table.setPeer(peer, client: client, forRow: rowID)
             view.setNeedsLayout()
         }
@@ -527,6 +606,8 @@ final class GiftInfoTableView: UIView {
             case peer(SettingsPeer?)
             /// An attribute's name with its rarity badge (ButtonContentComponent: 11 pt on a pill of its colour).
             case attribute(String, (String, UIColor))
+            /// A value with an accent pill that acts, as Value's "sell for N Stars".
+            case valueAction(String, String, () -> Void)
         }
 
         let id: String
@@ -634,6 +715,8 @@ final class GiftInfoTableView: UIView {
             return GiftInfoPeerView(peer: peer, client: client)
         case .attribute(let name, let rarity):
             return GiftInfoAttributeView(name: name, badge: rarity.0, color: rarity.1)
+        case .valueAction(let text, let title, let action):
+            return GiftInfoAttributeView(name: text, badge: title, color: .tintColor, action: action)
         }
     }
 
@@ -763,8 +846,14 @@ private final class GiftInfoAttributeView: UIView {
     private let badgeLabel = UILabel()
     private let badgeBackground = CALayer()
 
-    init(name: String, badge: String, color: UIColor) {
+    private var action: (() -> Void)?
+
+    init(name: String, badge: String, color: UIColor, action: (() -> Void)? = nil) {
         super.init(frame: .zero)
+        self.action = action
+        if action != nil {
+            addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(badgeTapped(_:))))
+        }
         nameLabel.text = name
         nameLabel.font = .systemFont(ofSize: 15)
         nameLabel.textColor = .label
@@ -805,5 +894,11 @@ private final class GiftInfoAttributeView: UIView {
             width: badgeSize.width,
             height: badgeSize.height,
         )
+    }
+
+    /// Only the pill acts.
+    @objc private func badgeTapped(_ gesture: UITapGestureRecognizer) {
+        guard badgeBackground.frame.insetBy(dx: -8, dy: -8).contains(gesture.location(in: self)) else { return }
+        action?()
     }
 }

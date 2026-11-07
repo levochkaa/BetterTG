@@ -3566,3 +3566,17 @@
 "PeerInfo.Gifts.Reorder" = "Reorder";
 "Gift.View.DisplayedInfoNew" = "This gift is visible. [Hide from Profile >]()";
 "Gift.View.HiddenInfoNew" = "This gift is hidden. [Show on Profile >]()";
+"Gift.View.Sale" = "sell for %@";
+"Gift.View.Sale.Stars_1" = "%@ Star";
+"Gift.View.Sale.Stars_any" = "%@ Stars";
+"Gift.Convert.Title" = "Convert Gift to Stars";
+"Gift.Convert.Convert" = "Convert";
+"Gift.Convert.Period.Text" = "Do you want to convert this gift from **%1$@** to **%2$@**?\n\nConversion is available for the next %3$@.\n\nThis will permanently destroy the gift.";
+"Gift.Convert.Period.Stars_1" = "%@ Star";
+"Gift.Convert.Period.Stars_any" = "%@ Stars";
+"Gift.Convert.Period.Days_1" = "%@ day";
+"Gift.Convert.Period.Days_any" = "%@ days";
+"Gift.Convert.Success.Title" = "Gift Converted";
+"Gift.Convert.Success.Text" = "You received **%1$@** instead.";
+"Gift.Convert.Success.Text.Stars_1" = "%@ Star";
+"Gift.Convert.Success.Text.Stars_any" = "%@ Stars";
