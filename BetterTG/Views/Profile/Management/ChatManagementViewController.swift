@@ -31,6 +31,9 @@ final class ChatManagementViewController: SettingsListViewController {
     private var actionTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
+    /// The reactions as last chosen here, ahead of the chat TDLib sent.
+    private var availableReactions: TDNativeChatAvailableReactions?
+
     private var canChangeInfo: Bool {
         target?.rights?.canChangeInfo == true
     }
@@ -186,6 +189,25 @@ final class ChatManagementViewController: SettingsListViewController {
                     ? "GroupInfo.GroupHistoryVisible"
                     : "GroupInfo.GroupHistoryHidden"),
             ) { [weak self] in self?.presentHistoryMenu(rowTitle: title, isVisible: info.isAllHistoryAvailable) })
+        }
+        // PeerInfoProfileItems' Reactions for whoever may change the chat's info.
+        if target.rights?.canChangeInfo == true {
+            let available = availableReactions ?? target.chat.availableReactions
+            rows.append(disclosure(
+                L10n.telegram("PeerInfo.Reactions"),
+                symbol: "heart",
+                value: ChatReactionsViewController.summary(available),
+            ) { [weak self] in
+                guard let self else { return }
+                let screen = ChatReactionsViewController(
+                    chatID: target.chat.id, isChannel: isChannel, available: available,
+                )
+                screen.onChange = { [weak self] updated in
+                    self?.availableReactions = updated
+                    self?.reload()
+                }
+                push(screen)
+            })
         }
         return rows
     }

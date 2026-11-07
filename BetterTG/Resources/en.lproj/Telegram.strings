@@ -3905,3 +3905,15 @@
 "UserInfo.ResetToOriginalAlertReset" = "Reset";
 "BlockedUsers.BlockUser" = "Block User...";
 "BlockedUsers.SelectUserTitle" = "Block User";
+"PeerInfo.AllowedReactions.Title" = "Reactions";
+"PeerInfo.AllowedReactions.AllowAllText" = "Allow Reactions";
+"PeerInfo.AllowedReactions.ReactionListHeader" = "AVAILABLE REACTIONS";
+"PeerInfo.AllowedReactions.OptionAllReactions" = "All Reactions";
+"PeerInfo.AllowedReactions.OptionSomeReactions" = "Some Reactions";
+"PeerInfo.AllowedReactions.OptionNoReactions" = "No Reactions";
+"PeerInfo.AllowedReactions.GroupOptionAllInfo" = "Members of this group can use any emoji as reactions to messages.";
+"PeerInfo.AllowedReactions.GroupOptionSomeInfo" = "Members of the group can use only some allowed emoji as reactions to messages.";
+"PeerInfo.AllowedReactions.GroupOptionNoInfo" = "Members of the group can't add any reactions to messages.";
+"PeerInfo.Reactions" = "Reactions";
+"PeerInfo.ReactionsDisabled" = "Disabled";
+"PeerInfo.LabelAllReactions" = "All Reactions";
