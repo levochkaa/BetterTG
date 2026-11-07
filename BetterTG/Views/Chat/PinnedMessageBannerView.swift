@@ -211,6 +211,36 @@ final class PinnedMessageBannerView: UIView {
         return keyboard.rows[0][0]
     }
 
+    /// ChatPinnedMessageTitlePanelNode's Stars payment: a Buy button whose title has ⭐️ shows Item List/PremiumIcon
+    /// in its place, between spaces and a point up.
+    private static func starsPaymentTitle(of message: Message) -> AttributedString? {
+        guard let button = inlineButton(of: message), case .inlineKeyboardButtonTypeBuy = button.type,
+              button.text.contains("⭐️"),
+              let star = UIImage(named: "Message/PremiumStar")?.withTintColor(.white, renderingMode: .alwaysOriginal)
+        else { return nil }
+        let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let rounded = font.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 15) } ?? font
+        let parts = button.text.components(separatedBy: "⭐️")
+        let result = NSMutableAttributedString()
+        for (index, part) in parts.enumerated() {
+            if index > 0 {
+                let attachment = NSTextAttachment(image: star)
+                attachment.bounds = CGRect(
+                    x: 0,
+                    y: 1 + (rounded.capHeight - star.size.height) / 2,
+                    width: star.size.width,
+                    height: star.size.height,
+                )
+                result.append(NSAttributedString(string: " "))
+                result.append(NSAttributedString(attachment: attachment))
+                result.append(NSAttributedString(string: " "))
+            }
+            result.append(NSAttributedString(string: part))
+        }
+        result.addAttribute(.font, value: rounded, range: NSRange(location: 0, length: result.length))
+        return AttributedString(result)
+    }
+
     private static func previewText(for message: Message) -> String {
         let presentation = MessageContentPresentation.make(message)
         guard let formattedText = presentation.formattedText else {
@@ -274,6 +304,7 @@ final class PinnedMessageBannerView: UIView {
             ? L10n.telegram("Chat.PinnedListPreview.ShowAllMessages")
             : L10n.betterTG("Accessibility.HidePinnedMessage")
         inlineButton.configuration?.title = inlineButtonTitle
+        inlineButton.configuration?.attributedTitle = Self.starsPaymentTitle(of: message)
         inlineButton.accessibilityLabel = inlineButtonTitle
         inlineButton.isHidden = inlineButtonTitle == nil
         actionButton.isHidden = inlineButtonTitle != nil

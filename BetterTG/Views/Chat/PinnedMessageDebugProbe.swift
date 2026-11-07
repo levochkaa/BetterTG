@@ -121,19 +121,28 @@
             else { return }
             // `-ui-probe-pinned-inline-button`: the pin carries a single inline button, as a bot's post does.
             let inlineButton = ProcessInfo.processInfo.arguments.contains("-ui-probe-pinned-inline-button")
+            // `-ui-probe-pinned-stars-button` makes it a Stars payment, whose ⭐️ becomes the Premium star.
+            let starsButton = ProcessInfo.processInfo.arguments.contains("-ui-probe-pinned-stars-button")
             let message = makeMessage(
                 id: 9001,
                 text: "Pinned preview remains one line and opens the exact message",
                 replyMarkup: inlineButton
                     ? .replyMarkupInlineKeyboard(ReplyMarkupInlineKeyboard(
-                        rows: [[InlineKeyboardButton(
-                            text: "Open Site",
-                            iconCustomEmojiId: 0,
-                            style: .buttonStyleDefault,
-                            type: .inlineKeyboardButtonTypeUrl(
-                                InlineKeyboardButtonTypeUrl(url: "https://telegram.org"),
-                            ),
-                        )]],
+                        rows: [[starsButton
+                                ? InlineKeyboardButton(
+                                    text: "Pay ⭐️50",
+                                    iconCustomEmojiId: 0,
+                                    style: .buttonStyleDefault,
+                                    type: .inlineKeyboardButtonTypeBuy,
+                                )
+                                : InlineKeyboardButton(
+                                    text: "Open Site",
+                                    iconCustomEmojiId: 0,
+                                    style: .buttonStyleDefault,
+                                    type: .inlineKeyboardButtonTypeUrl(
+                                        InlineKeyboardButtonTypeUrl(url: "https://telegram.org"),
+                                    ),
+                                )]],
                         forceReply: false,
                     ))
                     : nil,
