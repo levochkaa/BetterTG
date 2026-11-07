@@ -10,7 +10,7 @@ import UIKit
 /// PeerInfoScreenAddressItem, separated by inset lines.
 final class ProfileInfoCardView: UIView {
     enum Row: Equatable {
-        case value(label: String, rightLabel: String? = nil, text: String)
+        case value(label: String, rightLabel: String? = nil, text: String, tapOpensMenu: Bool = false)
         case hours(BusinessHours)
         case address(label: String, text: String, opens: Bool)
     }
@@ -23,6 +23,8 @@ final class ProfileInfoCardView: UIView {
     }
 
     var onOpenAddress: (() -> Void)?
+    /// The row's menu, from a long press or, for a row that asks for it, a tap.
+    var onMenu: ((Row, UIView) -> Void)?
 
     private(set) var rows = [Row]()
 
@@ -56,8 +58,17 @@ final class ProfileInfoCardView: UIView {
         for (index, row) in rows.enumerated() {
             let view: UIView =
                 switch row {
-                case .value(let label, let rightLabel, let text):
-                    ProfileInfoValueRowView(label: label, rightLabel: rightLabel, text: text)
+                case .value(let label, let rightLabel, let text, let tapOpensMenu):
+                    ProfileInfoValueRowView(
+                        label: label,
+                        rightLabel: rightLabel,
+                        text: text,
+                        action: tapOpensMenu
+                            ? {
+                                [weak self] in self?.openMenu(for: index)
+                            }
+                            : nil,
+                    )
                 case .hours(let hours):
                     BusinessHoursRowView(hours: hours) { [weak self] in self?.relayout() }
                 case .address(let label, let text, let opens):
@@ -73,9 +84,23 @@ final class ProfileInfoCardView: UIView {
                     )
                 }
             if index > 0 { addSeparator(to: view) }
+            let longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+            view.addGestureRecognizer(longPress)
+            view.tag = index
             stack.addArrangedSubview(view)
         }
         isHidden = rows.isEmpty
+    }
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let view = gesture.view else { return }
+        (view as? UIControl)?.cancelTracking(with: nil)
+        openMenu(for: view.tag)
+    }
+
+    private func openMenu(for index: Int) {
+        guard rows.indices.contains(index), stack.arrangedSubviews.indices.contains(index) else { return }
+        onMenu?(rows[index], stack.arrangedSubviews[index])
     }
 
     private func relayout() {
@@ -170,7 +195,7 @@ private final class ProfileInfoValueRowView: UIControl {
 /// PeerInfoScreenBusinessHoursItem: business hours, then Open in green or Closed in red with today's hours or when it
 /// opens, and a chevron; a tap lists the week, Monday first, and, when the hours read differently in the account's time
 /// zone, a switch between the business's local time and the account's.
-private final class BusinessHoursRowView: UIControl {
+final class BusinessHoursRowView: UIControl {
     // MARK: Week
 
     private enum Day: Equatable {
@@ -261,6 +286,17 @@ private final class BusinessHoursRowView: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// businessHoursTextToCopy: each day on its line, "Monday: 09:00 - 18:00", in the business's time.
+    static func copyText(_ hours: ProfileInfoCardView.BusinessHours) -> String {
+        let titles = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        return weekDays(hours.intervals)
+            .enumerated()
+            .map { index, day in
+                "\(L10n.telegram("Weekday.\(titles[index])")): \(text(for: day, separator: ", "))"
+            }
+            .joined(separator: "\n")
+    }
+
     private static func minuteSet(_ intervals: [Range<Int>]) -> IndexSet {
         var result = IndexSet()
         for interval in intervals where interval.lowerBound < interval.upperBound {
@@ -298,7 +334,7 @@ private final class BusinessHoursRowView: UIControl {
     }
 
     /// dayBusinessHoursText: open 24 hours, closed, or each range on its line.
-    private static func text(for day: Day) -> String {
+    private static func text(for day: Day, separator: String = "\n") -> String {
         switch day {
         case .open:
             L10n.telegram("PeerInfo.BusinessHours.DayOpen24h")
@@ -306,7 +342,7 @@ private final class BusinessHoursRowView: UIControl {
             L10n.telegram("PeerInfo.BusinessHours.DayClosed")
         case .intervals(let ranges):
             ranges.map { "\(timeText(minute: $0.lowerBound)) - \(timeText(minute: $0.upperBound))" }
-                .joined(separator: "\n")
+                .joined(separator: separator)
         }
     }
 
@@ -433,6 +469,10 @@ private final class BusinessHoursRowView: UIControl {
 extension TDNativeBirthdate {
     /// stringForCompactBirthday with showAge: "5 January 1999 (25 years old)", the year and age when known.
     var compactText: String {
+        compactText(showsAge: true)
+    }
+
+    func compactText(showsAge: Bool) -> String {
         let months = [
             "January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
             "November", "December",
@@ -443,6 +483,7 @@ extension TDNativeBirthdate {
         }
         if year > 0 {
             components.append("\(year)")
+            guard showsAge else { return components.joined(separator: " ") }
             let calendar = Calendar(identifier: .gregorian)
             if let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
                let age = calendar.dateComponents([.year], from: date, to: Date()).year, age > 0

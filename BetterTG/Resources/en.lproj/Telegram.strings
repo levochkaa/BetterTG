@@ -3963,3 +3963,14 @@
 "PeerInfo.BusinessHours.TimezoneSwitchBusiness" = "local time";
 "PeerInfo.BusinessHours.Label" = "business hours";
 "PeerInfo.Location.Label" = "location";
+"PeerInfo.ToastNoteCopied" = "Note copied to clipboard.";
+"PeerInfo.NoteActionEdit" = "Edit Note";
+"PeerInfo.NoteActionCopy" = "Copy Note";
+"MyProfile.ToastBirthdayCopied" = "Birthday copied to clipboard.";
+"MyProfile.BirthdayActionEdit" = "Edit Birthday";
+"MyProfile.BirthdayActionCopy" = "Copy";
+"MyProfile.ToastHoursCopied" = "Hours copied to clipboard.";
+"MyProfile.HoursActionCopy" = "Copy Hours";
+"MyProfile.ToastLocationCopied" = "Location copied to clipboard.";
+"MyProfile.LocationActionOpen" = "Open in Maps";
+"MyProfile.LocationActionCopy" = "Copy Address";

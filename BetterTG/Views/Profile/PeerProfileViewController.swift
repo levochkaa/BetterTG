@@ -214,6 +214,7 @@ ClientRestorableNavigationEntry {
     private let personalChannelView = PersonalChannelCardView()
     private let infoCardView = ProfileInfoCardView()
     private var businessLocation: TDNativeBusinessLocation?
+    private var infoBirthdate: TDNativeBirthdate?
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -2480,6 +2481,7 @@ ClientRestorableNavigationEntry {
         personalChannelView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         infoCardView.isHidden = true
         infoCardView.onOpenAddress = { [weak self] in self?.openBusinessLocation() }
+        infoCardView.onMenu = { [weak self] row, view in self?.openInfoRowMenu(row, from: view) }
         headerStack.setCustomSpacing(20, after: personalChannelView)
         headerStack.addArrangedSubview(infoCardView)
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
@@ -3417,9 +3419,11 @@ ClientRestorableNavigationEntry {
     private func applyInfoRows(_ info: UserFullInfo) {
         var rows = [ProfileInfoCardView.Row]()
         if let birthdate = info.birthdate {
+            infoBirthdate = birthdate
             rows.append(.value(
                 label: L10n.telegram(birthdate.isToday ? "UserInfo.BirthdayToday" : "UserInfo.Birthday"),
                 text: birthdate.compactText,
+                tapOpensMenu: isMyProfile,
             ))
         }
         if let note = info.note?.text.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
@@ -3495,6 +3499,61 @@ ClientRestorableNavigationEntry {
             personalChannelView.isHidden = false
             view.setNeedsLayout()
         }
+    }
+
+    /// openBirthdayContextMenu, openNoteContextMenu, openWorkingHoursContextMenu and openBusinessLocationContextMenu:
+    /// Edit on My Profile's birthday and on a contact's notes, Open for a place on the map, and Copy with its toast.
+    /// The business's own Edit and Remove belong to Telegram Business, which BetterTG leaves out.
+    private func openInfoRowMenu(_ row: ProfileInfoCardView.Row, from sourceView: UIView) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        var actions = [TelegramContextMenuAction]()
+        let copy = { [weak self] (text: String, title: String, toast: String) in
+            TelegramContextMenuAction(title: L10n.telegram(title), image: UIImage(systemName: "doc.on.doc")) {
+                UIPasteboard.general.string = text
+                self?.showInfoToast(L10n.telegram(toast))
+            }
+        }
+        switch row {
+        case .value(_, let rightLabel, let text, _):
+            if rightLabel != nil {
+                if customChat.user?.isContact == true {
+                    actions.append(TelegramContextMenuAction(
+                        title: L10n.telegram("PeerInfo.NoteActionEdit"), image: UIImage(systemName: "pencil"),
+                    ) { [weak self] in self?.editPressed() })
+                }
+                actions.append(copy(text, "PeerInfo.NoteActionCopy", "PeerInfo.ToastNoteCopied"))
+            } else if let birthdate = infoBirthdate {
+                if isMyProfile {
+                    actions.append(TelegramContextMenuAction(
+                        title: L10n.telegram("MyProfile.BirthdayActionEdit"), image: UIImage(systemName: "pencil"),
+                    ) { [weak self] in
+                        let profile = EditProfileViewController()
+                        profile.opening = .birthday
+                        self?.navigationController?.pushViewController(profile, animated: true)
+                    })
+                }
+                actions.append(copy(
+                    birthdate.compactText(showsAge: false), "MyProfile.BirthdayActionCopy",
+                    "MyProfile.ToastBirthdayCopied",
+                ))
+            }
+        case .hours(let hours):
+            actions.append(copy(
+                BusinessHoursRowView.copyText(hours),
+                "MyProfile.HoursActionCopy",
+                "MyProfile.ToastHoursCopied",
+            ))
+        case .address(_, let text, let opens):
+            if opens {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("MyProfile.LocationActionOpen"),
+                    image: UIImage(systemName: "mappin.and.ellipse"),
+                ) { [weak self] in self?.openBusinessLocation() })
+            }
+            actions.append(copy(text, "MyProfile.LocationActionCopy", "MyProfile.ToastLocationCopied"))
+        }
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
     }
 
     /// PeerInfoScreen's openLocation: the business's place on the map, titled with its name.
