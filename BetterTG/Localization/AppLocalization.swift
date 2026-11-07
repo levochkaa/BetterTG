@@ -106,6 +106,10 @@ final class AppLocalization: @unchecked Sendable {
     private static let defaultsKey = "appLanguagePackID"
     private static let localizationTarget = "ios"
 
+    /// PresentationStrings' formatting (extractArgumentRanges and formatWithArgumentRanges): only `%@`, `%d` and `%f`,
+    /// numbered or not, take the arguments, so a plain "%" in a string such as "uses %1$@% of your cache" stays.
+    private static let telegramArgumentPattern = /%(?:(\d+)\$)?([@df])/
+
     private let lock = NSLock()
     private var availableLanguagesStorage: [AppLanguage]
     private var cancellables = Set<AnyCancellable>()
@@ -248,6 +252,28 @@ final class AppLocalization: @unchecked Sendable {
     private static func format(_ value: String, localeID: String, arguments: [CVarArg]) -> String {
         guard !arguments.isEmpty else { return value }
         return String(format: value, locale: Locale(identifier: localeID), arguments: arguments)
+    }
+
+    private static func telegramFormat(_ value: String, arguments: [CVarArg]) -> String {
+        guard !arguments.isEmpty else { return value }
+        var nextIndex = 0
+        return value.replacing(telegramArgumentPattern) { match in
+            let index: Int
+            if let position = match.1.flatMap({ Int($0) }) {
+                index = position - 1
+            } else {
+                index = nextIndex
+                nextIndex += 1
+            }
+            guard arguments.indices.contains(index) else { return String(match.0) }
+            let argument = arguments[index]
+            if match.2 == "f", let number = argument as? Double {
+                return String(format: "%f", number)
+            }
+            if let string = argument as? String { return string }
+            if let string = argument as? NSString { return string as String }
+            return "\(argument)"
+        }
     }
 
     private static func telegramPluralSuffix(_ category: TelegramPluralCategory) -> String {
@@ -430,7 +456,7 @@ final class AppLocalization: @unchecked Sendable {
             }
             return (bundledTelegramString(key), "en")
         }
-        return Self.format(result.0, localeID: result.1, arguments: arguments)
+        return Self.telegramFormat(result.0, arguments: arguments)
     }
 
     func telegramPluralString(_ key: String, count: Int, formattedCount: String? = nil) -> String {
@@ -452,7 +478,7 @@ final class AppLocalization: @unchecked Sendable {
         // with the grouping separator either way (formatNumberWithGroupingSeparator).
         let template = result.0.replacing(/%(\d+\$)?d/) { "%\($0.1 ?? "")@" }
         let argument = (formattedCount ?? Self.formattedNumber(count)) as NSString
-        return Self.format(template, localeID: result.1, arguments: [argument])
+        return Self.telegramFormat(template, arguments: [argument])
     }
 
     func betterTGString(_ key: String, arguments: [CVarArg] = []) -> String {
