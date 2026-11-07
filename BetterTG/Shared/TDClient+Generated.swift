@@ -785,6 +785,10 @@ extension TDClient {
         try await send(TDNativeRequests.getScopeNotificationSettings(scope: scope))
     }
 
+    func getSecretChat(secretChatId: Int) async throws -> TDNativeSecretChat {
+        try await send(TDNativeRequests.getSecretChat(secretChatId: secretChatId))
+    }
+
     func getStickers(
         chatId: Int64,
         limit: Int,
