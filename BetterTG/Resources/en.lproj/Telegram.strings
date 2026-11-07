@@ -4025,3 +4025,7 @@
 "ChatList.EmptyChatList" = "You have no\nconversations yet.";
 "ChatList.EmptyChatListWithArchive" = "All of your chats are archived.";
 "ChatList.EmptyChatListNewMessage" = "New Message";
+"ChatList.MessagePhotos_1" = "1 Photo";
+"ChatList.MessagePhotos_any" = "%@ Photos";
+"ChatList.MessageVideos_1" = "1 Videos";
+"ChatList.MessageVideos_any" = "%@ Videos";

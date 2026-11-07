@@ -155,7 +155,8 @@ struct ChatListMediaPreview: Equatable {
 // MARK: - ChatListMediaPreviews
 
 /// ChatListItem's contentImageSpecs over the last message's album: up to three thumbnails, oldest first, 2 pt apart,
-/// and the text chatListItemStrings gives the group, its first caption or else the last message's.
+/// and the text chatListItemStrings gives the group: its first caption, else "N Photos" or "N Videos" for an album of
+/// one kind, else the last message's.
 struct ChatListMediaPreviews: Equatable {
     static let limit = 3
     static let spacing = CGFloat(2)
@@ -171,7 +172,33 @@ struct ChatListMediaPreviews: Equatable {
         let previews = messages.compactMap { ChatListMediaPreview.make(for: $0, inSecretChat: inSecretChat) }
         guard let last = previews.last else { return nil }
         let caption = messages.lazy.compactMap(captionText).first
-        return Self(items: Array(previews.prefix(limit)), text: caption ?? last.text)
+        return Self(items: Array(previews.prefix(limit)), text: caption ?? groupText(messages) ?? last.text)
+    }
+
+    /// messageGroupType's `.photos` and `.videos`: every message of the album is that kind.
+    private static func groupText(_ messages: [Message]) -> FormattedText? {
+        guard messages.count > 1 else { return nil }
+        let key: String
+        if messages.allSatisfy({
+            if case .messagePhoto = $0.content {
+                true
+            } else {
+                false
+            }
+        }) {
+            key = "ChatList.MessagePhotos"
+        } else if messages.allSatisfy({
+            if case .messageVideo = $0.content {
+                true
+            } else {
+                false
+            }
+        }) {
+            key = "ChatList.MessageVideos"
+        } else {
+            return nil
+        }
+        return ChatListMediaPreview.plain(L10n.telegramPlural(key, count: messages.count))
     }
 
     private static func captionText(_ message: Message) -> FormattedText? {

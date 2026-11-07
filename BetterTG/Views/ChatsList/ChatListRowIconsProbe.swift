@@ -304,6 +304,22 @@ import UIKit
                 inSecretChat: false,
             )
             try require(bare?.text?.text == L10n.telegram("Message.Video"), "album label")
+            let photos = ChatListMediaPreviews.make(
+                for: [message(26, photo("")), message(27, photo("")), message(28, photo(""))],
+                inSecretChat: false,
+            )
+            try require(
+                photos?.text?.text == L10n.telegramPlural("ChatList.MessagePhotos", count: 3),
+                "album of photos",
+            )
+            let videos = ChatListMediaPreviews.make(
+                for: [message(29, video("")), message(30, video(""))],
+                inSecretChat: false,
+            )
+            try require(
+                videos?.text?.text == L10n.telegramPlural("ChatList.MessageVideos", count: 2),
+                "album of videos",
+            )
             try require(previews.map { $0.width == 18 * 3 + 2 * 2 } == true, "album width")
         }
 
