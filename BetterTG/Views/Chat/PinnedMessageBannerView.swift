@@ -19,12 +19,24 @@ final class PinnedMessageBannerView: UIView {
         let inlineButtonTitle: String?
     }
 
-    static let contentHeight = CGFloat(50)
+    /// HeaderPanelContainerComponent: the 50 pt panel in a glass capsule 16 pt from the sides, with the bar's space
+    /// under it.
+    static let panelHeight = CGFloat(50)
+    static let contentHeight = panelHeight + 8
 
     /// ChatPinnedMessageTitlePanelNode's context container: a long press previews the pinned list with its actions.
     var onContextMenu: ((ContextMenuPressGestureRecognizer) -> Void)? {
         didSet { contextGesture.isEnabled = onContextMenu != nil }
     }
+
+    private let glassView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
 
     private let accentView = PinnedNavigationStripeView()
     private let thumbnailView = TDImageLoadingView()
@@ -51,30 +63,18 @@ final class PinnedMessageBannerView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-        // The divider from the navigation bar above, as Telegram's header panels draw one.
-        let topSeparator = UIView()
-        topSeparator.translatesAutoresizingMaskIntoConstraints = false
-        topSeparator.backgroundColor = .separator
-        addSubview(topSeparator)
-        NSLayoutConstraint.activate([
-            topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSeparator.topAnchor.constraint(equalTo: topAnchor),
-            topSeparator.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
-        ])
+        // The panel stands in interactive glass, its content inside it; no dividers, as Telegram's glass header has
+        // none above its first panel.
+        addSubview(glassView)
+        let panel = glassView.contentView
 
         accentView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(accentView)
+        panel.addSubview(accentView)
 
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailView.contentMode = .scaleAspectFill
         thumbnailView.clipsToBounds = true
-        addSubview(thumbnailView)
+        panel.addSubview(thumbnailView)
 
         titleLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
             for: .systemFont(ofSize: 13, weight: .semibold),
@@ -102,7 +102,7 @@ final class PinnedMessageBannerView: UIView {
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(bodyLabel)
         textStack.isUserInteractionEnabled = false
-        addSubview(textStack)
+        panel.addSubview(textStack)
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitDisplayScale.self]) {
             (self: Self, _) in
             self.textStack.spacing = self.textSpacing()
@@ -111,12 +111,12 @@ final class PinnedMessageBannerView: UIView {
         actionButton.translatesAutoresizingMaskIntoConstraints = false
         actionButton.accessibilityIdentifier = "pinned-message-hide"
         actionButton.addTarget(self, action: #selector(actionPressed), for: .touchUpInside)
-        addSubview(actionButton)
+        panel.addSubview(actionButton)
 
         openControl.translatesAutoresizingMaskIntoConstraints = false
         openControl.accessibilityIdentifier = "pinned-message-open"
         openControl.addTarget(self, action: #selector(openPressed), for: .touchUpInside)
-        addSubview(openControl)
+        panel.addSubview(openControl)
 
         var configuration = UIButton.Configuration.filled()
         configuration.cornerStyle = .capsule
@@ -133,7 +133,7 @@ final class PinnedMessageBannerView: UIView {
         inlineButton.accessibilityIdentifier = "pinned-message-inline-button"
         inlineButton.isHidden = true
         inlineButton.addTarget(self, action: #selector(inlineButtonPressed), for: .touchUpInside)
-        addSubview(inlineButton)
+        panel.addSubview(inlineButton)
         contextGesture.isEnabled = false
         addGestureRecognizer(contextGesture)
 
@@ -147,40 +147,42 @@ final class PinnedMessageBannerView: UIView {
             constant: -7,
         )
         NSLayoutConstraint.activate([
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
-            accentView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 10),
-            accentView.topAnchor.constraint(equalTo: topAnchor),
-            accentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glassView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            glassView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassView.heightAnchor.constraint(equalToConstant: Self.panelHeight),
+            // ChatPinnedMessageTitlePanelNode's content 18 pt in from the capsule's sides.
+            accentView.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 18),
+            accentView.topAnchor.constraint(equalTo: panel.topAnchor),
+            accentView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
             accentView.widthAnchor.constraint(equalToConstant: 2),
             thumbnailView.leadingAnchor.constraint(equalTo: accentView.trailingAnchor, constant: 6),
-            thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            thumbnailView.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
             thumbnailView.heightAnchor.constraint(equalToConstant: 35),
             thumbnailWidthConstraint,
             // Telegram's ChatPinnedMessageTitlePanelNode places the title at y 6 and the text at y 23 in its 50 pt
             // panel. Both labels keep their own height: a stack stretched to the panel let UIKit pick which label
             // grew, so a rebuilt banner could draw both lines 4 pt lower.
-            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            textStack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 6),
             {
-                let constraint = textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -2)
+                let constraint = textStack.bottomAnchor.constraint(lessThanOrEqualTo: panel.bottomAnchor, constant: -2)
                 constraint.priority = .defaultHigh
                 return constraint
             }(),
             textLeadingConstraint,
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -6),
-            actionButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -2),
-            actionButton.topAnchor.constraint(equalTo: topAnchor),
-            actionButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // The close and list icons end about 21 pt from the capsule's end.
+            actionButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -7),
+            actionButton.topAnchor.constraint(equalTo: panel.topAnchor),
+            actionButton.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
             actionButton.widthAnchor.constraint(equalToConstant: 44),
-            openControl.topAnchor.constraint(equalTo: topAnchor),
-            openControl.leadingAnchor.constraint(equalTo: leadingAnchor),
+            openControl.topAnchor.constraint(equalTo: panel.topAnchor),
+            openControl.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
             openControl.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor),
-            openControl.bottomAnchor.constraint(equalTo: bottomAnchor),
-            // The pill ends 11 pt from the edge, its title at most 150 pt wide and the pill at least 40.
-            inlineButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -11),
-            inlineButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            openControl.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
+            // The pill ends 11 pt from the capsule's end, its title at most 150 pt wide and the pill at least 40.
+            inlineButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -11),
+            inlineButton.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
             inlineButton.heightAnchor.constraint(equalToConstant: 28),
             inlineButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
             inlineButton.widthAnchor.constraint(lessThanOrEqualToConstant: 170),
