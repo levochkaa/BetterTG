@@ -196,6 +196,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
         AppPasscode.shared.sceneDidConnect(windowScene)
         #if DEBUG
+            // `-ui-slow-animations`: every animation runs at a quarter of its speed, so a gesture can land inside one.
+            if ProcessInfo.processInfo.arguments.contains("-ui-slow-animations") { window.layer.speed = 0.25 }
             MediaGalleryTransitionTarget.runDebugProbeIfRequested(in: window)
             VideoNoteHoldProbe.runIfRequested(in: window)
             TDImageLoadingProbe.runIfRequested()
