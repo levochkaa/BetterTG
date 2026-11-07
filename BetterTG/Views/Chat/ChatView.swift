@@ -756,6 +756,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         importBarrier.onQuiescent = { [weak self] in self?.retryClientRestoration() }
     }
 
+    /// A context preview's own screens (the gallery, a sheet, an alert) wait for the menu to close and stand over the
+    /// window's controllers: presented from the preview, which the menu holds outside the window's presentations,
+    /// they misbehaved and their dismissal left the menu's backdrop behind.
+    override func present(
+        _ viewControllerToPresent: UIViewController,
+        animated flag: Bool,
+        completion: (() -> Void)? = nil,
+    ) {
+        guard presentationMode == .contextPreview, isInsideContextMenuPreview else {
+            super.present(viewControllerToPresent, animated: flag, completion: completion)
+            return
+        }
+        leavingContextMenuPreview { host in
+            guard var top = host else { return }
+            while let presented = top.presentedViewController, !presented.isBeingDismissed {
+                top = presented
+            }
+            top.present(viewControllerToPresent, animated: flag, completion: completion)
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground

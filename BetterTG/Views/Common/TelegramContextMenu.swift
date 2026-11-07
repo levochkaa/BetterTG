@@ -4318,3 +4318,10 @@ extension UIViewController {
         }
     }
 }
+
+/// A screen pushed while a context menu is open (a mention or a button in its preview) closes the menu, which would
+/// otherwise stay over the new screen.
+@MainActor func dismissOpenTelegramContextMenu() {
+    guard let menu = TelegramContextMenuController.activeController, menu.isOpen else { return }
+    menu.dismissForPreviewNavigation {}
+}

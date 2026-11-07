@@ -65,6 +65,7 @@ import UIKit
     func push(_ route: Route, animated: Bool = true, fromList: Bool = false) {
         if fromList, splitController.isSplit, isShownInDetail(route) { return }
         guard let controller = controller(for: route) else { return }
+        dismissOpenTelegramContextMenu()
         if controller is TelegramMasterPaneScreen {
             navigationController.pushViewController(controller, animated: animated)
         } else if fromList, splitController.isSplit {
