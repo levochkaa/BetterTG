@@ -72,6 +72,11 @@ import UIKit
     private var filter = ChatListSearchFilter.chats
     /// The chat type the table's search ran with: none for Chats, channels or bots for their tabs.
     private var searchedChatType: SearchChatTypeFilter?
+    /// ChatListSearchListPaneNode's searchScope for the Chats tab's messages: all chats, or private chats, groups or
+    /// channels only, chosen from the Messages header.
+    private var messagesScope: SearchMessagesChatTypeFilter?
+    /// The chat type the shown messages were searched with, which their next pages keep.
+    private var searchedMessageType: SearchMessagesChatTypeFilter?
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let emptyView = ChatListSearchEmptyView()
     private var dataSource: UITableViewDiffableDataSource<Section, Item>!
@@ -219,6 +224,15 @@ import UIKit
         return ids.filter { seen.insert($0).inserted }
     }
 
+    private static func messagesScopeTitle(_ scope: SearchMessagesChatTypeFilter?) -> String {
+        switch scope {
+        case .searchMessagesChatTypeFilterPrivate?: L10n.telegram("ChatList.Search.Messages.PrivateChats")
+        case .searchMessagesChatTypeFilterGroup?: L10n.telegram("ChatList.Search.Messages.GroupChats")
+        case .searchMessagesChatTypeFilterChannel?: L10n.telegram("ChatList.Search.Messages.Channels")
+        default: L10n.telegram("ChatList.Search.Messages.AllChats")
+        }
+    }
+
     /// Results coming into view start at their top, under the bar as it is now: hidden, they didn't follow it.
     func restAtTop() {
         view.setNeedsLayout()
@@ -342,7 +356,14 @@ import UIKit
                 action: { [weak self] in self?.toggleGlobalExpansion() },
             )
         case .messages:
-            header.configure(title: L10n.telegram("DialogList.SearchSectionMessages"), actionTitle: nil, action: nil)
+            // The Chats tab's messages say where they come from, which a tap changes (openMessagesFilter).
+            let actionTitle: String? = filter == .chats ? Self.messagesScopeTitle(messagesScope) + " ⌄" : nil
+            header.configure(
+                title: L10n.telegram("DialogList.SearchSectionMessages"),
+                actionTitle: actionTitle,
+                actionInGlass: false,
+                action: actionTitle == nil ? nil : { [weak self] source in self?.openMessagesFilter(from: source) },
+            )
         }
         return header
     }
@@ -352,6 +373,32 @@ import UIKit
               indexPath.row >= dataSource.snapshot().numberOfItems(inSection: .messages) - 5
         else { return }
         loadMoreMessages()
+    }
+
+    /// openMessagesFilter: All Chats, Private Chats, Group Chats or Channels, the current one checked; a choice
+    /// searches the messages again.
+    private func openMessagesFilter(from source: UIView) {
+        // interaction.dismissInput: the search field, outside this list, gives up the keyboard.
+        view.window?.endEditing(true)
+        let options: [(SearchMessagesChatTypeFilter?, String)] = [
+            (nil, "ChatList.Search.Messages.Menu.AllChats"),
+            (.searchMessagesChatTypeFilterPrivate, "ChatList.Search.Messages.Menu.PrivateChats"),
+            (.searchMessagesChatTypeFilterGroup, "ChatList.Search.Messages.Menu.GroupChats"),
+            (.searchMessagesChatTypeFilterChannel, "ChatList.Search.Messages.Menu.Channels"),
+        ]
+        let check = UIImage(systemName: "checkmark")
+        let actions = options.map { scope, key in
+            TelegramContextMenuAction(
+                title: L10n.telegram(key),
+                image: Self.messagesScopeTitle(scope) == Self.messagesScopeTitle(messagesScope) ? check : UIImage(),
+            ) { [weak self] in
+                guard let self, Self.messagesScopeTitle(scope) != Self.messagesScopeTitle(messagesScope) else { return }
+                messagesScope = scope
+                applySnapshot(reloadingSections: [.messages])
+                startSearch()
+            }
+        }
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .menuOnly)
     }
 
     /// The Chats tab shows the chats and messages found; another tab its kind of message from all chats.
@@ -693,7 +740,8 @@ import UIKit
         // The Channels tab finds channel posts too; the Apps tab finds no messages.
         let messageTypeFilter: SearchMessagesChatTypeFilter? = filter == .channels
             ? .searchMessagesChatTypeFilterChannel
-            : nil
+            : filter == .chats ? messagesScope : nil
+        searchedMessageType = messageTypeFilter
         async let foundMessages = filter == .apps
             ? nil
             : client.searchMessages(
@@ -760,19 +808,14 @@ import UIKit
                     scheduleMoreMessagesCheck()
                 }
             }
-            let channelPosts =
-                if case .searchChatTypeFilterChannel? = searchedChatType {
-                    true
-                } else {
-                    false
-                }
+            let messageType = searchedMessageType
             let found = try? await client.searchMessages(
                 chatList: chatList,
                 query: query,
                 offset: offset,
                 limit: Self.messagesPageLimit,
                 filter: nil,
-                chatTypeFilter: channelPosts ? .searchMessagesChatTypeFilterChannel : nil,
+                chatTypeFilter: messageType,
                 minDate: 0,
                 maxDate: 0,
             )

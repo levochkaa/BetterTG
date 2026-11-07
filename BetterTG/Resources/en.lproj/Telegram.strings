@@ -4013,3 +4013,11 @@
 "PeerInfo.AutoDeleteInfo" = "Automatically delete messages sent in this chat after a certain period of time.";
 "PeerInfo.ChannelAutoDeleteInfo" = "Automatically delete messages sent in this channel after a certain period of time.";
 "AutoremoveSetup.AdditionalGlobalSettingsInfo" = "You can also set your default [self-destruct timer]() for all chats in Settings.";
+"ChatList.Search.Messages.AllChats" = "From All Chats";
+"ChatList.Search.Messages.PrivateChats" = "From Private Chats";
+"ChatList.Search.Messages.GroupChats" = "From Group Chats";
+"ChatList.Search.Messages.Channels" = "From Channels";
+"ChatList.Search.Messages.Menu.AllChats" = "All Chats";
+"ChatList.Search.Messages.Menu.PrivateChats" = "Private Chats";
+"ChatList.Search.Messages.Menu.GroupChats" = "Group Chats";
+"ChatList.Search.Messages.Menu.Channels" = "Channels";
