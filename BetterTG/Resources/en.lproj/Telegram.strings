@@ -3889,3 +3889,17 @@
 "Conversation.DeletedFromContacts" = "**%@** deleted from your contacts";
 "PeerInfo.AddNotesPlaceholder" = "Add Notes";
 "PeerInfo.AddNotesInfo" = "Notes are only visible to you.";
+"UserInfo.SuggestBirthdate" = "Suggest Date of Birth";
+"SuggestBirthdate.Suggest.Title" = "%@'s Date of Birth";
+"UserInfo.SuggestPhoto" = "Suggest Photo for %@";
+"UserInfo.SetCustomPhoto" = "Set Photo for %@";
+"UserInfo.ChangeCustomPhoto" = "Change Photo for %@";
+"UserInfo.ResetCustomPhoto" = "Reset to Original Photo";
+"UserInfo.CustomPhotoInfo" = "You can replace %@’s photo with another photo that only you will see.";
+"UserInfo.SuggestPhoto.AlertPhotoText" = "Do you want to suggest %@ to set this photo for their profile?";
+"UserInfo.SuggestPhoto.AlertSuggest" = "Suggest";
+"UserInfo.SetCustomPhoto.AlertPhotoText" = "Do you want to set this photo for %@? It will replace any photo %@ sets, but only you will see it.";
+"UserInfo.SetCustomPhoto.AlertSet" = "Set";
+"UserInfo.SetCustomPhoto.SuccessPhotoText" = "You will now always see this photo for **%@**.";
+"UserInfo.ResetToOriginalAlertText" = "Are you sure you want to reset to the original photo from %@?";
+"UserInfo.ResetToOriginalAlertReset" = "Reset";

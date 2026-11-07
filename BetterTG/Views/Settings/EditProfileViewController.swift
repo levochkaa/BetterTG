@@ -153,7 +153,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         return sections
     }
 
-    private static func squareJPEG(_ image: UIImage) -> Data? {
+    static func squareJPEG(_ image: UIImage) -> Data? {
         let side = min(image.size.width, image.size.height)
         guard side > 0 else { return nil }
         let target = min(side, 1280)
@@ -535,7 +535,7 @@ private final class EditProfileHeaderView: UIView {
 // MARK: - BirthdayPickerViewController
 
 /// Telegram's BirthdayPickerScreen: a date picker with Save.
-private final class BirthdayPickerViewController: UIViewController {
+final class BirthdayPickerViewController: UIViewController {
     private let datePicker = UIDatePicker()
     private let initial: TDNativeBirthdate?
     private let onSave: (TDNativeBirthdate) -> Void
