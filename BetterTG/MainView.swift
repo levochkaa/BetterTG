@@ -2700,12 +2700,13 @@ final class FolderPickerView: UIView {
               folders.indices.contains(button.tag)
         else { return }
         let folder = folders[button.tag]
-        // Trying the button morph here, as the tab bar's menus open.
         nearestViewController?.presentTelegramContextMenu(
             sourceView: button,
             actions: folderActions(for: folder),
             tracking: gesture,
-            presentationStyle: .sourceMorph,
+            presentationStyle: .menuOnly,
+            menuAnchorView: controlEffectView,
+            menuSpacing: Self.controlTopInset / 2,
         )
         button.accessibilityHint = L10n.betterTG("Accessibility.FolderActions", folder.name)
     }
