@@ -6,8 +6,8 @@ import UIKit
 // MARK: - PrivacyRuleEditorViewController
 
 /// Telegram's SelectivePrivacySettingsController for one rule: Everybody, My Contacts or Nobody, the rule's help, the
-/// exceptions that apply to the chosen option, and for the phone number who can find the account by it. Each choice
-/// saves at once with setUserPrivacySettingRules.
+/// exceptions that apply to the chosen option, for the phone number who can find the account by it, and for calls
+/// who they go peer-to-peer with. Each choice saves at once with setUserPrivacySettingRules.
 final class PrivacyRuleEditorViewController: SettingsListViewController {
     var onChange: ((PrivacyRuleState) -> Void)?
 
@@ -16,6 +16,8 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     private var state: PrivacyRuleState
     /// Who can find the account by its number (userPrivacySettingAllowFindingByPhoneNumber).
     private var discovery: PrivacyRuleState?
+    /// Who calls go peer-to-peer with (userPrivacySettingAllowPeerToPeerCalls).
+    private var peerToPeer: PrivacyRuleState?
 
     private var exceptionsInfo: String {
         guard kind == .profilePhoto else { return L10n.telegram("PrivacyLastSeenSettings.CustomShareSettingsHelp") }
@@ -41,6 +43,7 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
         super.viewDidLoad()
         title = kind.screenTitle
         if kind == .phoneNumber { loadDiscovery() }
+        if kind == .calls { loadPeerToPeer() }
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -100,6 +103,7 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             footer: exceptionsInfo,
             rows: exceptionRows,
         ))
+        if let peerToPeer { sections += peerToPeerSections(peerToPeer) }
         return sections
     }
 
@@ -109,6 +113,46 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
         } else {
             L10n.telegramPlural("UserCount", count: count)
         }
+    }
+
+    /// The calls' Peer-to-Peer sections: Always, My Contacts or Never, then the exceptions that apply. iOS Call
+    /// Integration is left out with calls.
+    private func peerToPeerSections(_ state: PrivacyRuleState) -> [SettingsSection] {
+        let options: [(PrivacyRuleState.Base, String)] = [
+            (.everybody, L10n.telegram("Privacy.Calls.P2PAlways")),
+            (.contacts, L10n.telegram("Privacy.Calls.P2PContacts")),
+            (.nobody, L10n.telegram("Privacy.Calls.P2PNever")),
+        ]
+        var exceptionRows = [SettingsRow]()
+        if state.showsNever {
+            exceptionRows.append(SettingsRow(
+                title: kind.neverTitle,
+                detail: Self.countText(state.neverCount),
+                accessory: .disclosure,
+            ) { [weak self] in self?.openExceptions(always: false, peerToPeer: true) })
+        }
+        if state.showsAlways {
+            exceptionRows.append(SettingsRow(
+                title: kind.alwaysTitle,
+                detail: Self.countText(state.alwaysCount),
+                accessory: .disclosure,
+            ) { [weak self] in self?.openExceptions(always: true, peerToPeer: true) })
+        }
+        return [
+            SettingsSection(
+                header: L10n.telegram("Privacy.Calls.P2P"),
+                footer: L10n.telegram("Privacy.Calls.P2PHelp"),
+                rows: options.map { base, title in
+                    SettingsRow(title: title, accessory: state.base == base ? .checkmark : .none) { [weak self] in
+                        self?.selectPeerToPeer(base)
+                    }
+                },
+            ),
+            SettingsSection(
+                footer: L10n.telegram("PrivacyLastSeenSettings.CustomShareSettingsHelp"),
+                rows: exceptionRows,
+            ),
+        ]
     }
 
     private func select(_ base: PrivacyRuleState.Base) {
@@ -128,6 +172,37 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             state = updated
             onChange?(updated)
             reload()
+        }
+    }
+
+    private func loadPeerToPeer() {
+        let client = client
+        Task { [weak self] in
+            let rules = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
+                setting: .userPrivacySettingAllowPeerToPeerCalls,
+            ))
+            guard let self, contextIsCurrent, let rules else { return }
+            peerToPeer = PrivacyRuleState(rules: rules)
+            reload()
+        }
+    }
+
+    private func selectPeerToPeer(_ base: PrivacyRuleState.Base) {
+        guard var updated = peerToPeer, base != updated.base else { return }
+        updated.base = base
+        savePeerToPeer(updated)
+    }
+
+    private func savePeerToPeer(_ updated: PrivacyRuleState) {
+        let rules = updated.tdRules
+        perform { client in
+            _ = try await client.send(TDNativeRequests.setUserPrivacySettingRules(
+                setting: .userPrivacySettingAllowPeerToPeerCalls,
+                rules: rules,
+            ))
+        } completion: { [weak self] in
+            self?.peerToPeer = updated
+            self?.reload()
         }
     }
 
@@ -160,14 +235,15 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     }
 
     /// Telegram's SelectivePrivacySettingsPeersController. A person or group added to one list leaves the other.
-    private func openExceptions(always: Bool) {
+    private func openExceptions(always: Bool, peerToPeer: Bool = false) {
+        guard let state = peerToPeer ? self.peerToPeer : state else { return }
         let controller = PrivacyExceptionsViewController(
             title: always ? kind.alwaysTitle : kind.neverTitle,
             userIDs: always ? state.allowUserIDs : state.restrictUserIDs,
             chatIDs: always ? state.allowChatIDs : state.restrictChatIDs,
         )
         controller.onChange = { [weak self] userIDs, chatIDs in
-            guard let self else { return }
+            guard let self, let state = peerToPeer ? self.peerToPeer : self.state else { return }
             var updated = state
             if always {
                 updated.allowUserIDs = userIDs
@@ -180,7 +256,7 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
                 updated.allowUserIDs.removeAll(where: userIDs.contains)
                 updated.allowChatIDs.removeAll(where: chatIDs.contains)
             }
-            save(updated)
+            if peerToPeer { savePeerToPeer(updated) } else { save(updated) }
         }
         navigationController?.pushViewController(controller, animated: true)
     }

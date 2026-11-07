@@ -4098,3 +4098,8 @@
 "Conversation.ShareLinkTooltip.Chat.One" = "Link shared with **%@**";
 "Conversation.ShareLinkTooltip.TwoChats.One" = "Link shared with **%@** and **%@**";
 "Conversation.ShareLinkTooltip.ManyChats.One" = "Link shared with **%@** and %@ others";
+"Privacy.Calls.P2P" = "Peer-to-Peer";
+"Privacy.Calls.P2PHelp" = "Disabling peer-to-peer will relay all calls through Telegram servers to avoid revealing your IP address, but will slightly decrease audio quality.";
+"Privacy.Calls.P2PAlways" = "Always";
+"Privacy.Calls.P2PContacts" = "My Contacts";
+"Privacy.Calls.P2PNever" = "Never";
