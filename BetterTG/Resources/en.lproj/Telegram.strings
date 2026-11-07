@@ -3457,3 +3457,11 @@
 "Gift.Hidden.ChannelText" = "The gift is removed from the channel's Page.";
 "PeerInfo.Gifts.ToastPinLimit.Text_1" = "You can't pin more than %@ gift.";
 "PeerInfo.Gifts.ToastPinLimit.Text_any" = "You can't pin more than %@ gifts.";
+"PeerInfo.Gifts.SortByDate" = "Sort by Date";
+"PeerInfo.Gifts.SortByValue" = "Sort by Value";
+"PeerInfo.Gifts.Unlimited" = "Unlimited";
+"PeerInfo.Gifts.Limited" = "Limited";
+"PeerInfo.Gifts.Upgradable" = "Upgradable";
+"PeerInfo.Gifts.Unique" = "Unique";
+"PeerInfo.Gifts.Displayed" = "Displayed";
+"PeerInfo.Gifts.Hidden" = "Hidden";

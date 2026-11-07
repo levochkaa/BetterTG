@@ -530,6 +530,7 @@
 "Profile.PostsEmpty" = "No posts";
 "Profile.GiftsLoadFailed" = "Couldn't load gifts.";
 "Profile.GiftsEmpty" = "No gifts";
+"Profile.GiftsFilter" = "Sort and Filter Gifts";
 "Profile.Title" = "Profile";
 "Profile.ForumStatus" = "forum";
 "Profile.ReloadFailed" = "Couldn't reload profile.";

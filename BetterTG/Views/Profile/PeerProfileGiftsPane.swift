@@ -1,5 +1,6 @@
 // PeerProfileGiftsPane.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -9,6 +10,22 @@ import UIKit
 /// getReceivedGifts a page at a time, in TDLib's order (pinned first). The pane shows once the full info's gift count
 /// is above zero.
 @MainActor final class PeerProfileGiftsPane {
+    /// ProfileGiftsContext.Filters: the kinds of gift the list shows, all at first.
+    struct Filter: OptionSet {
+        static let unlimited = Filter(rawValue: 1 << 0)
+        static let limitedNonUpgradable = Filter(rawValue: 1 << 1)
+        static let limitedUpgradable = Filter(rawValue: 1 << 2)
+        static let unique = Filter(rawValue: 1 << 3)
+        static let displayed = Filter(rawValue: 1 << 4)
+        static let hidden = Filter(rawValue: 1 << 5)
+
+        static let kinds: Filter = [.unlimited, .limitedNonUpgradable, .limitedUpgradable, .unique]
+        static let visibility: Filter = [.displayed, .hidden]
+        static let all: Filter = kinds.union(visibility)
+
+        let rawValue: Int
+    }
+
     private static let pageSize = 50
 
     var onChange: (() -> Void)?
@@ -27,6 +44,8 @@ import UIKit
     private var offset = ""
     private var loadTask: Task<Void, Never>?
     private var replacesOnNextPage = false
+    private let filter = CurrentValueSubject<Filter, Never>(.all)
+    private let sortsByValue = CurrentValueSubject<Bool, Never>(false)
 
     var isLoading: Bool { loadTask != nil }
 
@@ -58,21 +77,23 @@ import UIKit
         let client = client
         let ownerID = ownerID
         let offset = offset
+        let filter = filter.value
+        let sortByPrice = sortsByValue.value
         loadTask = Task { [weak self] in
             let result = await Result {
                 try await client.send(TDNativeRequests.getReceivedGifts(
                     businessConnectionId: "",
                     ownerId: ownerID,
                     collectionId: 0,
-                    excludeUnsaved: false,
-                    excludeSaved: false,
-                    excludeUnlimited: false,
-                    excludeUpgradable: false,
-                    excludeNonUpgradable: false,
-                    excludeUpgraded: false,
+                    excludeUnsaved: !filter.contains(.hidden),
+                    excludeSaved: !filter.contains(.displayed),
+                    excludeUnlimited: !filter.contains(.unlimited),
+                    excludeUpgradable: !filter.contains(.limitedUpgradable),
+                    excludeNonUpgradable: !filter.contains(.limitedNonUpgradable),
+                    excludeUpgraded: !filter.contains(.unique),
                     excludeWithoutColors: false,
                     excludeHosted: false,
-                    sortByPrice: false,
+                    sortByPrice: sortByPrice,
                     offset: offset,
                     limit: Self.pageSize,
                 ))
@@ -121,6 +142,47 @@ import UIKit
         hasMore = true
         replacesOnNextPage = true
         loadMore()
+    }
+
+    // MARK: Filter
+
+    /// PeerInfoScreenDisplayGiftsContextMenu: Sort by Value or by Date, then the kinds of gift (Unlimited, Limited,
+    /// Upgradable, Unique) and, where the viewer manages the gifts, Displayed and Hidden, each checked while shown. A
+    /// kind toggles with the menu open; the last kind left switches Unlimited back on, and the last visibility left
+    /// switches the other one on.
+    func filterMenuActions(hasVisibility: Bool) -> [TelegramContextMenuAction] {
+        let sortsByValue = sortsByValue.value
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram(sortsByValue ? "PeerInfo.Gifts.SortByDate" : "PeerInfo.Gifts.SortByValue"),
+            image: UIImage(systemName: sortsByValue ? "calendar" : "dollarsign.circle"),
+        ) { [weak self] in
+            guard let self else { return }
+            self.sortsByValue.send(!sortsByValue)
+            reload()
+        }]
+        var kinds: [(String, Filter)] = [
+            ("PeerInfo.Gifts.Unlimited", .unlimited),
+            ("PeerInfo.Gifts.Limited", .limitedNonUpgradable),
+            ("PeerInfo.Gifts.Upgradable", .limitedUpgradable),
+            ("PeerInfo.Gifts.Unique", .unique),
+        ]
+        if hasVisibility {
+            kinds += [("PeerInfo.Gifts.Displayed", .displayed), ("PeerInfo.Gifts.Hidden", .hidden)]
+        }
+        let check = UIImage(systemName: "checkmark")
+        for (index, (key, value)) in kinds.enumerated() {
+            var action = TelegramContextMenuAction(
+                title: L10n.telegram(key),
+                image: filter.value.contains(value) ? check : nil,
+            ) { [weak self] in self?.toggle(value) }
+            action.imageUpdates = filter.map { $0.contains(value) ? check : nil }
+                .removeDuplicates()
+                .eraseToAnyPublisher()
+            action.keepsMenuOpen = true
+            action.startsNewSection = index == 0 || value == .displayed
+            actions.append(action)
+        }
+        return actions
     }
 
     // MARK: Menu
@@ -181,6 +243,22 @@ import UIKit
             })
         }
         return actions
+    }
+
+    private func toggle(_ value: Filter) {
+        var updated = filter.value
+        if updated.contains(value) {
+            updated.remove(value)
+        } else {
+            updated.insert(value)
+        }
+        if updated.isDisjoint(with: .kinds) { updated.insert(.unlimited) }
+        if updated.isDisjoint(with: .visibility) {
+            updated.insert(value == .displayed ? .hidden : .displayed)
+        }
+        guard updated != filter.value else { return }
+        filter.send(updated)
+        reload()
     }
 
     /// ProfileGiftsContext.updateStarGiftPinnedToTop: the gift joins the end of the pinned list or leaves it, up to

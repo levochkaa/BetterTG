@@ -364,6 +364,15 @@ ClientRestorableNavigationEntry {
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
     private var membersPane: PeerProfileMembersPane?
     private var giftsPane: PeerProfileGiftsPane?
+    private var canEditProfile = false
+    private lazy var giftsFilterItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(primaryAction: UIAction(
+            image: UIImage(systemName: "line.3.horizontal.decrease"),
+        ) { [weak self] _ in self?.openGiftsFilterMenu() })
+        item.accessibilityLabel = L10n.betterTG("Profile.GiftsFilter")
+        return item
+    }()
+
     /// The full info's gift count; the panes wait for it, since Gifts comes second.
     private var giftCount: Int?
     private var currentSupergroupMemberCount = 0
@@ -3237,11 +3246,35 @@ ClientRestorableNavigationEntry {
                 // management items); the name fields need Change Info.
                 infoPermission.canChangeInfo || isChatAdministrator
             }
-        navigationItem.rightBarButtonItem = canEdit
-            ? UIBarButtonItem(
+        canEditProfile = canEdit
+        updateRightBarItems()
+    }
+
+    /// Edit for whoever may edit, and on the Gifts pane PeerInfoScreen's sort button, which opens
+    /// PeerInfoScreenDisplayGiftsContextMenu. Telegram shows it while the pane is expanded; BetterTG's profile
+    /// scrolls as one list, so it shows while Gifts is the pane.
+    private func updateRightBarItems() {
+        guard selectedMessageIDs == nil, selectedPostIDs == nil, !isReorderingPosts else { return }
+        var items = [UIBarButtonItem]()
+        if canEditProfile {
+            items.append(UIBarButtonItem(
                 title: L10n.telegram("Common.Edit"), style: .plain, target: self, action: #selector(editPressed),
-            )
-            : nil
+            ))
+        }
+        if currentSharedTab == .gifts, giftsPane != nil {
+            items.append(giftsFilterItem)
+        }
+        navigationItem.rightBarButtonItems = items
+    }
+
+    private func openGiftsFilterMenu() {
+        guard contextIsCurrent, currentSharedTab == .gifts, let giftsPane,
+              let source = giftsFilterItem.telegramChromeView else { return }
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: giftsPane.filterMenuActions(hasVisibility: isMyProfile),
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func configureSharedMessageRefresh() {
@@ -3984,6 +4017,7 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func tabChanged() {
+        updateRightBarItems()
         cancelSharedItemDownload(cancelInTDLib: true)
         sharedViewportGeneration &+= 1
         restoredViewport = nil

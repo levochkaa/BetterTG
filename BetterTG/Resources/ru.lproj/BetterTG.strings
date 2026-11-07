@@ -530,6 +530,7 @@
 "Profile.PostsEmpty" = "Нет публикаций";
 "Profile.GiftsLoadFailed" = "Не удалось загрузить подарки.";
 "Profile.GiftsEmpty" = "Нет подарков";
+"Profile.GiftsFilter" = "Сортировка и фильтр подарков";
 "Profile.Title" = "Профиль";
 "Profile.ForumStatus" = "форум";
 "Profile.ReloadFailed" = "Не удалось обновить профиль.";
