@@ -18,6 +18,10 @@ struct MessageTextLink: Equatable {
         case botCommand(String)
         /// A hashtag or cashtag as written, "@chat" included.
         case hashtag(String)
+        /// A media timestamp as written, and its seconds.
+        case timecode(String, seconds: Int)
+        /// A bank card number as written.
+        case bankCard(String)
     }
 
     let target: Target
@@ -28,9 +32,11 @@ struct MessageTextLink: Equatable {
     var previewText: String {
         switch target {
         case .url(let url): url.replacing("mailto:", with: "")
-        case .botCommand(let text),
+        case .bankCard(let text),
+             .botCommand(let text),
              .hashtag(let text),
-             .mention(let text): text
+             .mention(let text),
+             .timecode(let text, _): text
         case .userMention(_, let text): text
         }
     }
@@ -155,8 +161,10 @@ struct MessageMentionMenu {
                 avatar: avatar,
                 destination: .user(userID),
             )
-        case .botCommand,
+        case .bankCard,
+             .botCommand,
              .hashtag,
+             .timecode,
              .url:
             return nil
         }
@@ -218,6 +226,65 @@ struct MessageMentionMenu {
             )
             row.isInformational = true
             actions.append(row)
+        }
+        return actions
+    }
+}
+
+// MARK: - MessageTimecodeMenu
+
+/// ChatControllerOpenTimecodeContextMenu: Copy, which copies the message's public link at that moment (`?t=`) in a
+/// public chat, as Telegram does for a channel with a username, and the timecode as written elsewhere.
+enum MessageTimecodeMenu {
+    /// `publicLink` is the message's public link at the timecode, nil where the chat has none.
+    static func actions(
+        timecode: String,
+        publicLink: @escaping @MainActor () async -> String?,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        [TelegramContextMenuAction(
+            title: L10n.telegram("Chat.Context.Timecode.Copy"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: {
+                Task { @MainActor in
+                    UIPasteboard.general.string = await publicLink() ?? timecode
+                    copied(L10n.telegram("Conversation.TextCopied"))
+                }
+            },
+        )]
+    }
+
+    /// getMessageLink at `seconds` (`?t=`), when the link is public.
+    static func publicLink(chatID: Int64, messageID: Int64, seconds: Int, client: TDLibClient) async -> String? {
+        let link = try? await client.send(TDNativeRequests.getMessageLink(
+            chatId: chatID, messageId: messageID, mediaTimestamp: seconds, checklistTaskId: 0,
+            pollOptionId: "", forAlbum: false, inMessageThread: false,
+        ))
+        return link.flatMap { $0.isPublic ? $0.link : nil }
+    }
+}
+
+// MARK: - MessageBankCardMenu
+
+/// ChatControllerOpenBankCardContextMenu: Copy Card Number, then what getBankCardInfo says of the card in small text.
+enum MessageBankCardMenu {
+    static func actions(
+        number: String,
+        title: String?,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram("Chat.Context.Card.Copy"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: {
+                UIPasteboard.general.string = number
+                copied(L10n.telegram("Conversation.CardNumberCopied"))
+            },
+        )]
+        if let title, !title.isEmpty {
+            var info = TelegramContextMenuAction(title: title, startsNewSection: true)
+            info.isInformational = true
+            actions.append(info)
         }
         return actions
     }

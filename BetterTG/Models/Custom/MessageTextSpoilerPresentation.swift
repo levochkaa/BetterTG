@@ -157,6 +157,8 @@ struct MessageTextSpoilerPresentation {
             case .textEntityTypeBotCommand: return (.botCommand(raw), range)
             case .textEntityTypeCashtag,
                  .textEntityTypeHashtag: return (.hashtag(raw), range)
+            case .textEntityTypeMediaTimestamp(let value): return (.timecode(raw, seconds: value.mediaTimestamp), range)
+            case .textEntityTypeBankCardNumber: return (.bankCard(raw), range)
             default: continue
             }
         }

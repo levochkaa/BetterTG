@@ -10374,7 +10374,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
         if let (link, textView) = cell.contextLink(at: gesture.location(in: cell)) {
-            presentLinkMenu(link, in: textView, cell: cell, gesture: gesture)
+            presentLinkMenu(link, in: textView, cell: cell, messageID: message.message.id, gesture: gesture)
             return
         }
         // A file or music album quotes the caption of the file under the finger, replying to that file.
@@ -10480,6 +10480,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         _ link: MessageTextLink,
         in textView: MessageTextContentView,
         cell: MessageCell,
+        messageID: Int64,
         gesture: ContextMenuPressGestureRecognizer,
     ) {
         endLinkPress()
@@ -10498,6 +10499,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .botCommand(let command):
             let actions = MessageCommandMenu.actions(command: command, copied: copied)
             showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+        case .timecode(let timecode, let seconds):
+            let client = chatVM.client
+            let chatID = chatVM.chatID
+            let actions = MessageTimecodeMenu.actions(
+                timecode: timecode,
+                publicLink: {
+                    await MessageTimecodeMenu.publicLink(
+                        chatID: chatID, messageID: messageID, seconds: seconds, client: client,
+                    )
+                },
+                copied: copied,
+            )
+            showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+        case .bankCard(let number):
+            // The menu waits for getBankCardInfo, as Telegram's does behind its progress.
+            let client = chatVM.client
+            Task { [weak self, weak textView, weak cell] in
+                let info = try? await client.send(TDNativeRequests.getBankCardInfo(bankCardNumber: number))
+                guard let self, let textView, let cell, chatVM.locationContextIsCurrent, !isSelectingMessages,
+                      textView.window != nil else { return }
+                let actions = MessageBankCardMenu.actions(number: number, title: info?.title, copied: copied)
+                showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+            }
         case .hashtag(let hashtag):
             let actions = MessageHashtagMenu.actions(
                 hashtag: hashtag,

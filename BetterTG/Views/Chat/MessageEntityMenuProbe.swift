@@ -63,9 +63,9 @@ import UIKit
             guard condition else { throw Failure(description: message) }
         }
 
-        /// "a.io x a@b.io @name /go Ann +123 #tag hidden.io": every entity a press may land on.
+        /// "a.io x a@b.io @name /go Ann +123 #tag 1:05 4242424242424242 hidden.io": every entity a press may land on.
         private static func verifyTargets() throws {
-            let text = "a.io x a@b.io @name /go Ann +123 #tag hidden.io"
+            let text = "a.io x a@b.io @name /go Ann +123 #tag 1:05 4242424242424242 hidden.io"
             func entity(_ word: String, _ type: TextEntityType) -> TextEntity {
                 let range = (text as NSString).range(of: word)
                 return TextEntity(length: range.length, offset: range.location, type: type)
@@ -79,6 +79,8 @@ import UIKit
                 entity("Ann", .textEntityTypeMentionName(.init(userId: 42))),
                 entity("+123", .textEntityTypePhoneNumber),
                 entity("#tag", .textEntityTypeHashtag),
+                entity("1:05", .textEntityTypeMediaTimestamp(.init(mediaTimestamp: 65))),
+                entity("4242424242424242", .textEntityTypeBankCardNumber),
                 entity("hidden.io", .textEntityTypeUrl),
                 entity("hidden.io", .textEntityTypeSpoiler),
             ], text: text)
@@ -95,6 +97,8 @@ import UIKit
             try require(target(at: "Ann") == .userMention(42, text: "Ann"), "text mention")
             try require(target(at: "+123") == nil, "phone has no menu yet")
             try require(target(at: "#tag") == .hashtag("#tag"), "hashtag")
+            try require(target(at: "1:05") == .timecode("1:05", seconds: 65), "timecode")
+            try require(target(at: "4242424242424242") == .bankCard("4242424242424242"), "bank card")
             try require(
                 presentation.action(at: (text as NSString).range(of: "#tag").location, revealed: false)
                 == .hashtag("#tag"),
@@ -111,6 +115,16 @@ import UIKit
         }
 
         private static func verifyMenus() throws {
+            let card = MessageBankCardMenu.actions(number: "4242", title: "Visa", copied: { _ in })
+            try require(
+                card.map(\.title) == [L10n.telegram("Chat.Context.Card.Copy"), "Visa"],
+                "card \(card.map(\.title))",
+            )
+            try require(card[1].isInformational && card[1].startsNewSection, "card info row")
+            let timecode = MessageTimecodeMenu.actions(
+                timecode: "1:05", publicLink: { nil }, copied: { _ in },
+            )
+            try require(timecode.map(\.title) == [L10n.telegram("Chat.Context.Timecode.Copy")], "timecode menu")
             let link = MessageLinkMenu(url: "https://a.io").actions(open: {}, copied: { _ in }).map(\.title)
             try require(link == [
                 L10n.telegram("Conversation.LinkDialogOpen"),

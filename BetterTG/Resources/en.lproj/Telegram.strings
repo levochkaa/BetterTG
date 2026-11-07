@@ -3473,3 +3473,6 @@
 "SharedMedia.ShowCalendar" = "Show Calendar";
 "PeerInfo.Gifts.NoResults" = "No Matching Gifts";
 "PeerInfo.Gifts.NoResults.ViewAll" = "View All Gifts";
+"Chat.Context.Timecode.Copy" = "Copy Timecode";
+"Chat.Context.Card.Copy" = "Copy Card Number";
+"Conversation.CardNumberCopied" = "Card number copied to clipboard";
