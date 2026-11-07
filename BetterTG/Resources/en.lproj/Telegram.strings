@@ -4007,3 +4007,6 @@
 "SharedMedia.CalendarTooltip" = "Tap on this icon for calendar view";
 "Chat.SimilarChannels.Join" = "Join";
 "Chat.SimilarChannels.JoinedChannel" = "You joined channel **%@**.";
+"PeerInfo.NotificationMemberAdded" = "**%1$@** added to the group.";
+"PeerInfo.NotificationMultipleMembersAdded_1" = "**%d** member added to the group.";
+"PeerInfo.NotificationMultipleMembersAdded_any" = "**%d** members added to the group.";

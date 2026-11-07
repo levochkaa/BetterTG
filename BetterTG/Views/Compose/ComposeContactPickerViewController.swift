@@ -91,6 +91,16 @@ ComposeFlowScreen {
         )
     }
 
+    /// PeerInfo.NotificationMemberAdded with the one person's name, or the count of several.
+    private var addedText: String {
+        if selected.count == 1, let contact = selected.first {
+            let name = [contact.firstName, contact.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+            return L10n.telegram("PeerInfo.NotificationMemberAdded", name).withoutTelegramMarkup
+        }
+        return L10n.telegramPlural("PeerInfo.NotificationMultipleMembersAdded", count: selected.count)
+            .withoutTelegramMarkup
+    }
+
     init(mode: Mode) {
         self.mode = mode
         super.init()
@@ -372,7 +382,12 @@ ComposeFlowScreen {
                 )
                 navigationController?.popViewController(animated: true)
             } else {
+                // PresentAddMembers' toast on the screen the picker returns to.
+                let host = navigationController?.view
                 navigationController?.popViewController(animated: true)
+                if let host {
+                    TelegramUndoToast.show(text: addedText, in: host, bottomInset: 12, undo: nil)
+                }
             }
         }
     }
