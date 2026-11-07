@@ -14,6 +14,8 @@ final class PrivacySettingsViewController: SettingsListViewController {
     private var blockedCount: Int?
     private var websitesCount = 0
     private var hasPassword: Bool?
+    /// The login email's pattern from getPasswordState, nil until it is read; empty without one.
+    private var loginEmailPattern: String?
     private var autoDeleteTime: Int?
     private var accountTtlDays: Int?
     private var phoneNumber = ""
@@ -119,11 +121,52 @@ final class PrivacySettingsViewController: SettingsListViewController {
         ) { [weak self] in
             self?.navigationController?.pushViewController(WebBrowserSettingsViewController(), animated: true)
         }])
-        return [security, privacy, account, dataSettings, openLinksIn]
+        return [security] + loginEmailSections() + [privacy, account, dataSettings, openLinksIn]
     }
 
     private static func monthsText(_ days: Int) -> String {
         L10n.telegramPlural("MessageTimer.Months", count: max(1, days / 30))
+    }
+
+    /// PrivacyAndSecurityController's Login Email: shown with a login email, for a +7 number or in Russian, as Telegram
+    /// shows it; the footer offers to set one up or to change it.
+    private func loginEmailSections() -> [SettingsSection] {
+        guard let pattern = loginEmailPattern else { return [] }
+        let shows = !pattern.isEmpty || phoneNumber.hasPrefix("7")
+            || AppLocalization.shared.selectedLanguagePackID.hasPrefix("ru")
+        guard shows else { return [] }
+        let hasEmail = !pattern.isEmpty && !pattern.contains(" ")
+        return [SettingsSection(
+            footer: L10n.telegram(hasEmail ? "PrivacySettings.LoginEmailInfo" : "PrivacySettings.LoginEmailSetupInfo"),
+            rows: [SettingsRow(
+                title: L10n.telegram("PrivacySettings.LoginEmail"),
+                symbol: "envelope.fill",
+                symbolTint: .systemBlue,
+                accessory: .disclosure,
+            ) { [weak self] in self?.openLoginEmail(pattern: hasEmail ? pattern : nil) }],
+        )]
+    }
+
+    /// openEmailSettings: with an email, its pattern over LoginEmailAlertText and Change Email; otherwise the setup.
+    private func openLoginEmail(pattern: String?) {
+        guard let pattern else {
+            pushLoginEmailSetup(isChange: false)
+            return
+        }
+        let alert = UIAlertController(
+            title: pattern, message: L10n.telegram("PrivacySettings.LoginEmailAlertText"), preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("PrivacySettings.LoginEmailAlertChange"), style: .default) {
+            [weak self] _ in self?.pushLoginEmailSetup(isChange: true)
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func pushLoginEmailSetup(isChange: Bool) {
+        let setup = LoginEmailViewController(client: client, isChange: isChange)
+        setup.onCompleted = { [weak self] in self?.load() }
+        navigationController?.pushViewController(setup, animated: true)
     }
 
     private func load() {
@@ -151,6 +194,7 @@ final class PrivacySettingsViewController: SettingsListViewController {
             rules = loadedRules
             blockedCount = blocked?.totalCount
             hasPassword = password?.hasPassword
+            loginEmailPattern = password?.loginEmailAddressPattern
             autoDeleteTime = autoDelete?.time
             accountTtlDays = ttl?.days
             phoneNumber = me?.phoneNumber ?? ""

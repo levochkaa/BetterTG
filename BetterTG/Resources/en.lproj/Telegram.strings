@@ -3714,3 +3714,12 @@
 "Settings.SaveToCameraRollInfo" = "Automatically save all new photos and videos from these chats to your Cameral Roll.";
 "Settings.SaveToCameraRollSection" = "SAVE TO CAMERA ROLL";
 "Notifications.AddExceptionTitle" = "Add Exception";
+"Login.EnterNewEmailTitle" = "Enter New Email";
+"Login.InvalidEmailAddressError" = "An error occurred. Please try again.";
+"LoginEmail.Success.Text" = "Your account is now protected!";
+"LoginEmail.Success.Title" = "Email added";
+"PrivacySettings.LoginEmail" = "Login Email";
+"PrivacySettings.LoginEmailAlertChange" = "Change Email";
+"PrivacySettings.LoginEmailAlertText" = "This email address will be used every time you login to your Telegram account from a new device.";
+"PrivacySettings.LoginEmailInfo" = "Change your email address for Telegram login codes.";
+"PrivacySettings.LoginEmailSetupInfo" = "Setup your email address for Telegram login codes.";
