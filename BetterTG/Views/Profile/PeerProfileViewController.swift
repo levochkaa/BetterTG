@@ -301,6 +301,8 @@ ClientRestorableNavigationEntry {
 
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
     private var messagesByID = [Int64: Message]()
+    /// SparseItemGridScrollingArea over the Media tab's grid.
+    private let scrollingArea = SparseScrollingAreaView()
     private var cancellables = Set<AnyCancellable>()
     private var infoTask: Task<Void, Never>?
     private var avatarHistoryTask: Task<Void, Never>?
@@ -1272,6 +1274,11 @@ ClientRestorableNavigationEntry {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if currentSharedTab == .media {
+            scrollingArea.update(isScrolling: scrollView.isDragging || scrollView.isDecelerating)
+        } else {
+            scrollingArea.hide(animated: false)
+        }
         guard historyError != nil,
               scrollView.isDragging || scrollView.isDecelerating
         else { return }
@@ -2508,11 +2515,20 @@ ClientRestorableNavigationEntry {
         )
         view.addSubview(collectionView)
         collectionView.addSubview(profileHeaderView)
+        scrollingArea.translatesAutoresizingMaskIntoConstraints = false
+        scrollingArea.scrollView = collectionView
+        scrollingArea.currentDate = { [weak self] in self?.topMediaMonth() }
+        scrollingArea.onOpenCalendar = { [weak self] in self?.openMediaCalendar() }
+        view.addSubview(scrollingArea)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollingArea.topAnchor.constraint(equalTo: collectionView.topAnchor),
+            scrollingArea.leadingAnchor.constraint(equalTo: collectionView.leadingAnchor),
+            scrollingArea.trailingAnchor.constraint(equalTo: collectionView.trailingAnchor),
+            scrollingArea.bottomAnchor.constraint(equalTo: collectionView.bottomAnchor),
         ])
     }
 
@@ -3614,6 +3630,25 @@ ClientRestorableNavigationEntry {
 
     /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
     /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
+    /// The month and year of the first photo or video at the top of the grid, for the fast scroller.
+    private func topMediaMonth() -> (text: String, order: Int)? {
+        let top = collectionView.contentOffset.y + collectionView.safeAreaInsets.top
+        let visible = collectionView.indexPathsForVisibleItems.sorted()
+        let indexPath = visible.first { indexPath in
+            (collectionView.layoutAttributesForItem(at: indexPath)?.frame.maxY ?? 0) > top
+                && dataSource.itemIdentifier(for: indexPath).flatMap { messagesByID[$0] } != nil
+        }
+        guard let indexPath, let id = dataSource.itemIdentifier(for: indexPath), let message = messagesByID[id] else {
+            return nil
+        }
+        let parts = Calendar.current.dateComponents(
+            [.year, .month], from: Date(timeIntervalSince1970: TimeInterval(message.date)),
+        )
+        let year = parts.year ?? 2000
+        let month = parts.month ?? 1
+        return (L10n.telegram("Time.MonthOfYear_m\(month)", String(year)), year * 12 + month)
+    }
+
     private func openMediaCalendar() {
         guard contextIsCurrent, currentSharedTab == .media, presentedViewController == nil,
               let filter = effectiveSharedFilter else { return }
