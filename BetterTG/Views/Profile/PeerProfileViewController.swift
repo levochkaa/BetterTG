@@ -3448,7 +3448,8 @@ ClientRestorableNavigationEntry {
         ) { [weak self] day in self?.scrollMedia(to: day) }
         // The day's preview: the chat at its first photo or video, unread messages kept unread, and View in Chat.
         let customChat = customChat
-        picker.previewDay = { [weak self, weak picker] message in
+        picker.previewDay = { [weak self, weak picker] _, message in
+            guard let message else { return nil }
             let preview = ChatViewController(
                 customChat: customChat, presentationMode: .contextPreview, targetMessageID: message.id,
             )

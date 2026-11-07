@@ -8830,6 +8830,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             client: chatVM.client,
             initialDate: Date(timeIntervalSince1970: TimeInterval(dayTimestamp)),
         ) { [weak self] date in self?.jumpToMessageSearchDate(date) }
+        // ChatControllerOpenCalendarSearch's previewDay: holding a day previews the chat at its first message, history
+        // left unread, with Jump to Date. The private chats' Clear History and Select for a range aren't ported.
+        let customChat = chatVM.customChat
+        let location = location
+        let client = chatVM.client
+        picker.previewDay = { [weak self, weak picker] day, _ in
+            let start = Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970)
+            guard let id = await ChatMessageSearch.firstMessageID(sentSince: start, in: location, client: client)
+            else { return nil }
+            let preview = ChatViewController(
+                customChat: customChat, location: location, presentationMode: .contextPreview, targetMessageID: id,
+            )
+            let jump = TelegramContextMenuAction(
+                title: L10n.telegram("Chat.JumpToDate"),
+                image: UIImage(systemName: "arrow.right.circle"),
+            ) { [weak self, weak picker] in
+                picker?.dismiss(animated: true) { self?.jumpToMessageSearchDate(day) }
+            }
+            return (preview, [jump])
+        }
         let navigation = UINavigationController(rootViewController: picker)
         // The months scroll in a turned scroll view, which a sheet's pull to dismiss would take over; it closes with
         // its button (disablesInteractiveModalDismiss).
