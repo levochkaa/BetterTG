@@ -243,6 +243,13 @@ ComposeFlowScreen {
             self.contacts = (contacts ?? []).filter(allows)
             contactSections = ComposeContactSection.sections(self.contacts, sort: .name)
             reload()
+            #if DEBUG
+            // `-ui-probe-send-invite-link`: SendInviteLinkScreen for the first three contacts, the third Premium-only;
+            // nothing is added or sent.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-send-invite-link") {
+                await SendInviteLinkViewController.presentProbe(userIDs: self.contacts.map(\.userID), from: self)
+            }
+            #endif
         }
     }
 
@@ -338,8 +345,8 @@ ComposeFlowScreen {
     // MARK: Add members
 
     /// The checked people join the group or channel (addChatMembers, or addChatMember with Telegram's 100 forwarded
-    /// messages of history in a basic group); people whose privacy settings refuse are reported, then the list
-    /// returns.
+    /// messages of history in a basic group), then the list returns. People whose privacy settings refuse get
+    /// PresentAddMembers' SendInviteLinkScreen in place of the added toast.
     private func addMembers(to chatID: Int64, isBasicGroup: Bool) {
         guard actionTask == nil, contextIsCurrent else { return }
         let userIDs = selected.map(\.userID)
@@ -352,19 +359,20 @@ ComposeFlowScreen {
         let client = client
         actionTask = Task { [weak self] in
             var failure: Error?
-            var refused = false
+            var refused = [FailedToAddMember]()
             do {
                 if isBasicGroup {
                     for userID in userIDs {
-                        _ = try await client.send(TDNativeRequests.addChatMember(
+                        let result = try await client.send(TDNativeRequests.addChatMember(
                             chatId: chatID, userId: userID, forwardLimit: 100,
                         ))
+                        refused += result.failedToAddMembers
                     }
                 } else {
                     let result = try await client.send(TDNativeRequests.addChatMembers(
                         chatId: chatID, userIds: userIDs,
                     ))
-                    refused = !result.failedToAddMembers.isEmpty
+                    refused = result.failedToAddMembers
                 }
             } catch {
                 failure = error
@@ -375,12 +383,14 @@ ComposeFlowScreen {
             guard contextIsCurrent else { return }
             if let failure {
                 presentAlert(title: nil, message: ChatManagementRows.failureText(failure))
-            } else if refused {
-                presentAlert(
-                    title: nil,
-                    message: L10n.telegram("Privacy.GroupsAndChannels.InviteToChannelMultipleError"),
-                )
-                navigationController?.popViewController(animated: true)
+            } else if !refused.isEmpty {
+                let navigation = navigationController
+                navigation?.popViewController(animated: true)
+                if let navigation {
+                    await SendInviteLinkViewController.present(
+                        failed: refused, chatID: chatID, from: navigation, toastHost: navigation.view,
+                    )
+                }
             } else {
                 // PresentAddMembers' toast on the screen the picker returns to.
                 let host = navigationController?.view

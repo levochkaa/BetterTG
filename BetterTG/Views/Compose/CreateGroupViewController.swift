@@ -248,6 +248,18 @@ final class CreateGroupViewController: SettingsListViewController, ComposeFlowSc
                 let opened = await ComposeContacts.open(chatID: created.chatId, client: client) {
                     self?.contextIsCurrent == true
                 }
+                // CreateGroupController: people whose privacy settings refuse get SendInviteLinkScreen over the new
+                // chat, when the group has its link.
+                if opened {
+                    let navigation = NavigationStorage.shared.activeNavigationController
+                    await SendInviteLinkViewController.present(
+                        failed: created.failedToAddMembers.failedToAddMembers,
+                        chatID: created.chatId,
+                        requiresLink: true,
+                        from: navigation,
+                        toastHost: navigation.view,
+                    )
+                }
                 guard let self else { return }
                 createTask = nil
                 // The group exists; without its chat this screen stays, and Create would make another.
