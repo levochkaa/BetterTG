@@ -13,11 +13,12 @@ import UIKit
 @MainActor final class TelegramLinkRouter {
     // MARK: Adding bots
 
-    /// Where a bot's add link puts it: startgroup's group, whose start parameter goes to the bot, or startchannel's
-    /// channel.
+    /// Where a bot's add link puts it: startgroup's group, whose start parameter goes to the bot, startchannel's
+    /// channel, or, from the bot's profile, either.
     enum BotAdditionTarget {
         case group(startParameter: String)
         case channel
+        case chat
     }
 
     /// A link that waits until the account is ready.
@@ -136,6 +137,17 @@ import UIKit
         let authority = ChatListActionAuthority()
         resolution.task = Task { [weak self, weak presenter] in
             await self?.openUser(userID, authority: authority, presenter: presenter, profile: profile)
+        }
+    }
+
+    /// The bot profile's Add to Group or Channel (openAddBotToGroup's `.groupBotStart` without a payload): the groups
+    /// and channels the user manages, then the bot's rights or the member confirmation.
+    func addBotToChat(username: String, from presenter: UIViewController?) {
+        guard TDLib.shared.isActiveAccountReady else { return }
+        presenter?.viewIfLoaded?.endEditing(true)
+        let authority = ChatListActionAuthority()
+        resolution.task = Task { [weak self, weak presenter] in
+            await self?.addBot(username, to: .chat, requestedRights: nil, authority: authority, presenter: presenter)
         }
     }
 
@@ -711,6 +723,7 @@ import UIKit
         guard !Task.isCancelled, authority.isCurrent else { return }
         let payload: String
         let isStartGroup: Bool
+        var types: InlineTargetChatTypes?
         switch destination {
         case .group(let startParameter):
             // A bot that can't join groups only has its chat to offer.
@@ -723,6 +736,10 @@ import UIKit
         case .channel:
             payload = ""
             isStartGroup = false
+        case .chat:
+            payload = ""
+            isStartGroup = info.canJoinGroups
+            types = InlineTargetChatTypes(users: false, bots: false, groups: info.canJoinGroups, channels: true)
         }
         // An empty set of rights in the link means it asked for none (ResolvedBotAdminRights is nil).
         let requested = requestedRights.map(AdminRightsSet.init).flatMap { rights in
@@ -730,13 +747,20 @@ import UIKit
             withoutManagement.canManageChat = false
             return withoutManagement == AdminRightsSet.none ? nil : rights
         }
-        let types = InlineTargetChatTypes(users: false, bots: false, groups: isStartGroup, channels: !isStartGroup)
-        presentChatPicker(.addBot(types), authority: authority, presenter: presenter) { [weak self] chat, _ in
+        let pickerTypes = types
+            ?? InlineTargetChatTypes(users: false, bots: false, groups: isStartGroup, channels: !isStartGroup)
+        presentChatPicker(.addBot(pickerTypes), authority: authority, presenter: presenter) { [weak self] chat, _ in
+            let isChannel =
+                if case .supergroup(let group) = chat.type {
+                    group.isChannel
+                } else {
+                    false
+                }
             await self?.addBot(
                 bot,
                 to: chat.id,
                 payload: payload,
-                isStartGroup: isStartGroup,
+                isStartGroup: types == nil ? isStartGroup : !isChannel,
                 requested: requested,
                 authority: authority,
                 presenter: presenter,

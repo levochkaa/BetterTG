@@ -124,14 +124,17 @@ final class ReportContentViewController: SettingsListViewController {
         present(.messages(chatID: chatID, messageIDs: messageIDs), from: presenter, onReported: onReported)
     }
 
-    /// The profile's Report for a group or channel: Report Group or Report Channel over TDLib's reasons.
+    /// The profile's Report for a group, channel or bot: Report Group, Report Channel or Report Bot over TDLib's
+    /// reasons.
     static func present(
         chatID: Int64,
         isChannel: Bool,
+        isBot: Bool = false,
         from presenter: UIViewController,
         onReported: @escaping () -> Void,
     ) {
-        let title = L10n.telegram(isChannel ? "Report.Title.Channel" : "Report.Title.Group")
+        let title = L10n
+            .telegram(isBot ? "Report.Title.Bot" : isChannel ? "Report.Title.Channel" : "Report.Title.Group")
         present(.chat(chatID: chatID, title: title), from: presenter, onReported: onReported)
     }
 

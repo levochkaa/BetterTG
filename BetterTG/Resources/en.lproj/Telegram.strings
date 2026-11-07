@@ -3979,3 +3979,7 @@
 "EncryptionKey.Description" = "This image and text were derived from the encryption key for this secret chat with %1$@.\n\n If they look the same on %2$@'s device, end-to-end encryption is guaranteed.\n\nLearn more at telegram.org";
 "Profile.EncryptionKey" = "Encryption Key";
 "UserInfo.UnblockConfirmation" = "Unblock %@?";
+"Bot.AddToChat" = "Add to Group or Channel";
+"Bot.AddToChatInfo" = "This bot is able to manage a group or channel.";
+"Report.Title.Bot" = "Report Bot";
+"Report.Title.User" = "Report User";

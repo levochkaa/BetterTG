@@ -213,6 +213,8 @@ ClientRestorableNavigationEntry {
     private let bioLabel = UILabel()
     private let personalChannelView = PersonalChannelCardView()
     private let infoCardView = ProfileInfoCardView()
+    /// PeerInfoScreenCommentItem under the info block, as Bot.AddToChatInfo.
+    private let infoFooterLabel = UILabel()
     private var businessLocation: TDNativeBusinessLocation?
     private var infoBirthdate: TDNativeBirthdate?
     private var lastUserFullInfo: UserFullInfo?
@@ -2494,11 +2496,21 @@ ClientRestorableNavigationEntry {
             case .disclosure: self?.openSecretChatKey()
             case .action("block", _, _): self?.confirmBlock()
             case .action("unblock", _, _): self?.confirmUnblock()
+            case .action("reportBot", _, _): self?.reportBot()
+            case .action("addBotToChat", _, _): self?.addBotToChat()
             default: self?.presentAddContact()
             }
         }
         headerStack.setCustomSpacing(20, after: personalChannelView)
         headerStack.addArrangedSubview(infoCardView)
+        infoFooterLabel.font = .preferredFont(forTextStyle: .footnote)
+        infoFooterLabel.adjustsFontForContentSizeCategory = true
+        infoFooterLabel.textColor = .secondaryLabel
+        infoFooterLabel.numberOfLines = 0
+        infoFooterLabel.isHidden = true
+        headerStack.setCustomSpacing(6, after: infoCardView)
+        headerStack.addArrangedSubview(infoFooterLabel)
+        infoFooterLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor, constant: -32).isActive = true
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
 
         if let tab = restoration?.tab { selectedSharedTab = tab }
@@ -3509,6 +3521,19 @@ ClientRestorableNavigationEntry {
                 ))
             }
         }
+        // A bot someone else owns gets Report; one that works with groups Add to Group or Channel, with its note.
+        var footer: String?
+        if let bot = customChat.bot {
+            if !bot.canBeEdited {
+                rows.append(.action(id: "reportBot", title: L10n.telegram("ReportPeer.Report")))
+            }
+            if bot.canJoinGroups, info.botVerification == nil {
+                rows.append(.action(id: "addBotToChat", title: L10n.telegram("Bot.AddToChat")))
+                footer = L10n.telegram("Bot.AddToChatInfo")
+            }
+        }
+        infoFooterLabel.text = footer
+        infoFooterLabel.isHidden = footer == nil
         // PeerInfoProfileItems' Encryption Key in a secret chat whose key is set.
         if let keyHash = secretKeyHash {
             rows.append(.disclosure(
@@ -3713,6 +3738,21 @@ ClientRestorableNavigationEntry {
             if let info = lastUserFullInfo { applyInfoRows(info) }
             completion?()
         }
+    }
+
+    /// openReport(.default) for a bot: the report flow for its chat.
+    private func reportBot() {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        ReportContentViewController
+            .present(chatID: customChat.id, isChannel: false, isBot: true, from: self) { [weak self] in
+                self?.showInfoToast(L10n.telegram("Report.Succeed"))
+            }
+    }
+
+    /// openAddBotToGroup: the groups and channels the user manages, then the bot's rights there.
+    private func addBotToChat() {
+        guard contextIsCurrent, let username = customChat.user?.usernames?.activeUsernames.first else { return }
+        TelegramLinkRouter.shared.addBotToChat(username: username, from: self)
     }
 
     /// openAddPersonContact: the person's name to keep, then addContact without sharing the account's number; the row
