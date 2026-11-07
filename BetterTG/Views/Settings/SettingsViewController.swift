@@ -513,6 +513,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(make(), animated: true)
         case .twoStepVerification:
             openTwoStepVerification()
+        case .passcode:
+            if let navigationController { PasscodeOptionsViewController.open(in: navigationController) }
         case .faq(let url):
             WebBrowser.open(url, from: self)
         case .language(let language):

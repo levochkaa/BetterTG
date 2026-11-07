@@ -15,6 +15,7 @@ struct SettingsSearchItem {
         /// A screen pushed over Settings.
         case screen(@MainActor () -> UIViewController)
         case twoStepVerification
+        case passcode
         case deleteAccount
         /// applyLocalization: the language at once.
         case language(AppLanguage)
@@ -363,6 +364,7 @@ struct SettingsSearchSection {
             child("bio", "Privacy.Bio"),
             child("birthday", "Privacy.Birthday"),
             child("phone-number", "Privacy.PhoneNumber"),
+            passcodeItem(),
             child("2sv", "PrivacySettings.TwoStepAuth", "TwoStepAuth", target: .twoStepVerification),
             child("auto-delete", "Settings.AutoDeleteTitle"),
             child("login-email", "PrivacySettings.LoginEmail"),
@@ -385,6 +387,20 @@ struct SettingsSearchSection {
                 synonyms: "SettingsSearch.DeleteAccount.DeleteMyAccount", icon: .privacy, target: .deleteAccount,
             ),
         ]
+    }
+
+    /// The passcode's item, named for the device's biometry as its row is.
+    private static func passcodeItem() -> SettingsSearchItem {
+        let name =
+            switch AppPasscode.shared.biometryType {
+            case .faceID: "PasscodeAndFaceId"
+            case .touchID: "PasscodeAndTouchId"
+            default: "Passcode"
+            }
+        return item(
+            "privacy/passcode", "PrivacySettings." + name, synonyms: "SettingsSearch.Synonyms.Privacy." + name,
+            icon: .privacy, breadcrumbs: ["Settings.PrivacySettings"], target: .passcode,
+        )
     }
 
     private static func dataItems() -> [SettingsSearchItem] {

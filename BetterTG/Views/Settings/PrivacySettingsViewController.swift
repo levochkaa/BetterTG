@@ -216,20 +216,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
         }
     }
 
-    /// Telegram asks for the passcode before its settings open.
     private func openPasscode() {
-        guard AppPasscode.shared.isSet else {
-            navigationController?.pushViewController(PasscodeOptionsViewController(), animated: true)
-            return
-        }
-        let verify = PasscodeSetupViewController(mode: .verify { [weak self] in
-            guard let navigationController = self?.navigationController else { return }
-            var stack = navigationController.viewControllers
-            stack.removeLast()
-            stack.append(PasscodeOptionsViewController())
-            navigationController.setViewControllers(stack, animated: true)
-        })
-        navigationController?.pushViewController(verify, animated: true)
+        guard let navigationController else { return }
+        PasscodeOptionsViewController.open(in: navigationController)
     }
 
     private func openWebsites() {

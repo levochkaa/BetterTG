@@ -3797,3 +3797,6 @@
 "SettingsSearch.Synonyms.Notifications.BadgeIncludeMutedChannels" = " ";
 "Settings.FrequentlyAskedQuestions" = "Frequently Asked Questions";
 "SettingsSearch.FAQ" = "FAQ";
+"SettingsSearch.Synonyms.Privacy.Passcode" = " ";
+"SettingsSearch.Synonyms.Privacy.PasscodeAndTouchId" = " ";
+"SettingsSearch.Synonyms.Privacy.PasscodeAndFaceId" = " ";
