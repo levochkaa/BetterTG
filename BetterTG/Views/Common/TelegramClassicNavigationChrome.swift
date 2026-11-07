@@ -432,36 +432,7 @@ final class TelegramSideColumnView: UIView {
                 UIAccessibility.post(notification: .announcement, argument: prompt)
             }
         }
-        backButton.accessibilityLabel = L10n.telegram("Common.Back")
-        let left = item.leftBarButtonItems ?? []
-        let right = item.rightBarButtonItems ?? []
-        backButton.isHidden = !showsBack || item.hidesBackButton || !left.isEmpty || searchActive
-        items = left + right
-        leftViews = left.map(makeButton)
-        rightViews = right.map(makeButton)
-        // The left sections run from the edge inward; the first shares the back button's pill.
-        let leftSections = Self.sections(of: Array(zip(left, leftViews)))
-        leadingPlatter.setItems([backButton] + (leftSections.first?.map(\.1) ?? []))
-        let leadingSections = Array(leftSections.dropFirst())
-        leadingSectionPlatters = reusing(leadingSectionPlatters, count: leadingSections.count) { .leadingSection($0) }
-        for (platter, section) in zip(leadingSectionPlatters, leadingSections) {
-            platter.setItems(section.map(\.1))
-            Self.applyProminence(of: section, to: platter)
-        }
-        // `rightBarButtonItems` lists the right items outermost first.
-        let trailingSections = Self.sections(of: Array(zip(right, rightViews)))
-        trailingPlatters = reusing(trailingPlatters, count: trailingSections.count) { .trailing($0) }
-        for (platter, section) in zip(trailingPlatters, trailingSections) {
-            // UIKit lays a section's items out leading to trailing.
-            platter.setItems(section.reversed().map(\.1))
-            Self.applyProminence(of: section, to: platter)
-        }
-        if customTitle !== item.titleView {
-            customTitle?.removeFromSuperview()
-            customTitle = item.titleView
-            if let customTitle { addSubview(customTitle) }
-        }
-        titleLabel.isHidden = customTitle != nil
+        // A search that closed gives Back its place again in this pass.
         if searchController !== newSearch {
             searchView?.removeFromSuperview()
             searchEndSubscription = nil
@@ -507,6 +478,36 @@ final class TelegramSideColumnView: UIView {
                 }
             } else { searchView = nil }
         }
+        backButton.accessibilityLabel = L10n.telegram("Common.Back")
+        let left = item.leftBarButtonItems ?? []
+        let right = item.rightBarButtonItems ?? []
+        backButton.isHidden = !showsBack || item.hidesBackButton || !left.isEmpty || searchActive
+        items = left + right
+        leftViews = left.map(makeButton)
+        rightViews = right.map(makeButton)
+        // The left sections run from the edge inward; the first shares the back button's pill.
+        let leftSections = Self.sections(of: Array(zip(left, leftViews)))
+        leadingPlatter.setItems([backButton] + (leftSections.first?.map(\.1) ?? []))
+        let leadingSections = Array(leftSections.dropFirst())
+        leadingSectionPlatters = reusing(leadingSectionPlatters, count: leadingSections.count) { .leadingSection($0) }
+        for (platter, section) in zip(leadingSectionPlatters, leadingSections) {
+            platter.setItems(section.map(\.1))
+            Self.applyProminence(of: section, to: platter)
+        }
+        // `rightBarButtonItems` lists the right items outermost first.
+        let trailingSections = Self.sections(of: Array(zip(right, rightViews)))
+        trailingPlatters = reusing(trailingPlatters, count: trailingSections.count) { .trailing($0) }
+        for (platter, section) in zip(trailingPlatters, trailingSections) {
+            // UIKit lays a section's items out leading to trailing.
+            platter.setItems(section.reversed().map(\.1))
+            Self.applyProminence(of: section, to: platter)
+        }
+        if customTitle !== item.titleView {
+            customTitle?.removeFromSuperview()
+            customTitle = item.titleView
+            if let customTitle { addSubview(customTitle) }
+        }
+        titleLabel.isHidden = customTitle != nil
         if let search = newSearch {
             searchView?.setPlaceholder(search.searchBar.placeholder ?? L10n.telegram("Common.Search"))
         }
