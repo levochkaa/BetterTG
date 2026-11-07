@@ -56,6 +56,10 @@ import UIKit
     /// At the accessibility sizes the menu keeps this gutter to the screen's edges.
     static let accessibilityMenuMargin = CGFloat(16)
 
+    static let badgeHeight: CGFloat = 18
+    static let badgeSpacing: CGFloat = 10
+    static let badgeFont = UIFont.systemFont(ofSize: 14)
+
     private static let metrics = UIFontMetrics(forTextStyle: .body)
 
     static var actionHeight: CGFloat {
@@ -170,6 +174,12 @@ import UIKit
 
     static func titleTrailingInset(of action: TelegramContextMenuAction) -> CGFloat {
         contentSideInset + (action.children.isEmpty ? 0 : scaled(submenuIndicatorReserve))
+            + (action.badge.map { badgeWidth(for: $0.text) + badgeSpacing } ?? 0)
+    }
+
+    /// ContextActionNode's badge: the text 4 pt in from each end, at least 18 pt.
+    static func badgeWidth(for text: String) -> CGFloat {
+        max(badgeHeight, ceil((text as NSString).size(withAttributes: [.font: badgeFont]).width) + 8)
     }
 }
 
@@ -229,6 +239,9 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
     /// 30 pt avatar in the icon slot, ringed in the accent colour when chosen.
     var leadingPeer: TelegramContextMenuPeerIcon?
+    /// ContextMenuActionBadge: a count on an 18 pt pill 10 pt after the title, in the accent or, `isAccent` false, the
+    /// inactive grey, such as a folder's unread chats.
+    var badge: (text: String, isAccent: Bool)?
 
     init(
         title: String,
@@ -3585,6 +3598,37 @@ final class TelegramContextMenuActionButton: UIControl {
             ])
         } else {
             constraints.append(titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor))
+        }
+        if let badge = action.badge {
+            let badgeLabel = UILabel()
+            badgeLabel.text = badge.text
+            badgeLabel.font = TelegramContextMenuLayout.badgeFont
+            badgeLabel.textAlignment = .center
+            badgeLabel.textColor = .white
+            badgeLabel.backgroundColor = badge.isAccent ? .systemBlue : .systemGray
+            badgeLabel.layer.cornerRadius = TelegramContextMenuLayout.badgeHeight / 2
+            badgeLabel.layer.cornerCurve = .continuous
+            badgeLabel.clipsToBounds = true
+            badgeLabel.isAccessibilityElement = false
+            badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(badgeLabel)
+            titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            constraints.append(contentsOf: [
+                badgeLabel.leadingAnchor.constraint(
+                    equalTo: titleLabel.trailingAnchor,
+                    constant: TelegramContextMenuLayout.badgeSpacing,
+                ),
+                badgeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+                badgeLabel.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.badgeHeight),
+                badgeLabel.widthAnchor.constraint(
+                    equalToConstant: TelegramContextMenuLayout.badgeWidth(for: badge.text),
+                ),
+                badgeLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.contentSideInset,
+                ),
+            ])
+            accessibilityValue = badge.text
         }
         if action.avatarUpdates != nil {
             // The avatar set ends 4 pt inside the side inset; the text keeps 8 pt clear of it.

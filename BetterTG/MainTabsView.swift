@@ -116,8 +116,13 @@ TelegramEmbeddedNavigationChrome {
             guard let self, tabs.indices.contains(index) else { return }
             reselect(tabs[index])
         }
-        tabBar.onHold = { [weak self] _, source, gesture in
-            self?.chats.showAccountSwitcher(from: source, tracking: gesture)
+        tabBar.onHold = { [weak self] index, source, gesture in
+            guard let self, tabs.indices.contains(index) else { return }
+            switch tabs[index] {
+            case .chats: chats.showFolderMenu(from: source, tracking: gesture)
+            case .settings: chats.showAccountSwitcher(from: source, tracking: gesture)
+            case .archive: break
+            }
         }
         chats.onTabBarHiddenChange = { [weak self] hidden in self?.setTabBarHidden(hidden) }
         view.addSubview(tabBar)
@@ -201,7 +206,7 @@ TelegramEmbeddedNavigationChrome {
             items: tabs.map { MainTabBarView.Item(title: $0.title, image: $0.image) },
             selectedIndex: tabs.firstIndex(of: selectedTab) ?? 0,
         )
-        tabBar.holdableIndices = Set(tabs.firstIndex(of: .settings).map { [$0] } ?? [])
+        tabBar.holdableIndices = Set([MainTab.chats, .settings].compactMap { tabs.firstIndex(of: $0) })
         tabBar.showsTitles = BetterTGSettings.shared.showsTabNames
         chats.setTabShortcuts(
             archive: !tabs.contains(.archive) && rootVM.archive != nil,

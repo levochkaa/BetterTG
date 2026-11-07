@@ -275,11 +275,83 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         return lastName.isEmpty ? chat.title : lastName
     }
 
+    /// chatListFilterType's icons: a folder of every kind of chat is unread, unmuted or a list; one of a single kind
+    /// shows that kind.
+    private static func menuSymbol(for folder: CustomFolder) -> String {
+        guard case .folder(_, let definition) = folder.type else { return "list.bullet" }
+        let kinds = [
+            definition.includeContacts, definition.includeNonContacts, definition.includeGroups,
+            definition.includeChannels, definition.includeBots,
+        ]
+        if kinds.allSatisfy(\.self) {
+            if definition.excludeRead { return "message.badge" }
+            return definition.excludeMuted ? "speaker.wave.2" : "list.bullet"
+        }
+        guard kinds.filter(\.self).count == 1 else { return "list.bullet" }
+        if definition.includeChannels { return "megaphone" }
+        if definition.includeGroups { return "person.2" }
+        if definition.includeBots { return "cpu" }
+        if definition.includeContacts { return "person" }
+        return "person.crop.circle.badge.questionmark"
+    }
+
     /// The archive and Settings as buttons before compose while BetterTG's settings hide their tabs, as Swiftgram
     /// puts Settings in the chat list's bar with Hide Tab Bar. Holding Settings opens the account switcher, as its tab.
     func setTabShortcuts(archive: Bool, settings: Bool) {
         customNavigationBar.setSecondaryRightItems(
             (archive ? [archiveShortcutButton] : []) + (settings ? [settingsShortcutButton] : []),
+        )
+    }
+
+    /// ChatListController.tabBarItemContextAction: Edit Folders (Add Folder without any), All Chats while a folder is
+    /// shown, then the folders with their unread counts; choosing one shows it.
+    func showFolderMenu(from source: UIView, tracking gesture: UIGestureRecognizer) {
+        guard actionAuthority.scope(owner: self).isCurrent else { return }
+        let folders = rootVM.folders.filter {
+            if case .folder = $0.type {
+                true
+            } else {
+                false
+            }
+        }
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram(folders.isEmpty ? "ChatList.AddFolder" : "ChatList.EditFolders"),
+            image: UIImage(systemName: folders.isEmpty ? "plus" : "folder.badge.gearshape"),
+        ) { [weak self] in
+            guard let self, let main = rootVM.folders.first else { return }
+            performFolderAction(.editFolders, for: main)
+        }]
+        if let main = rootVM.folders.first(where: {
+            if case .main = $0.type {
+                true
+            } else {
+                false
+            }
+        }),
+           rootVM.currentFolder != main.id
+        {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.FolderAllChats"),
+                image: UIImage(systemName: "bubble.left.and.bubble.right"),
+                startsNewSection: true,
+            ) { [weak self] in self?.selectFolder(id: main.id, animated: true) })
+        }
+        for (index, folder) in folders.enumerated() {
+            var action = TelegramContextMenuAction(
+                title: folder.name,
+                image: UIImage(systemName: Self.menuSymbol(for: folder)),
+                startsNewSection: index == 0 && actions.count == 1,
+            ) { [weak self] in self?.selectFolder(id: folder.id, animated: true) }
+            if let state = folderUnreadStates[folder.chatList], state.count >= 1 {
+                action.badge = (text: "\(state.count)", isAccent: state.hasUnmuted)
+            }
+            actions.append(action)
+        }
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
         )
     }
 

@@ -4103,3 +4103,4 @@
 "Privacy.Calls.P2PAlways" = "Always";
 "Privacy.Calls.P2PContacts" = "My Contacts";
 "Privacy.Calls.P2PNever" = "Never";
+"ChatList.AddFolder" = "Add Folder";
