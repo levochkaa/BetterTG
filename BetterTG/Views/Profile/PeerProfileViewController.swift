@@ -676,6 +676,36 @@ ClientRestorableNavigationEntry {
             .first as? StoryAlbumTabsView
     }
 
+    /// PeerInfoProfileItems' warning in place of the about text for an account, bot, group or channel reported as fake
+    /// or as a scam.
+    private var verificationWarning: String? {
+        #if DEBUG
+            // `-ui-probe-scam-warning`: My Profile reads as a user reported as a scam.
+            if isSelfProfile, ProcessInfo.processInfo.arguments.contains("-ui-probe-scam-warning") {
+                return L10n.telegram("UserInfo.ScamUserWarning")
+            }
+        #endif
+        let status: VerificationStatus?
+        let key: String
+        switch customChat.type {
+        case .user(let user):
+            status = user.verificationStatus
+            key = "User"
+        case .bot(let user):
+            status = user.verificationStatus
+            key = "Bot"
+        case .supergroup(let group):
+            status = group.verificationStatus
+            key = group.isChannel ? "Channel" : "Group"
+        case .group:
+            return nil
+        }
+        guard let status, status.isFake || status.isScam else { return nil }
+        let kind = status.isFake ? "Fake" : "Scam"
+        let prefix = key == "User" || key == "Bot" ? "UserInfo" : key == "Channel" ? "ChannelInfo" : "GroupInfo"
+        return L10n.telegram("\(prefix).\(kind)\(key)Warning")
+    }
+
     init(
         customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
         restoration: PeerProfileRestorationState? = nil,
@@ -3833,7 +3863,7 @@ ClientRestorableNavigationEntry {
         status: String?,
         photo: ChatPhoto?,
     ) {
-        currentBioText = bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        currentBioText = verificationWarning ?? bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         currentDetailTexts = details
         if let status {
             currentStatusText = status

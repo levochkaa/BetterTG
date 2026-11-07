@@ -3983,3 +3983,11 @@
 "Bot.AddToChatInfo" = "This bot is able to manage a group or channel.";
 "Report.Title.Bot" = "Report Bot";
 "Report.Title.User" = "Report User";
+"UserInfo.ScamUserWarning" = "⚠️ Warning: Many users reported this user as a scam. Please be careful, especially if it asks you for money.";
+"UserInfo.ScamBotWarning" = "⚠️ Warning: Many users reported this user as a scam. Please be careful, especially if it asks you for money.";
+"ChannelInfo.ScamChannelWarning" = "⚠️ Warning: Many users reported this channel as a scam. Please be careful, especially if it asks you for money.";
+"GroupInfo.ScamGroupWarning" = "⚠️ Warning: Many users reported this group as a scam. Please be careful, especially if it asks you for money.";
+"UserInfo.FakeUserWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
+"UserInfo.FakeBotWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
+"GroupInfo.FakeGroupWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
+"ChannelInfo.FakeChannelWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
