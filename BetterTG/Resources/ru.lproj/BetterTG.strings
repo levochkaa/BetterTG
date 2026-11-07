@@ -722,3 +722,6 @@
 "BetterTGSettings.TabNames" = "Названия вкладок";
 "BetterTGSettings.WideTabBar" = "Широкая панель вкладок";
 "BetterTGSettings.WideTabBarInfo" = "Скрытая вкладка открывается кнопкой на панели чатов. Широкая панель вкладок занимает всю ширину экрана.";
+"BetterTGSettings.ChatList" = "Список чатов";
+"BetterTGSettings.SearchBarAtTop" = "Поле поиска сверху";
+"BetterTGSettings.SearchBarAtTopInfo" = "В чатах и архиве поле поиска стоит под панелью вместо кнопки поиска.";

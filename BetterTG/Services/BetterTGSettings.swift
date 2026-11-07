@@ -39,6 +39,13 @@ import Foundation
         set { set(newValue, "wideTabBar") }
     }
 
+    /// Swiftgram's Hide Search Bar at Top, turned around: Chats and the archive keep Telegram's search field under the
+    /// bar instead of the search button.
+    var searchBarAtTop: Bool {
+        get { bool("searchBarAtTop", default: false) }
+        set { set(newValue, "searchBarAtTop") }
+    }
+
     var animatedMedia: Bool {
         get { UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true }
         set {

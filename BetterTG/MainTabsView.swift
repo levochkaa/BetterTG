@@ -59,6 +59,8 @@ TelegramEmbeddedNavigationChrome {
     private let tabBar = MainTabBarView()
     /// Telegram hides the bar while a list edits, for its toolbar.
     private var isTabBarHidden = false
+    /// Chats' and the archive's bars are built for BetterTG's Search Bar at Top as it was then.
+    private let builtWithSearchField = BetterTGSettings.shared.searchBarAtTop
     private var cancellables = Set<AnyCancellable>()
 
     var navigationClientSource: TdUpdateSource? {
@@ -130,7 +132,14 @@ TelegramEmbeddedNavigationChrome {
         }
         BetterTGSettings.shared
             .changes
-            .sink { [weak self] in self?.reloadTabs() }
+            .sink { [weak self] in
+                guard let self else { return }
+                if BetterTGSettings.shared.searchBarAtTop != builtWithSearchField {
+                    rebuildForSearchMode()
+                } else {
+                    reloadTabs()
+                }
+            }
             .store(in: &cancellables)
         show(selectedTab, force: true)
         reloadTabs()
@@ -199,6 +208,21 @@ TelegramEmbeddedNavigationChrome {
             settings: !tabs.contains(.settings),
         )
         view.setNeedsLayout()
+    }
+
+    /// Search Bar at Top changed: new tabs take this one's place under whatever is pushed over it, on the same tab,
+    /// with Chats' and the archive's bars built for the new search.
+    private func rebuildForSearchMode() {
+        guard let navigation = navigationController,
+              let index = navigation.viewControllers.firstIndex(where: { $0 === self })
+        else { return }
+        let replacement = MainTabsViewController(
+            rootVM: rootVM,
+            restoration: ClientRestorationState(selectedTab: selectedTab),
+        )
+        var controllers = navigation.viewControllers
+        controllers[index] = replacement
+        navigation.setViewControllers(controllers, animated: false)
     }
 
     private func reselect(_ tab: MainTab) {

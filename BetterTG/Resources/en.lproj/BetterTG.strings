@@ -723,3 +723,6 @@
 "BetterTGSettings.TabNames" = "Tab Names";
 "BetterTGSettings.WideTabBar" = "Wide Tab Bar";
 "BetterTGSettings.WideTabBarInfo" = "A hidden tab opens from its button in the Chats bar. The wide tab bar keeps the full width of the screen.";
+"BetterTGSettings.ChatList" = "Chat List";
+"BetterTGSettings.SearchBarAtTop" = "Search Bar at Top";
+"BetterTGSettings.SearchBarAtTopInfo" = "Chats and the archive show the search field under the bar instead of the search button.";

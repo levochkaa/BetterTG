@@ -4,8 +4,8 @@ import UIKit
 
 // MARK: - BetterTGSettingsViewController
 
-/// BetterTG's own options in one place, as Swiftgram's SGSettingsController keeps its: the tabs, the folder tabs and
-/// animated media. Each change applies at once.
+/// BetterTG's own options in one place, as Swiftgram's SGSettingsController keeps its: the tabs, the chat list's search
+/// and folder tabs, and animated media. Each change applies at once.
 final class BetterTGSettingsViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -32,6 +32,15 @@ final class BetterTGSettingsViewController: SettingsListViewController {
                     },
                     toggle("BetterTGSettings.WideTabBar", isOn: settings.wideTabBar, isEnabled: tabsShown) {
                         settings.wideTabBar = $0
+                    },
+                ],
+            ),
+            SettingsSection(
+                header: L10n.betterTG("BetterTGSettings.ChatList"),
+                footer: L10n.betterTG("BetterTGSettings.SearchBarAtTopInfo"),
+                rows: [
+                    toggle("BetterTGSettings.SearchBarAtTop", isOn: settings.searchBarAtTop) {
+                        settings.searchBarAtTop = $0
                     },
                 ],
             ),

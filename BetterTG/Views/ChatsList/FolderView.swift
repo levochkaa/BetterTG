@@ -34,7 +34,11 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private var query: String
     private var restoresSearchFocus: Bool
     private var isRestoringSearchFocus = false
-    private let navigationContentHeight = TelegramListNavigationBar.rowContentHeight
+    /// BetterTG's Search Bar at Top, read once: the bar is built for one or the other.
+    private let usesSearchField = BetterTGSettings.shared.searchBarAtTop
+    private lazy var navigationContentHeight = usesSearchField
+        ? TelegramListNavigationBar.expandedContentHeight
+        : TelegramListNavigationBar.rowContentHeight
 
     /// Whether the archive is a tab of the root, with no back button.
     private let isTabRoot: Bool
@@ -48,6 +52,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         self.restoresSearchFocus = restoration?.searchWasFocused ?? false
         self.folderController = FolderViewController(
             folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
+            usesSearchField: BetterTGSettings.shared.searchBarAtTop,
             actionAuthority: actionAuthority, restorationViewport: restoration?.viewport,
         )
         folderController.setSearchActive(
@@ -65,7 +70,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             rightAction: { openMoreMenu?() },
             showsBackButton: !isTabRoot,
             rightAccessibilityLabel: L10n.telegram("Common.More"),
-            opensSearchFromButton: true,
+            opensSearchFromButton: !BetterTGSettings.shared.searchBarAtTop,
         )
         super.init(nibName: nil, bundle: nil)
         // The name the back button's history menu shows for this folder.
@@ -98,7 +103,17 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folderController.setSearchActive(
                 active, animated: !isRestoringSearchFocus, preservingViewport: isRestoringSearchFocus,
             )
+            if usesSearchField, !active, isShowingSearchResults {
+                // The query stays on screen above its results; the archive list restored its own offset.
+                navigationBarView.applyScroll(offset: 0, animated: true)
+            }
             scheduleRestorationRetry()
+        }
+        navigationBarView.onVisibleHeightChange = { [weak self] contentHeight in
+            guard let self, usesSearchField else { return }
+            navigationContentHeight = contentHeight
+            navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
+            searchResultsController.topBarHeight = view.safeAreaInsets.top + contentHeight
         }
         TDLib.shared
             .chatListNetworkStatus
@@ -244,7 +259,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         folderController.view.removeFromSuperview()
         folderController.removeFromParent()
         folderController = FolderViewController(
-            folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
+            folder: folder, rootVM: rootVM, showsStandaloneSearch: true, usesSearchField: usesSearchField,
             actionAuthority: actionAuthority, restorationViewport: viewport,
         )
         folderController.setSearchActive(navigationBarView.isSearchActive, animated: false, preservingViewport: true)
@@ -261,6 +276,10 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             self?.onTabBarHiddenChange?(done != nil)
         }
         folderController.selectionToolbarTakesTabBarPlace = isTabRoot
+        folderController.onSearchScrollOffsetChange = { [weak self] offset in
+            guard let self, !isShowingSearchResults else { return }
+            navigationBarView.applyScroll(offset: offset)
+        }
         folderController.onListInteractionEnded = { [weak self] in self?.scheduleRestorationRetry() }
         addChild(folderController)
         folderController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -304,6 +323,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         let resultsView = searchResultsController.view!
         if showsResults {
             resultsView.isHidden = false
+            if usesSearchField { navigationBarView.applyScroll(offset: 0, animated: animated) }
+        } else if usesSearchField {
+            navigationBarView.applyScroll(offset: folderController.searchScrollOffset, animated: animated)
         }
         guard animated else {
             resultsView.alpha = showsResults ? 1 : 0
@@ -473,7 +495,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Where the selection toolbar goes: under the safe area, in the place of the hidden tab bar, rather than over it.
     var selectionToolbarTakesTabBarPlace = false
 
+    /// BetterTG's Search Bar at Top: Telegram's search field under the bar, which the list scrolls away and back.
+    var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
+
     private let showsStandaloneSearch: Bool
+    private let usesSearchField: Bool
+    /// How far the field is scrolled away before the list is first laid out: all of it, as Telegram's list opens.
+    private var initialSearchScrollOffset: CGFloat
+    private var initialSearchScrollOffsetBeforeSearch: CGFloat?
     private let rootVM: RootVM
     private let actionAuthority: ChatListActionAuthority
     private var searchActive = false
@@ -526,6 +555,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Whether the list edits: Telegram's Edit, which selects chats and reorders the pinned ones.
     var isEditingList: Bool { selectedChatIDs != nil }
 
+    /// The list's distance from its top up to the search field's height; negative while the list is pulled past its
+    /// top, which the navigation bar follows. Zero without the field.
+    var searchScrollOffset: CGFloat {
+        guard usesSearchField else { return 0 }
+        guard isViewLoaded, didPlaceInitialViewport else { return initialSearchScrollOffset }
+        return min(
+            ChatListNavigationSearchView.scrollHeight,
+            tableView.contentOffset.y + tableView.adjustedContentInset.top,
+        )
+    }
+
     private var orderedChats: [CustomChat] {
         folder.chats.sortedByListOrder()
     }
@@ -567,10 +607,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         #endif
     }
 
+    /// The bar's content the rows start under: its row, and the search field while there is one.
+    private var barContentHeight: CGFloat {
+        guard usesSearchField else { return TelegramListNavigationBar.rowContentHeight }
+        return searchActive
+            ? ChatListNavigationSearchView.contentHeight
+            : TelegramListNavigationBar.expandedContentHeight
+    }
+
     init(
         folder: CustomFolder,
         rootVM: RootVM,
         showsStandaloneSearch: Bool,
+        usesSearchField: Bool = false,
         actionAuthority: ChatListActionAuthority? = nil,
         restorationViewport: ChatListViewportSnapshot? = nil,
     ) {
@@ -578,6 +627,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         self.rootVM = rootVM
         self.actionAuthority = actionAuthority ?? ChatListActionAuthority()
         self.showsStandaloneSearch = showsStandaloneSearch
+        self.usesSearchField = usesSearchField
+        self.initialSearchScrollOffset = !usesSearchField
+            ? 0
+            : min(
+                ChatListNavigationSearchView.scrollHeight,
+                max(0, restorationViewport?.offsetFromTop ?? ChatListNavigationSearchView.scrollHeight),
+            )
         self.clientViewportRestoration = ChatListViewportRestoration(restorationViewport)
         super.init(style: .plain)
     }
@@ -603,7 +659,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.rowHeight = ChatListCell.cardRowHeight
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
-        tableView.contentInset.top = TelegramListNavigationBar.rowContentHeight + accessoryTopInset
+        tableView.contentInset.top = barContentHeight + accessoryTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : accessoryBottomInset
         tableView.automaticallyAdjustsScrollIndicatorInsets = false
         tableView.prefetchDataSource = self
@@ -672,13 +728,34 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         if let viewport = clientViewportRestoration.takeForLayout(usable: true) {
             viewport.restore(tableView: tableView) { dataSource.indexPath(for: $0) }
         } else {
-            tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+            tableView.setContentOffset(
+                CGPoint(x: 0, y: -tableView.adjustedContentInset.top + initialSearchScrollOffset),
+                animated: false,
+            )
         }
+        if usesSearchField { onSearchScrollOffsetChange?(searchScrollOffset) }
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
+        if usesSearchField { onSearchScrollOffsetChange?(searchScrollOffset) }
         updateIndicatorInsets()
+    }
+
+    /// A drag that ends with the field half shown settles it shown or hidden, as Telegram's list does.
+    override func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity _: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>,
+    ) {
+        guard usesSearchField, scrollView === tableView, isSearchActive?() != true else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let distance = targetContentOffset.pointee.y - top
+        guard distance > 0, distance < ChatListNavigationSearchView.scrollHeight else { return }
+        let targetDistance = distance < ChatListNavigationSearchView.scrollHeight * 0.5
+            ? CGFloat.zero
+            : ChatListNavigationSearchView.scrollHeight
+        targetContentOffset.pointee.y = top + targetDistance
     }
 
     override func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -779,7 +856,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             return clientViewportRestoration.pending ?? ChatListViewportSnapshot(
                 chatID: nil,
                 rowMinYRelativeToViewport: 0,
-                offsetFromTop: 0,
+                offsetFromTop: initialSearchScrollOffset,
             )
         }
         return .capture(tableView: tableView) { dataSource.itemIdentifier(for: $0) }
@@ -866,14 +943,23 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let wasActive = searchActive
         if active, !wasActive {
             viewportBeforeSearch = isViewLoaded && didPlaceInitialViewport ? clientRestorationViewport() : nil
+            initialSearchScrollOffsetBeforeSearch = initialSearchScrollOffset
         }
         let viewport = preservingViewport
             ? clientRestorationViewport()
             : (!active && wasActive ? viewportBeforeSearch : nil)
         searchActive = active
-        if !active, wasActive { viewportBeforeSearch = nil }
+        if active {
+            if usesSearchField { initialSearchScrollOffset = 0 }
+        } else if wasActive {
+            initialSearchScrollOffset = initialSearchScrollOffsetBeforeSearch ?? initialSearchScrollOffset
+            viewportBeforeSearch = nil
+            initialSearchScrollOffsetBeforeSearch = nil
+        }
         guard isViewLoaded else { return }
+        let targetTopInset = barContentHeight
         let changes = {
+            if self.usesSearchField { self.tableView.contentInset.top = targetTopInset + self.accessoryTopInset }
             self.updateIndicatorInsets()
             self.tableView.layoutIfNeeded()
             if let viewport {
@@ -915,12 +1001,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         endChatSelection()
     }
 
-    /// The scroll indicator runs beside the rows, under the navigation bar and above the folder tabs. UIKit's own
-    /// adjustment would leave it across iPhone Duo's strip, away from the rows, so all of it is set here.
+    /// The scroll indicator runs beside the rows, under the navigation bar, which grows with a pull past the top of
+    /// the list, and above the folder tabs. UIKit's own adjustment would leave it across iPhone Duo's strip, away from
+    /// the rows, so all of it is set here.
     private func updateIndicatorInsets() {
         let safeArea = tableView.safeAreaInsets
+        let pull = usesSearchField && !searchActive
+            ? max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top))
+            : 0
         let insets = UIEdgeInsets(
-            top: safeArea.top + TelegramListNavigationBar.rowContentHeight + accessoryTopInset,
+            top: safeArea.top + barContentHeight + accessoryTopInset + pull,
             left: 0,
             bottom: safeArea.bottom + (showsStandaloneSearch ? 0 : accessoryBottomInset),
             right: safeArea.right,
@@ -1104,7 +1194,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                   !isInteractingWithList, !tableView.isTracking
             else { return nil }
             let offset = tableView.contentOffset.y + tableView.adjustedContentInset.top
-            return offset <= 0.5 ? offset : nil
+            let restingRange = usesSearchField ? ChatListNavigationSearchView.scrollHeight : 0
+            return offset <= restingRange + 0.5 ? offset : nil
         }()
         // A list scrolled away from its top keeps its visible rows still, as Telegram's chat list does: a chat that
         // moves or arrives above the viewport shifts only the rows above it. UIKit otherwise re-anchors the batch
