@@ -636,6 +636,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return frame.maxY
     }
 
+    /// A pushed chat navigates while it is on top; a context preview, which has no navigation controller, while it
+    /// shows, as a calendar day's preview opens the chat at the day's message.
+    private var isNavigationTopOrPreview: Bool {
+        presentationMode == .contextPreview || navigationController?.topViewController === self
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -6603,7 +6609,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         guard !clientOwnerRetired, chatVM.locationContextIsCurrent, let source = navigationClientSource,
               timelineLayoutMutationDepth == 0, !userIsScrollingTimeline, isViewLoaded,
-              view.window != nil, navigationController?.topViewController === self,
+              view.window != nil, isNavigationTopOrPreview,
               presentedViewController == nil, collectionView.bounds.height > 0 else { return }
         viewportRestorationAuthority.invalidate()
         if let displayed = chatVM.displayedMessageID(containing: id),
@@ -6666,7 +6672,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func resolveMessageNavigation(id: Int64, source: TdUpdateSource) -> ChatMessageNavigationScroll.Resolution {
         guard pendingScrollMessageID == id, !clientOwnerRetired, chatVM.locationContextIsCurrent,
               navigationClientSource == source, !userIsScrollingTimeline,
-              navigationController?.topViewController === self, presentedViewController == nil,
+              isNavigationTopOrPreview, presentedViewController == nil,
               isViewLoaded, view.window != nil else { return .cancelled }
         guard timelineLayoutMutationDepth == 0, !timelineSnapshots.isBusy,
               collectionView.bounds.height > 0 else { return .deferred }
