@@ -18,6 +18,8 @@ struct SettingsSearchItem {
         case deleteAccount
         /// applyLocalization: the language at once.
         case language(AppLanguage)
+        /// A question of the FAQ, opened where the FAQ row opens it, at its answer.
+        case faq(URL)
     }
 
     let id: String
@@ -27,6 +29,20 @@ struct SettingsSearchItem {
     let icon: SettingsViewController.Row
     let breadcrumbs: [String]
     let target: Target
+}
+
+// MARK: - SettingsSearchSection
+
+/// What the search lists: the found items, or with an empty query the recent ones and the FAQ's questions.
+struct SettingsSearchSection {
+    enum Kind {
+        case results
+        case recent
+        case faq
+    }
+
+    let kind: Kind
+    let items: [SettingsSearchItem]
 }
 
 // MARK: - SettingsSearch
@@ -68,6 +84,45 @@ struct SettingsSearchItem {
         }
     }
 
+    /// faqSearchableItems: the FAQ's questions under their section titles. Telegram reads them from the FAQ's Instant
+    /// View, which the server doesn't give this app (no instant view for the link), so they come from the page's own
+    /// table of contents: each bold section link, then its list of question links.
+    static func faqItems() async -> [SettingsSearchItem] {
+        let faqURL = L10n.telegram("Settings.FAQ_URL")
+        guard let base = faqURL.split(separator: "#").first.flatMap({ URL(string: String($0)) }),
+              let (data, response) = try? await URLSession.shared.data(from: base),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let html = String(data: data, encoding: .utf8),
+              let navigation = html.range(of: "dev_page_nav_wrap")
+        else { return [] }
+        let end = html.range(of: "<h3", range: navigation.upperBound..<html.endIndex)?.lowerBound ?? html.endIndex
+        let contents = String(html[navigation.upperBound..<end])
+        let faq = L10n.telegram("SettingsSearch.FAQ")
+        let pattern = ##"<p><a href="#[^"]*"><strong>(.*?)</strong></a></p>|<li><a href="#(q-[^"]+)">(.*?)</a></li>"##
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
+        else { return [] }
+        var results = [SettingsSearchItem]()
+        var section: String?
+        let nsContents = contents as NSString
+        for match in expression.matches(in: contents, range: NSRange(location: 0, length: nsContents.length)) {
+            func group(_ index: Int) -> String? {
+                let range = match.range(at: index)
+                return range.location == NSNotFound ? nil : plainText(nsContents.substring(with: range))
+            }
+            if let title = group(1) {
+                section = title
+            } else if let section, let anchor = group(2), let title = group(3),
+                      let url = URL(string: base.absoluteString + "#" + anchor)
+            {
+                results.append(SettingsSearchItem(
+                    id: "faq/\(anchor)", title: title, alternate: [], icon: .faq, breadcrumbs: [faq, section],
+                    target: .faq(url),
+                ))
+            }
+        }
+        return results
+    }
+
     static func addRecent(_ id: String) {
         var ids = recentIDs.filter { $0 != id }
         ids.insert(id, at: 0)
@@ -80,6 +135,21 @@ struct SettingsSearchItem {
 
     static func clearRecents() {
         UserDefaults.standard.removeObject(forKey: recentsKey)
+    }
+
+    /// The text of an HTML fragment: tags dropped, entities read.
+    private static func plainText(_ html: String) -> String {
+        var text = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        let named = ["&amp;": "&", "&quot;": "\"", "&#39;": "'", "&lt;": "<", "&gt;": ">", "&nbsp;": " "]
+        for (entity, character) in named {
+            text = text.replacing(entity, with: character)
+        }
+        while let range = text.range(of: "&#[0-9]+;", options: .regularExpression),
+              let code = UInt32(text[range].dropFirst(2).dropLast()), let scalar = Unicode.Scalar(code)
+        {
+            text.replaceSubrange(range, with: String(Character(scalar)))
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// stringTokens: the string's words, folded and lowercased, each once.
@@ -412,20 +482,21 @@ struct SettingsSearchItem {
     }
 }
 
-// MARK: - SettingsSearchRecentHeaderView
+// MARK: - SettingsSearchHeaderView
 
-/// ChatListSearchItemHeader's recentPeers over the recent items: Recent, and Clear on the right.
-final class SettingsSearchRecentHeaderView: UIView {
+/// ChatListSearchItemHeader: a section's title, with Clear on the right over the recent items.
+final class SettingsSearchHeaderView: UIView {
     static let height: CGFloat = 38
 
-    var onClear: (() -> Void)?
-
+    private let onClear: (() -> Void)?
     private let titleLabel = UILabel()
     private let clearButton = UIButton(type: .system)
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        titleLabel.text = L10n.telegram("DialogList.SearchSectionRecent").uppercased()
+    init(title: String, onClear: (() -> Void)? = nil) {
+        self.onClear = onClear
+        super.init(frame: .zero)
+        clearButton.isHidden = onClear == nil
+        titleLabel.text = title.uppercased()
         titleLabel.font = .preferredFont(forTextStyle: .footnote)
         titleLabel.textColor = .secondaryLabel
         clearButton.setTitle(L10n.telegram("WebSearch.RecentSectionClear"), for: .normal)

@@ -34,8 +34,10 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     private var isSearching = false
     private var searchQuery = ""
     private var searchItems = [SettingsSearchItem]()
-    /// The found items, or with an empty query the recent ones.
-    private var searchResults = [SettingsSearchItem]()
+    /// The found items, or with an empty query the recent ones and the FAQ's questions.
+    private var searchSections = [SettingsSearchSection]()
+    /// The FAQ's questions, loaded once a search opens.
+    private var faqItems = [SettingsSearchItem]()
     /// How far the list stood below its top when the search opened, to stand there again once it closes.
     private var listScroll: CGFloat?
 
@@ -119,35 +121,39 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         loadAccountState()
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { isSearching ? 1 : Section.allCases.count }
+    override func numberOfSections(in _: UITableView) -> Int {
+        isSearching ? searchSections.count : Section.allCases.count
+    }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        isSearching ? searchResults.count : rows(in: section).count
+        isSearching ? searchSections[safe: section]?.items.count ?? 0 : rows(in: section).count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
         isSearching ? nil : Section(rawValue: section)?.title
     }
 
-    /// The recent items' header: Recent with Clear, as ChatListSearchItemHeader's recentPeers.
-    override func tableView(_: UITableView, viewForHeaderInSection _: Int) -> UIView? {
-        guard isSearching, searchQuery.isEmpty, !searchResults.isEmpty else { return nil }
-        let header = SettingsSearchRecentHeaderView()
-        header.onClear = { [weak self] in
-            SettingsSearch.clearRecents()
-            self?.updateSearchResults()
+    /// ChatListSearchItemHeader over the recent items, Recent with Clear, and over the FAQ's questions.
+    override func tableView(_: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard isSearching, let kind = searchSections[safe: section]?.kind else { return nil }
+        switch kind {
+        case .results:
+            return nil
+        case .recent:
+            return SettingsSearchHeaderView(title: L10n.telegram("DialogList.SearchSectionRecent")) { [weak self] in
+                SettingsSearch.clearRecents()
+                self?.updateSearchResults()
+            }
+        case .faq:
+            return SettingsSearchHeaderView(title: L10n.telegram("Settings.FrequentlyAskedQuestions"))
         }
-        return header
     }
 
     /// The same gap above every section, a title's header taller by its line; an account without side menu bots
     /// shows no gap for their section.
     override func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         if isSearching {
-            return searchQuery.isEmpty && !searchResults.isEmpty
-                ? SettingsSearchRecentHeaderView.height
-                : Self
-                    .sectionGap
+            return searchSections[safe: section]?.kind == .results ? Self.sectionGap : SettingsSearchHeaderView.height
         }
         if isEmptyAppsSection(section) { return .leastNormalMagnitude }
         return Section(rawValue: section)?.title == nil ? Self.sectionGap : UITableView.automaticDimension
@@ -261,7 +267,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         if isSearching {
-            guard let item = searchResults[safe: indexPath.row] else { return }
+            guard let item = searchSections[safe: indexPath.section]?.items[safe: indexPath.row] else { return }
             SettingsSearch.addRecent(item.id)
             open(item.target)
             return
@@ -275,7 +281,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         _: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
     ) -> UISwipeActionsConfiguration? {
-        guard isSearching, searchQuery.isEmpty, let item = searchResults[safe: indexPath.row] else { return nil }
+        guard isSearching, let section = searchSections[safe: indexPath.section], section.kind == .recent,
+              let item = section.items[safe: indexPath.row] else { return nil }
         let delete = UIContextualAction(style: .destructive, title: L10n.telegram("Common.Delete")) {
             [weak self] _, _, completion in
             SettingsSearch.removeRecent(item.id)
@@ -310,7 +317,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         guard isSearching else { return }
         isSearching = false
         searchQuery = ""
-        searchResults = []
+        searchSections = []
         updateBarButtons()
         tableView.reloadData()
         // The bar gives up the field's height on its next refresh; the list goes back after it.
@@ -432,15 +439,32 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         updateSearchResults()
         updateBarButtons()
         search.beginTelegramNavigationSearch()
+        guard faqItems.isEmpty else { return }
+        Task { [weak self] in
+            let items = await SettingsSearch.faqItems()
+            guard let self else { return }
+            faqItems = items
+            if isSearching { updateSearchResults() }
+        }
     }
 
     private func updateSearchResults() {
         guard isSearching else { return }
         if searchQuery.isEmpty {
-            let byID = Dictionary(searchItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            searchResults = SettingsSearch.recentIDs.compactMap { byID[$0] }
+            let byID = Dictionary((searchItems + faqItems).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let recent = SettingsSearch.recentIDs.compactMap { byID[$0] }
+            searchSections = [
+                SettingsSearchSection(kind: .recent, items: recent),
+                SettingsSearchSection(kind: .faq, items: faqItems),
+            ].filter { !$0.items.isEmpty }
         } else {
-            searchResults = SettingsSearch.search(searchItems, query: searchQuery)
+            // The settings first, then the FAQ's questions, Delete My Account's first among them.
+            var faq = SettingsSearch.search(faqItems, query: searchQuery)
+            if let index = faq.firstIndex(where: { $0.id.contains("delete-my-account") }) {
+                faq.insert(faq.remove(at: index), at: 0)
+            }
+            let results = SettingsSearch.search(searchItems, query: searchQuery) + faq
+            searchSections = results.isEmpty ? [] : [SettingsSearchSection(kind: .results, items: results)]
         }
         tableView.reloadData()
         tableView.contentOffset.y = -tableView.adjustedContentInset.top
@@ -450,13 +474,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     /// the screens above it joined by arrows; a recent item has no icon.
     private func searchCell(at indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsCell", for: indexPath)
-        guard let item = searchResults[safe: indexPath.row] else { return cell }
+        guard let section = searchSections[safe: indexPath.section], let item = section.items[safe: indexPath.row]
+        else { return cell }
         var configuration = UIListContentConfiguration.subtitleCell()
         configuration.text = item.title
         configuration.secondaryText = item.breadcrumbs.isEmpty ? nil : item.breadcrumbs.joined(separator: " → ")
         configuration.secondaryTextProperties.color = .secondaryLabel
-        if !searchQuery.isEmpty {
-            let previous = indexPath.row > 0 ? searchResults[safe: indexPath.row - 1] : nil
+        if section.kind == .results {
+            let previous = indexPath.row > 0 ? section.items[safe: indexPath.row - 1] : nil
             // A clear image keeps the run's titles in line under the icon.
             configuration.image = previous?.icon == item.icon
                 ? Self.blankIcon
@@ -482,6 +507,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(make(), animated: true)
         case .twoStepVerification:
             openTwoStepVerification()
+        case .faq(let url):
+            WebBrowser.open(url, from: self)
         case .language(let language):
             guard language.id != AppLocalization.shared.selectedLanguagePackID else { return }
             Task { [weak self] in

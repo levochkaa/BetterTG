@@ -3795,3 +3795,5 @@
 "SettingsSearch.Synonyms.Support" = "Support";
 "Notifications.Badge.IncludeChannels" = "Include Channels";
 "SettingsSearch.Synonyms.Notifications.BadgeIncludeMutedChannels" = " ";
+"Settings.FrequentlyAskedQuestions" = "Frequently Asked Questions";
+"SettingsSearch.FAQ" = "FAQ";
