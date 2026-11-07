@@ -4002,3 +4002,5 @@
 "Conversation.CopyProtectionForwardingDisabledBot" = "Forwards from this bot are restricted";
 "Conversation.CopyProtectionForwardingDisabledSecret" = "Forwarding is restricted";
 "PeerInfo.UnofficialSecurityRisk" = "%@ uses an unofficial Telegram client – messages to this user may be less secure.";
+"Settings.CopyPhoneNumber" = "Copy Phone Number";
+"Settings.CopyUsername" = "Copy Username";

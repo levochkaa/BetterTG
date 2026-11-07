@@ -185,6 +185,10 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 client: TDLib.shared.activeClient,
                 accountID: TDLib.shared.activeAccountID,
             )
+            (cell as? SettingsProfileCell)?.onLongPress = { [weak self, weak cell] in
+                guard let cell else { return }
+                self?.openProfileCopyMenu(from: cell)
+            }
             return cell
         }
         let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsCell", for: indexPath)
@@ -535,6 +539,42 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 DeleteAccountOptionsViewController.present(hasPassword: password?.hasPassword ?? false, from: self)
             }
         }
+    }
+
+    /// The header's displayCopyContextMenu: a long press on the account offers Copy Phone Number (formatted) and Copy
+    /// Username, each with its toast.
+    private func openProfileCopyMenu(from cell: UIView) {
+        guard let me, meAccountID == TDLib.shared.activeAccountID, presentedViewController == nil else { return }
+        var actions = [TelegramContextMenuAction]()
+        let client = TDLib.shared.activeClient
+        if !me.phoneNumber.isEmpty {
+            let phone = me.phoneNumber
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Settings.CopyPhoneNumber"), image: UIImage(systemName: "phone"),
+            ) { [weak self] in
+                Task { [weak self] in
+                    UIPasteboard.general.string = await PhoneNumberFormat.international(phone, client: client)
+                        ?? "+" + phone
+                    self?.showCopyToast(L10n.telegram("Conversation.PhoneCopied"))
+                }
+            })
+        }
+        if let username = me.usernames?.editableUsername, !username.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Settings.CopyUsername"), image: UIImage(systemName: "at"),
+            ) { [weak self] in
+                UIPasteboard.general.string = "@\(username)"
+                self?.showCopyToast(L10n.telegram("Conversation.UsernameCopied"))
+            })
+        }
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    private func showCopyToast(_ text: String) {
+        guard let view = navigationController?.view ?? view else { return }
+        // Above the root's tab bar, as the chat list's toasts stand.
+        TelegramUndoToast.show(text: text, in: view, bottomInset: 66, undo: nil)
     }
 
     /// openQrCode from the settings bar: the account's own code, by its first active username or, with none, by the
@@ -1127,6 +1167,8 @@ extension SettingsViewController {
 private final class SettingsProfileCell: UITableViewCell {
     static let reuseIdentifier = "SettingsProfileCell"
 
+    var onLongPress: (() -> Void)?
+
     private let avatarView = ProfileAvatarView()
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
@@ -1134,6 +1176,7 @@ private final class SettingsProfileCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .secondarySystemGroupedBackground
+        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
         accessoryType = .disclosureIndicator
         let labels = UIStackView(arrangedSubviews: [nameLabel, detailLabel])
         labels.axis = .vertical
@@ -1192,5 +1235,11 @@ private final class SettingsProfileCell: UITableViewCell {
             accountUserID: 0,
             client: client,
         )
+    }
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        setHighlighted(false, animated: true)
+        onLongPress?()
     }
 }
