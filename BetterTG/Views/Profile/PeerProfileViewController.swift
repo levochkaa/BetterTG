@@ -2286,6 +2286,20 @@ ClientRestorableNavigationEntry {
             self?.dismiss(animated: true) {
                 guard TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id else { return }
+                // forwardMessages' peerSelected: Saved Messages takes the messages at once, from another chat.
+                if chat.isSavedMessages, topic == nil, chat.id != self?.customChat.id, let self {
+                    MessageForwardDelivery.toSavedMessages(
+                        draft,
+                        chat: chat,
+                        client: client,
+                        accountID: accountID,
+                        host: self.view,
+                        topInset: 8,
+                        open: { NavigationStorage.shared.push(.customChat(chat)) },
+                        onError: { [weak self] error in self?.presentForwardError(error) },
+                    )
+                    return
+                }
                 let destination = ChatLocation.current(
                     chatID: chat.id,
                     topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
@@ -2300,9 +2314,38 @@ ClientRestorableNavigationEntry {
                 )
             }
         }
+        // forwardMessages' multiplePeersSelected: each chat gets the forward, and the toast names them.
+        picker.onMultipleSelect = { [weak self] chats, comment, draft in
+            guard let self, TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id
+            else { return }
+            setMessageSelection(nil)
+            MessageForwardDelivery.toChats(
+                draft,
+                chats: chats,
+                comment: comment,
+                client: client,
+                accountID: accountID,
+                host: view,
+                topInset: 8,
+                openSavedMessages: { chat in NavigationStorage.shared.push(.customChat(chat)) },
+                showToast: { [weak self] text in self?.showInfoToast(text.withoutTelegramMarkup) },
+                onError: { [weak self] error in self?.presentForwardError(error) },
+            )
+        }
         let navigation = TelegramNavigationController(rootViewController: picker)
         navigation.modalPresentationStyle = .fullScreen
         present(navigation, animated: true)
+    }
+
+    private func presentForwardError(_ error: Error) {
+        guard contextIsCurrent else { return }
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.CantForward"),
+            message: (error as? LocalizedError)?.errorDescription ?? L10n.betterTG("Chat.ForwardFailed"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     /// deleteMessages; the pane drops them at once, and TDLib's update confirms it.
