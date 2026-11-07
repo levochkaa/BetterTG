@@ -243,7 +243,8 @@ struct MessageMentionMenu {
 
 /// ChatControllerOpenPhoneContextMenu: for a number on Telegram Send Message (none for the account's own), otherwise
 /// Invite to Telegram; Call via Carrier (not for +888 numbers); Copy Number; and under them the person with View
-/// Profile, or that the number is not on Telegram. Add to Contacts and Telegram calls are not ported.
+/// Profile, or that the number is not on Telegram. Add to Contacts opens pushContactContextOptionsController's Create
+/// New Contact and Add to Existing Contact. Telegram calls are not ported.
 struct MessagePhoneMenu {
     struct Peer {
         let userID: Int64
@@ -285,17 +286,28 @@ struct MessagePhoneMenu {
         sendMessage: @escaping (Int64) -> Void,
         openProfile: @escaping (Int64) -> Void,
         invite: @escaping () -> Void,
-        addContact: (() -> Void)? = nil,
+        createContact: (() -> Void)? = nil,
+        addToExistingContact: (() -> Void)? = nil,
         copied: @escaping (String) -> Void,
     ) -> [TelegramContextMenuAction] {
         var actions = [TelegramContextMenuAction]()
-        // Add to Contacts opens the new contact form, then a separator; Telegram's Add to Existing Contact (the
-        // device's address book) is not ported.
-        if let addContact {
+        // Add to Contacts opens its two ways, then a separator.
+        if let createContact, let addToExistingContact {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Chat.Context.Phone.AddToContacts"),
                 image: UIImage(systemName: "person.badge.plus"),
-                handler: addContact,
+                children: [
+                    TelegramContextMenuAction(
+                        title: L10n.telegram("Chat.Context.Phone.CreateNewContact"),
+                        image: UIImage(systemName: "person.badge.plus"),
+                        handler: createContact,
+                    ),
+                    TelegramContextMenuAction(
+                        title: L10n.telegram("Chat.Context.Phone.AddToExistingContact"),
+                        image: UIImage(systemName: "person.crop.circle.badge.checkmark"),
+                        handler: addToExistingContact,
+                    ),
+                ],
             ))
         }
         let firstIndexAfterAdd = actions.count

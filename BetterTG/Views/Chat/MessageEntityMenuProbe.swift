@@ -157,9 +157,20 @@ import UIKit
         }
 
         private static func verifyMenus() throws {
-            let unknownPhone = MessagePhoneMenu(number: "+123", peer: nil)
-                .actions(sendMessage: { _ in }, openProfile: { _ in }, invite: {}, addContact: {}, copied: { _ in })
-                .map(\.title)
+            let unknownPhoneActions = MessagePhoneMenu(number: "+123", peer: nil).actions(
+                sendMessage: { _ in },
+                openProfile: { _ in },
+                invite: {},
+                createContact: {},
+                addToExistingContact: {},
+                copied: { _ in },
+            )
+            let unknownPhone = unknownPhoneActions.map(\.title)
+            let addToContacts = unknownPhoneActions.first?.children.map(\.title) ?? []
+            try require(addToContacts == [
+                L10n.telegram("Chat.Context.Phone.CreateNewContact"),
+                L10n.telegram("Chat.Context.Phone.AddToExistingContact"),
+            ], "add to contacts \(addToContacts)")
             try require(unknownPhone == [
                 L10n.telegram("Chat.Context.Phone.AddToContacts"),
                 L10n.telegram("Chat.Context.Phone.InviteToTelegram"),

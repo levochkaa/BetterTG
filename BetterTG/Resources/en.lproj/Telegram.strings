@@ -3646,3 +3646,7 @@
 "Gift.Upgrade.UpgradeFor" = "Upgrade for %@";
 "Gift.Upgrade.Wearable.Title" = "Wearable";
 "Gift.Upgrade.Wearable.Text" = "Display gifts on your page and set them as profile covers or statuses.";
+"AccessDenied.Title" = "Please Allow Access";
+"AccessDenied.Contacts" = "BetterTG messaging is based on your existing contact list.\n\nPlease go to Settings > Privacy > Contacts and set BetterTG to ON.";
+"Chat.Context.Phone.CreateNewContact" = "Create New Contact";
+"Chat.Context.Phone.AddToExistingContact" = "Add to Existing Contact";

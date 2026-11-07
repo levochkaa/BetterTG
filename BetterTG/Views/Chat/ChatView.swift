@@ -326,6 +326,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var messageSearchMember: ChatSearchMemberListView.Member?
     /// Closes the date menu's event editor, whichever button ends it.
     private let calendarEventDelegate = CalendarEventEditDelegate()
+    private let deviceContactAppender = DeviceContactAppender()
     private var messageDateJumpTask: Task<Void, Never>?
     /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
     private var favoriteStickerFileIDs = Set<Int>()
@@ -10554,12 +10555,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         sheet.popoverPresentationController?.sourceView = textView
                         self?.present(sheet, animated: true)
                     },
-                    addContact: { [weak self] in
+                    createContact: { [weak self] in
                         let form = NewContactViewController()
                         form.prefill(
                             firstName: peer?.firstName ?? "", lastName: peer?.lastName ?? "", phoneNumber: number,
                         )
                         self?.navigationController?.pushViewController(form, animated: true)
+                    },
+                    addToExistingContact: { [weak self] in
+                        guard let self else { return }
+                        deviceContactAppender.present(number: number, from: self)
                     },
                     copied: copied,
                 )
