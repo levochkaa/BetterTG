@@ -22,6 +22,8 @@ final class ChatPermissionsViewController: SettingsListViewController {
     private var permissionsTask: Task<Void, Never>?
     private var slowModeTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    /// ChannelPermissionsControllerState's expandedPermissions for Can Send Media.
+    private var mediaExpanded = false
 
     private var isSupergroup: Bool {
         target.supergroupID != nil
@@ -62,19 +64,14 @@ final class ChatPermissionsViewController: SettingsListViewController {
         var sections = [SettingsSection(
             header: L10n.telegram("GroupInfo.Permissions.SectionTitle"),
             footer: lockedInPublic.isEmpty ? nil : L10n.telegram("GroupPermission.NotAvailableInPublicGroups"),
-            rows: PermissionSet.items(isForum: target.isForum, isDefault: true).map { item in
-                let isLocked = lockedInPublic.contains(item.key)
-                return SettingsRow(
-                    title: item.title,
-                    accessory: .toggle(
-                        isOn: !isLocked && permissions[keyPath: item.key],
-                        onChange: { [weak self] isOn in
-                            self?.setPermission(item.key, isOn)
-                        },
-                    ),
-                    isEnabled: !isLocked,
-                )
-            },
+            rows: PermissionSet.rows(
+                items: PermissionSet.items(isForum: target.isForum, isDefault: true),
+                mediaExpanded: mediaExpanded,
+                isOn: { !lockedInPublic.contains($0) && permissions[keyPath: $0] },
+                isEnabled: { !lockedInPublic.contains($0) },
+                set: { [weak self] keys, isOn in self?.setPermissions(keys, isOn) },
+                toggleMedia: { [weak self] in self?.toggleMediaExpanded() },
+            ),
         )]
         guard isSupergroup else { return sections }
         sections.append(SettingsSection(
@@ -133,9 +130,17 @@ final class ChatPermissionsViewController: SettingsListViewController {
 
     // MARK: Default permissions
 
-    private func setPermission(_ key: WritableKeyPath<PermissionSet, Bool>, _ value: Bool) {
-        permissions[keyPath: key] = value
+    private func setPermissions(_ keys: [PermissionSet.Key], _ value: Bool) {
+        for key in keys {
+            permissions[keyPath: key] = value
+        }
+        refreshRowsInPlace()
         sendPermissions()
+    }
+
+    private func toggleMediaExpanded() {
+        mediaExpanded.toggle()
+        reloadAnimating(sectionWithRowTitled: L10n.telegram("Channel.BanUser.PermissionSendMedia"))
     }
 
     /// One setChatPermissions at a time; toggles made meanwhile go in the next one, as Telegram's delayed update.
@@ -255,6 +260,7 @@ final class ChatMemberRestrictionViewController: SettingsListViewController {
     /// Seconds from now, or 0 for Forever.
     private var duration = 0
     private var isSaving = false
+    private var mediaExpanded = false
 
     init(target: ChatManagementTarget, member: ChatManagementMember, isNew: Bool) {
         self.target = target
@@ -295,18 +301,25 @@ final class ChatMemberRestrictionViewController: SettingsListViewController {
             )]),
             SettingsSection(
                 header: L10n.telegram("GroupPermission.SectionTitle"),
-                rows: PermissionSet.items(isForum: target.isForum, isDefault: false).map { item in
-                    // An option off for everyone stays off (GroupPermission.PermissionDisabledByDefault).
-                    let isAllowed = defaults[keyPath: item.key]
-                    return SettingsRow(
-                        title: item.title,
-                        accessory: .toggle(
-                            isOn: isAllowed && permissions[keyPath: item.key],
-                            onChange: { [weak self] isOn in self?.permissions[keyPath: item.key] = isOn },
-                        ),
-                        isEnabled: isAllowed && !isSaving,
-                    )
-                },
+                // An option off for everyone stays off (GroupPermission.PermissionDisabledByDefault).
+                rows: PermissionSet.rows(
+                    items: PermissionSet.items(isForum: target.isForum, isDefault: false),
+                    mediaExpanded: mediaExpanded,
+                    isOn: { defaults[keyPath: $0] && permissions[keyPath: $0] },
+                    isEnabled: { defaults[keyPath: $0] && !isSaving },
+                    set: { [weak self] keys, isOn in
+                        guard let self else { return }
+                        for key in keys {
+                            permissions[keyPath: key] = isOn
+                        }
+                        refreshRowsInPlace()
+                    },
+                    toggleMedia: { [weak self] in
+                        guard let self else { return }
+                        mediaExpanded.toggle()
+                        reloadAnimating(sectionWithRowTitled: L10n.telegram("Channel.BanUser.PermissionSendMedia"))
+                    },
+                ),
             ),
             SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram("GroupPermission.Duration"),

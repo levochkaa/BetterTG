@@ -243,6 +243,65 @@ struct PermissionSet: Equatable {
     }
 }
 
+// MARK: - PermissionSet + rows
+
+extension PermissionSet {
+    typealias Key = WritableKeyPath<PermissionSet, Bool>
+
+    /// banSendMediaSubList: the permissions Telegram gathers under Can Send Media.
+    static let mediaKeys: [Key] = [
+        \.canSendPhotos, \.canSendVideos, \.canSendOtherMessages, \.canSendAudios, \.canSendDocuments,
+        \.canSendVoiceNotes, \.canSendVideoNotes, \.canAddLinkPreviews, \.canSendPolls, \.canReactToMessages,
+    ]
+
+    /// ChannelPermissionsController's allGroupPermissionList(expandMedia: false) as rows: single permissions as
+    /// switches and the media ones as an ItemListExpandableSwitchItem, its switch setting every one the screen allows
+    /// and its options under it while open. `set` takes the keys to change and their new value.
+    @MainActor static func rows(
+        items: [(title: String, short: String, key: Key)],
+        mediaExpanded: Bool,
+        isOn: (Key) -> Bool,
+        isEnabled: (Key) -> Bool,
+        set: @escaping ([Key], Bool) -> Void,
+        toggleMedia: @escaping () -> Void,
+    ) -> [SettingsRow] {
+        var rows = [SettingsRow]()
+        var mediaEmitted = false
+        let media = items.filter { mediaKeys.contains($0.key) }
+        for item in items {
+            guard mediaKeys.contains(item.key) else {
+                rows.append(SettingsRow(
+                    title: item.title,
+                    accessory: .toggle(isOn: isOn(item.key), onChange: { isOn in set([item.key], isOn) }),
+                    isEnabled: isEnabled(item.key),
+                ))
+                continue
+            }
+            guard !mediaEmitted else { continue }
+            mediaEmitted = true
+            let selected = media.count { isOn($0.key) }
+            let changeable = media.filter { isEnabled($0.key) }.map(\.key)
+            rows.append(SettingsRow(
+                title: L10n.telegram("Channel.BanUser.PermissionSendMedia"),
+                style: .expandable(count: "\(selected)/\(media.count)", isExpanded: mediaExpanded),
+                accessory: .toggle(isOn: selected == media.count, onChange: { isOn in set(changeable, isOn) }),
+                isEnabled: !changeable.isEmpty,
+                action: toggleMedia,
+            ))
+            guard mediaExpanded else { continue }
+            for option in media {
+                let value = isOn(option.key)
+                rows.append(SettingsRow(
+                    title: option.title,
+                    style: .option(isSelected: value),
+                    isEnabled: isEnabled(option.key),
+                ) { set([option.key], !value) })
+            }
+        }
+        return rows
+    }
+}
+
 // MARK: - AdminRightsSet
 
 /// A ChatAdministratorRights value to edit, a field at a time.
