@@ -89,6 +89,9 @@ import UIKit
 
     func actions() -> [TelegramContextMenuAction] {
         var actions = [muteAction()]
+        if let discussion = viewDiscussionAction() {
+            actions.append(discussion)
+        }
         actions += botActions()
         if let secretChat = startSecretChatAction() {
             actions.append(secretChat)
@@ -104,6 +107,28 @@ import UIKit
         }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Discussion
+
+    /// PeerInfo.ViewDiscussion for a channel with a discussion group, which BetterTG's header has no button for: the
+    /// group (getSupergroupFullInfo's linkedChatId) opens.
+    private func viewDiscussionAction() -> TelegramContextMenuAction? {
+        guard case .supergroup(let group) = customChat.type, group.isChannel, group.hasLinkedChat else { return nil }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.ViewDiscussion"),
+            image: UIImage(systemName: "bubble.left.and.bubble.right"),
+        ) { [client, scope] in
+            Task {
+                guard let info = try? await client.getSupergroupFullInfo(supergroupId: group.id),
+                      info.linkedChatId != 0, scope.isCurrent,
+                      let discussion = await RootVM.shared.getCustomChatForNavigation(
+                          from: info.linkedChatId, client: client,
+                      )
+                else { return }
+                NavigationStorage.shared.push(.customChat(discussion))
+            }
+        }
     }
 
     // MARK: Report
