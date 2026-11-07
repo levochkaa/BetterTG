@@ -4052,4 +4052,5 @@
 "WebBrowser.Exception.OpenInBrowser" = "Always open this site in browser";
 "WebBrowser.ExceptionAdded.Title" = "Exception Added";
 "WebBrowser.ExceptionAdded.Text" = "This site will always open in-app.";
+"Chat.PauseVoiceMessageTooltip" = "Pause to trim or replay.";
 "WebBrowser.InAppSafari" = "In-App Safari";

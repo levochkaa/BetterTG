@@ -997,6 +997,7 @@ final class ChatComposerView: UIView {
         activeMediaRecordingMode = .voice
         guard await chatVM.mediaStartRecordingVoice() else { return false }
         chatVM.lockVoiceRecording()
+        maybeShowVoicePauseTooltip()
         return true
     }
 
@@ -3080,9 +3081,30 @@ final class ChatComposerView: UIView {
             switch mode {
             case .voice:
                 chatVM.lockVoiceRecording()
+                maybeShowVoicePauseTooltip()
             case .video:
                 onLockVideoNoteRecording?()
             }
+        }
+    }
+
+    /// maybePresentAudioPauseTooltip: the first three times a voice recording is locked, "Pause to trim or replay."
+    /// points at the pause button 0.3 s later (getVoiceMessagesPauseSuggestion).
+    private func maybeShowVoicePauseTooltip() {
+        let key = "VoiceMessagesPauseSuggestion"
+        let count = UserDefaults.standard.integer(forKey: key)
+        guard count < 3, chatVM.recordingVoiceNote, chatVM.voiceRecordingInteractionState == .locked else { return }
+        UserDefaults.standard.set(count + 1, forKey: key)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, let host = window, chatVM.recordingVoiceNote, !recordingPauseResumeButton.isHidden
+            else { return }
+            TelegramTextTooltipView.show(
+                L10n.telegram("Chat.PauseVoiceMessageTooltip"),
+                source: recordingPauseResumeButton.convert(recordingPauseResumeButton.bounds, to: host),
+                in: host,
+                topInset: host.safeAreaInsets.top,
+                duration: 4,
+            )
         }
     }
 
@@ -3414,6 +3436,7 @@ final class ChatComposerView: UIView {
             switch activeMediaRecordingMode {
             case .voice:
                 chatVM.lockVoiceRecording()
+                maybeShowVoicePauseTooltip()
             case .video:
                 onLockVideoNoteRecording?()
             }
