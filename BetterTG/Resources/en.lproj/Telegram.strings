@@ -3666,3 +3666,6 @@
 "StorageManagement.DescriptionCleared" = "All media can be re-downloaded from the Telegram cloud if you need it again.";
 "StorageManagement.SectionMiscellaneous" = "Misc";
 "StorageManagement.SectionStories" = "Stories";
+"ClearCache.Success" = "**%@** freed on your %@!";
+"StorageManagement.ClearSelected" = "Clear Selected";
+"StorageManagement.ClearConfirmationTitle" = "Clear Cache";

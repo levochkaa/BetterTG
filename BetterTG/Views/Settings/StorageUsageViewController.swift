@@ -22,6 +22,15 @@ final class StorageUsageViewController: SettingsListViewController {
         case misc
         case stories
 
+        private static let allFileTypes: [TDNativeFileType] = [
+            .fileTypeAnimation, .fileTypeAudio, .fileTypeDocument, .fileTypeLivePhotoVideo, .fileTypeNone,
+            .fileTypeNotificationSound, .fileTypePhoto, .fileTypePhotoStory, .fileTypeProfilePhoto, .fileTypeSecret,
+            .fileTypeSecretThumbnail, .fileTypeSecure, .fileTypeSelfDestructingLivePhotoVideo,
+            .fileTypeSelfDestructingPhoto, .fileTypeSelfDestructingVideo, .fileTypeSelfDestructingVideoNote,
+            .fileTypeSelfDestructingVoiceNote, .fileTypeSticker, .fileTypeThumbnail, .fileTypeUnknown,
+            .fileTypeVideo, .fileTypeVideoNote, .fileTypeVideoStory, .fileTypeVoiceNote, .fileTypeWallpaper,
+        ]
+
         var title: String {
             switch self {
             case .photos: L10n.telegram("StorageManagement.SectionPhotos")
@@ -59,6 +68,11 @@ final class StorageUsageViewController: SettingsListViewController {
             case .misc: "ellipsis.circle.fill"
             case .stories: "circle.dashed"
             }
+        }
+
+        /// The TDLib file types the category stands for, which a selective clear passes to optimizeStorage.
+        var fileTypes: [TDNativeFileType] {
+            Self.allFileTypes.filter { Category($0) == self }
         }
 
         /// TDLib's file types in Telegram's categories; voice notes, thumbnails and the rest are Misc.
@@ -105,6 +119,8 @@ final class StorageUsageViewController: SettingsListViewController {
     private var isCalculating = true
     private var isClearing = false
     private var isOtherExpanded = false
+    /// The categories a clear takes: all that hold anything at first, as StorageUsageScreen selects them.
+    private var selected = Set<Category>()
     private let headerView = UsageChartHeaderView()
 
     /// The used categories by size: up to five shown, otherwise four and the rest under Other.
@@ -118,6 +134,18 @@ final class StorageUsageViewController: SettingsListViewController {
 
     private var cacheTotal: Int64 {
         categorySizes.values.reduce(0, +)
+    }
+
+    private var existing: Set<Category> {
+        Set(Category.allCases.filter { (categorySizes[$0] ?? 0) > 0 })
+    }
+
+    private var isEverythingSelected: Bool {
+        isCalculating || existing.isSubset(of: selected)
+    }
+
+    private var selectedSize: Int64 {
+        selected.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
     }
 
     override func viewDidLoad() {
@@ -146,26 +174,32 @@ final class StorageUsageViewController: SettingsListViewController {
                 title: loading, style: .status(.secondaryLabel), accessory: .activity,
             )]))
         } else if cacheTotal > 0 {
-            let total = cacheTotal
+            // Shares are of the selected categories; one left out shows none.
+            let total = max(1, selectedSize)
+            // StorageCategoryItemComponent: the check in the category's colour, which a tap turns.
             func row(_ category: Category) -> SettingsRow {
                 let size = categorySizes[category] ?? 0
+                let isSelected = selected.contains(category)
                 return SettingsRow(
                     title: category.title,
-                    titleSuffix: UsagePieChartView.fractionText(CGFloat(size) / CGFloat(total)),
+                    titleSuffix: UsagePieChartView.fractionText(isSelected ? CGFloat(size) / CGFloat(total) : 0),
                     detail: SettingsFormatting.byteCount(size),
-                    symbol: category.symbol,
-                    symbolTint: category.color,
-                )
+                    symbol: isSelected ? "checkmark.circle.fill" : "circle",
+                    symbolTint: isSelected ? category.color : .tertiaryLabel,
+                ) { [weak self] in self?.toggleSelection(category) }
             }
             let (shown, other) = listed
             var rows = shown.map(row)
             if !other.isEmpty {
                 let size = other.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
+                let selectedOtherSize = other.filter(selected.contains).reduce(0) { $0 + (categorySizes[$1] ?? 0) }
+                let isSelected = other.allSatisfy(selected.contains)
+                let otherColor = isOtherExpanded ? Self.otherColor : Category.misc.color
                 var otherRow = SettingsRow(
                     title: L10n.telegram("StorageManagement.SectionOther"),
-                    titleSuffix: UsagePieChartView.fractionText(CGFloat(size) / CGFloat(total)),
-                    symbol: "square.stack.fill",
-                    symbolTint: isOtherExpanded ? Self.otherColor : Category.misc.color,
+                    titleSuffix: UsagePieChartView.fractionText(CGFloat(selectedOtherSize) / CGFloat(total)),
+                    symbol: isSelected ? "checkmark.circle.fill" : "circle",
+                    symbolTint: isSelected ? otherColor : .tertiaryLabel,
                 )
                 let expanded = isOtherExpanded
                 let sizeText = SettingsFormatting.byteCount(size)
@@ -180,12 +214,18 @@ final class StorageUsageViewController: SettingsListViewController {
             }
             sections.append(SettingsSection(footer: L10n.telegram("StorageManagement.SectionsDescription"), rows: rows))
         }
+        // StorageCategoriesComponent's button: Clear Entire Cache with everything selected, Clear Selected otherwise,
+        // with the size it frees.
+        let selectedSize = selectedSize
         sections.append(SettingsSection(rows: [SettingsRow(
-            title: L10n.telegram("StorageManagement.ClearAll"),
-            detail: fast.map { SettingsFormatting.byteCount($0.filesSize) },
+            title: L10n
+                .telegram(isEverythingSelected ? "StorageManagement.ClearAll" : "StorageManagement.ClearSelected"),
+            detail: isCalculating
+                ? fast.map { SettingsFormatting.byteCount($0.filesSize) }
+                : selectedSize == 0 ? nil : SettingsFormatting.byteCount(selectedSize),
             style: .action(destructive: false),
             accessory: isClearing ? .activity : .none,
-            isEnabled: !isClearing && (fast?.filesSize ?? 0) > 0,
+            isEnabled: !isClearing && (isCalculating ? (fast?.filesSize ?? 0) > 0 : selectedSize > 0),
         ) { [weak self] in self?.confirmClear() }]))
         if let fast {
             let serviceSize = fast.databaseSize + fast.languagePackDatabaseSize + fast.logSize
@@ -224,23 +264,24 @@ final class StorageUsageViewController: SettingsListViewController {
     /// section otherwise.
     private func updateHeader(animated: Bool) {
         let total = cacheTotal
+        let selectedTotal = selectedSize
         let (shown, other) = listed
+        // A category left out of the clear leaves the ring, and the rest share it.
+        func size(_ category: Category) -> Int64 {
+            selected.contains(category) ? categorySizes[category] ?? 0 : 0
+        }
         func fraction(_ size: Int64) -> CGFloat {
-            total == 0 ? 0 : CGFloat(size) / CGFloat(total)
+            selectedTotal == 0 ? 0 : CGFloat(size) / CGFloat(selectedTotal)
         }
         var items = shown.map { category in
-            UsagePieChartView.Item(
-                id: category.rawValue, fraction: fraction(categorySizes[category] ?? 0), color: category.color,
-            )
+            UsagePieChartView.Item(id: category.rawValue, fraction: fraction(size(category)), color: category.color)
         }
         if isOtherExpanded {
             items += other.map { category in
-                UsagePieChartView.Item(
-                    id: category.rawValue, fraction: fraction(categorySizes[category] ?? 0), color: category.color,
-                )
+                UsagePieChartView.Item(id: category.rawValue, fraction: fraction(size(category)), color: category.color)
             }
         } else if !other.isEmpty {
-            let size = other.reduce(0) { $0 + (categorySizes[$1] ?? 0) }
+            let size = other.reduce(0) { $0 + size($1) }
             items.append(UsagePieChartView.Item(id: Self.otherID, fraction: fraction(size), color: Category.misc.color))
         }
         let title: String
@@ -257,12 +298,22 @@ final class StorageUsageViewController: SettingsListViewController {
         }
         headerView.update(
             items: isCalculating ? [] : items,
-            totalText: SettingsFormatting.byteCount(total),
+            totalText: SettingsFormatting.byteCount(selectedTotal),
             title: title,
             description: description,
             animated: animated,
         )
         viewIfLoaded?.setNeedsLayout()
+    }
+
+    private func toggleSelection(_ category: Category) {
+        if selected.contains(category) {
+            selected.remove(category)
+        } else {
+            selected.insert(category)
+        }
+        updateHeader(animated: true)
+        reload()
     }
 
     private func toggleOther() {
@@ -295,23 +346,29 @@ final class StorageUsageViewController: SettingsListViewController {
             categorySizes = sizes
             self.chats = chats.sorted { $0.size > $1.size }
             isCalculating = false
+            selected = existing
             updateHeader(animated: true)
             reload()
         }
     }
 
-    /// Telegram's Clear Entire Cache. Downloaded media stays in the cloud.
+    /// requestClear: Clear Cache with Telegram's text and Clear Entire Cache or Clear Selected, then optimizeStorage
+    /// over everything or the selected categories' file types, and ClearCache.Success with the size freed.
     private func confirmClear() {
+        let everything = isEverythingSelected
+        let fileTypes = everything ? [] : selected.flatMap(\.fileTypes)
+        let freed = isCalculating ? fast?.filesSize ?? 0 : selectedSize
         confirm(
+            title: L10n.telegram("StorageManagement.ClearConfirmationTitle"),
             message: L10n.telegram("StorageManagement.ClearConfirmationText"),
-            actionTitle: L10n.telegram("StorageManagement.ClearCache"),
+            actionTitle: L10n.telegram(everything ? "StorageManagement.ClearAll" : "StorageManagement.ClearSelected"),
         ) { [weak self] in
             guard let self else { return }
             isClearing = true
             reload()
             perform { client in
                 _ = try await client.send(TDNativeRequests.optimizeStorage(
-                    size: 0, ttl: 0, count: 0, immunityDelay: 0, fileTypes: [], chatIds: [], excludeChatIds: [],
+                    size: 0, ttl: 0, count: 0, immunityDelay: 0, fileTypes: fileTypes, chatIds: [], excludeChatIds: [],
                     returnDeletedFileStatistics: false, chatLimit: 0,
                 ))
             } completion: { [weak self] in
@@ -322,7 +379,10 @@ final class StorageUsageViewController: SettingsListViewController {
                 categorySizes = [:]
                 isOtherExpanded = false
                 updateHeader(animated: true)
-                showToast(L10n.telegram("StorageManagement.TitleCleared"))
+                showToast(L10n.telegram(
+                    "ClearCache.Success", SettingsFormatting.byteCount(freed), UIDevice.current.model,
+                )
+                .withoutTelegramMarkup)
                 load()
             }
         }
