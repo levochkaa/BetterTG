@@ -94,6 +94,7 @@ import UIKit
         LiveLocationManager.shared.start()
         AttachmentMenuBotStore.shared.start()
         SuggestedActionsStore.shared.start()
+        MediaAutosave.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

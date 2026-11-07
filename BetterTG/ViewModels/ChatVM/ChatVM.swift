@@ -373,6 +373,7 @@ import UIKit
     var audioRecorder: AVAudioRecorder?
     @Published var messages = [CustomMessage]() {
         didSet {
+            registerForAutosave()
             refreshAllMessagesForumTopicsIfNeeded()
             refreshDeliveryStates()
             messagesDidChange.send()
@@ -6433,6 +6434,16 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// The loaded incoming photos and videos wait for their files, which Save to Camera Roll may keep.
+    private func registerForAutosave() {
+        guard let accountID else { return }
+        MediaAutosave.shared.register(
+            messages.flatMap(\.sourceMessages),
+            chatType: customChat.chat.type,
+            source: TdUpdateSource(accountID: accountID, clientID: client.id),
+        )
     }
 
     /// One picked item's content: the file itself for Send as File, else a GIF for a muted video, a video or a photo,
