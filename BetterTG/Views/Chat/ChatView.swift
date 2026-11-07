@@ -10530,6 +10530,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let actions = MessageDateMenu.actions(
                 unixTime: unixTime,
                 addToCalendar: { [weak self] in self?.presentCalendarEvent(at: unixTime) },
+                setReminder: { [weak self] in self?.presentDateReminder(messageID: messageID, unixTime: unixTime) },
                 copied: copied,
             )
             showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
@@ -10594,6 +10595,40 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     copied: copied,
                 )
                 showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+            }
+        }
+    }
+
+    /// The date menu's Set a Reminder: ChatScheduleTimeScreen in reminders mode at the date, then the message is
+    /// forwarded to Saved Messages for that time, with "You have set a reminder in Saved Messages." opening it.
+    private func presentDateReminder(messageID: Int64, unixTime: Int) {
+        guard let accountUserID = TDLib.shared.activeAccount?.userID else { return }
+        let client = chatVM.client
+        let chatID = chatVM.chatID
+        ScheduleMessagePickerViewController.present(
+            from: self,
+            isReminder: true,
+            showsSendWhenOnline: false,
+            initialDate: Date(timeIntervalSince1970: TimeInterval(unixTime)),
+        ) { [weak self] state in
+            Task { [weak self] in
+                let result = try? await client.forwardMessages(
+                    chatId: accountUserID,
+                    fromChatId: chatID,
+                    messageIds: [messageID],
+                    options: ChatVM.sendOptions(schedulingState: state),
+                    removeCaption: false,
+                    sendCopy: false,
+                    topicId: nil,
+                )
+                guard let self, result?.messages.isEmpty == false else { return }
+                TelegramUndoToast.showSavedMessagesForward(
+                    L10n.telegram("Conversation.DateReminderSet"),
+                    in: view,
+                    topInset: max(0, customNavigationBar.frame.maxY - view.safeAreaInsets.top) + 8,
+                ) { [weak self] in
+                    TelegramLinkRouter.shared.openChat(accountUserID, profile: false, from: self)
+                }
             }
         }
     }

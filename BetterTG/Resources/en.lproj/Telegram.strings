@@ -3541,3 +3541,5 @@
 "Settings.SuggestSetupPasswordText" = "Set a password that will be required each time you log in with this phone number.";
 "Settings.SuggestSetupPasswordAction" = "Set Additional Password";
 "Chat.Context.Phone.AddToContacts" = "Add to Contacts";
+"Chat.Context.Date.SetReminder" = "Set a Reminder";
+"Conversation.DateReminderSet" = "You have set a reminder in [Saved Messages]().";

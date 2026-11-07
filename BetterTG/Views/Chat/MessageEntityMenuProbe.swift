@@ -148,9 +148,11 @@ import UIKit
                 )),
             )
             try require(absolute.contains("2027"), "long date \(absolute)")
-            let dates = MessageDateMenu.actions(unixTime: 0, addToCalendar: {}, copied: { _ in }).map(\.title)
+            let dates = MessageDateMenu.actions(unixTime: 0, addToCalendar: {}, setReminder: {}, copied: { _ in })
+                .map(\.title)
             try require(dates == [
                 L10n.telegram("Chat.Context.Date.Copy"), L10n.telegram("Chat.Context.Date.AddToCalendar"),
+                L10n.telegram("Chat.Context.Date.SetReminder"),
             ], "date menu \(dates)")
         }
 

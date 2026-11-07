@@ -359,16 +359,17 @@ struct MessagePhoneMenu {
 
 // MARK: - MessageDateMenu
 
-/// ChatControllerOpenDateContextMenu: Copy, the long date and time ("Date copied to clipboard"), and Add to Calendar,
-/// an hour's event at that time in the system editor. Set Reminder (a scheduled forward to Saved Messages) is not
-/// ported.
+/// ChatControllerOpenDateContextMenu: Copy, the long date and time ("Date copied to clipboard"), Add to Calendar, an
+/// hour's event at that time in the system editor, and Set a Reminder, the message forwarded to Saved Messages at a
+/// chosen time.
 enum MessageDateMenu {
     static func actions(
         unixTime: Int,
         addToCalendar: @escaping () -> Void,
+        setReminder: (() -> Void)? = nil,
         copied: @escaping (String) -> Void,
     ) -> [TelegramContextMenuAction] {
-        [
+        var actions: [TelegramContextMenuAction] = [
             TelegramContextMenuAction(
                 title: L10n.telegram("Chat.Context.Date.Copy"),
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
@@ -383,6 +384,14 @@ enum MessageDateMenu {
                 handler: addToCalendar,
             ),
         ]
+        if let setReminder {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Date.SetReminder"),
+                image: UIImage(systemName: "bell"),
+                handler: setReminder,
+            ))
+        }
+        return actions
     }
 }
 
