@@ -3591,7 +3591,16 @@ ClientRestorableNavigationEntry {
             }
         let canEdit =
             if let user = customChat.user {
-                user.id == accountUserID
+                // A contact's name and notes are the account's to edit, as PeerInfoScreen's edit mode for one.
+                user
+                    .id == accountUserID ||
+                    (user.isContact && {
+                        if case .userTypeRegular = user.type {
+                            true
+                        } else {
+                            false
+                        }
+                    }())
             } else {
                 // Telegram's edit mode is the owner's and the admins' (PeerInfoScreen `canEditPeerInfo` and the
                 // management items); the name fields need Change Info.
@@ -5840,6 +5849,15 @@ ClientRestorableNavigationEntry {
                 accountUserID: accountUserID,
                 openMembers: { [weak self] in self?.membersPressed() },
             ), animated: true)
+            return
+        }
+        if let user = customChat.user, user.id != accountUserID, user.isContact {
+            let editor = PeerContactEditViewController(user: user)
+            editor.onDeleted = { [weak self] in
+                guard let self else { return }
+                showInfoToast(L10n.telegram("Conversation.DeletedFromContacts", profileTitle()).withoutTelegramMarkup)
+            }
+            navigationController?.pushViewController(editor, animated: true)
             return
         }
         let mode: PeerProfileEditViewController.Mode

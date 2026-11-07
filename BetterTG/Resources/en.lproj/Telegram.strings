@@ -3885,3 +3885,7 @@
 "ReportPeer.ReasonOther.Title" = "Report";
 "ReportPeer.ReasonOther.Placeholder" = "Description";
 "ReportPeer.ReasonOther.Send" = "Send";
+"UserInfo.DeleteContact" = "Delete Contact";
+"Conversation.DeletedFromContacts" = "**%@** deleted from your contacts";
+"PeerInfo.AddNotesPlaceholder" = "Add Notes";
+"PeerInfo.AddNotesInfo" = "Notes are only visible to you.";
