@@ -834,6 +834,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     // MARK: Private
 
     private weak var sourceView: UIView?
+    /// The window the menu opened from, which may not be the one hosting it.
+    private weak var openingWindow: UIWindow?
     /// The row a chat preview grows out of, while it shows in the preview's header.
     private var expansion: ContextPreviewExpansion?
     private weak var menuAnchorView: UIView?
@@ -1022,8 +1024,17 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     /// The menu's and preview's side limits: 12 pt from the screen's edges, in the band beside iPhone Duo's strip.
-    private var menuMinX: CGFloat { view.safeAreaInsets.left + 12 }
-    private var menuMaxX: CGFloat { view.bounds.width - view.safeAreaInsets.right - 12 }
+    private var menuMinX: CGFloat { max(view.safeAreaInsets.left, sourceWindowSideInsets.left) + 12 }
+    private var menuMaxX: CGFloat {
+        view.bounds.width - max(view.safeAreaInsets.right, sourceWindowSideInsets.right) - 12
+    }
+
+    /// The side insets of the window the menu opens from. With the keyboard up the menu lives in the keyboard's
+    /// window, which lacks them: on iPhone Duo the preview and menu then reached under the status strip.
+    private var sourceWindowSideInsets: (left: CGFloat, right: CGFloat) {
+        guard let window = openingWindow else { return (0, 0) }
+        return (window.safeAreaInsets.left, window.safeAreaInsets.right)
+    }
 
     init(
         sourceView: UIView,
@@ -1127,6 +1138,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             )
         #endif
         presentationHostView = hostView
+        openingWindow = sourceWindow
         if let previous = Self.activeController, previous !== self {
             Self.closingControllers.append(previous)
         }
