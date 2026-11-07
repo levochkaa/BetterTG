@@ -119,7 +119,13 @@ TelegramEmbeddedNavigationChrome {
         tabBar.onHold = { [weak self] index, source, gesture in
             guard let self, tabs.indices.contains(index) else { return }
             switch tabs[index] {
-            case .chats: chats.showFolderMenu(from: source, tracking: gesture, anchor: tabBar)
+            case .chats: chats.showFolderMenu(
+                    from: source,
+                    tracking: gesture,
+                    anchor: tabBar,
+                    owner: self,
+                    showChats: { [weak self] in self?.show(.chats) },
+                )
             case .settings: chats.showAccountSwitcher(from: source, tracking: gesture, anchor: tabBar)
             case .archive: break
             }

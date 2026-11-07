@@ -304,9 +304,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     /// ChatListController.tabBarItemContextAction: Edit Folders (Add Folder without any), All Chats while a folder is
-    /// shown, then the folders with their unread counts; choosing one shows it.
-    func showFolderMenu(from source: UIView, tracking gesture: UIGestureRecognizer, anchor: UIView) {
-        guard actionAuthority.scope(owner: self).isCurrent else { return }
+    /// shown, then the folders with their unread counts; choosing one shows it. The menu also opens from another tab,
+    /// where Chats is off screen: `owner` is the tabs, and `showChats` brings Chats back before a choice runs, as
+    /// Telegram's selectTab switches to Chats.
+    func showFolderMenu(
+        from source: UIView,
+        tracking gesture: UIGestureRecognizer,
+        anchor: UIView,
+        owner: UIViewController,
+        showChats: @escaping () -> Void,
+    ) {
+        guard actionAuthority.scope(owner: owner).isCurrent else { return }
         let folders = rootVM.folders.filter {
             if case .folder = $0.type {
                 true
@@ -319,6 +327,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             image: UIImage(systemName: folders.isEmpty ? "plus" : "folder.badge.gearshape"),
         ) { [weak self] in
             guard let self, let main = rootVM.folders.first else { return }
+            showChats()
             performFolderAction(.editFolders, for: main)
         }]
         if let main = rootVM.folders.first(where: {
@@ -334,14 +343,20 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 title: L10n.telegram("ChatList.FolderAllChats"),
                 image: UIImage(systemName: "bubble.left.and.bubble.right"),
                 startsNewSection: true,
-            ) { [weak self] in self?.selectFolder(id: main.id, animated: true) })
+            ) { [weak self] in
+                showChats()
+                self?.selectFolder(id: main.id, animated: true)
+            })
         }
         for (index, folder) in folders.enumerated() {
             var action = TelegramContextMenuAction(
                 title: folder.name,
                 image: UIImage(systemName: Self.menuSymbol(for: folder)),
                 startsNewSection: index == 0 && actions.count == 1,
-            ) { [weak self] in self?.selectFolder(id: folder.id, animated: true) }
+            ) { [weak self] in
+                showChats()
+                self?.selectFolder(id: folder.id, animated: true)
+            }
             if let state = folderUnreadStates[folder.chatList], state.count >= 1 {
                 action.badge = (text: "\(state.count)", isAccent: state.hasUnmuted)
             }
