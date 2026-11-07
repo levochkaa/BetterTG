@@ -6,13 +6,17 @@ import UIKit
 // MARK: - DataAndStorageViewController
 
 /// Telegram's Data and Storage (DataAndStorageSettingsController): Storage Usage and Network Usage with their
-/// totals, Auto-Download Media on cellular and Wi-Fi with Reset, Pause Music While Recording and Raise to Listen, and
+/// totals, Auto-Download Media on cellular and Wi-Fi with Reset, Save to Camera Roll for each kind of chat, Pause Music
+/// While Recording and Raise to Listen, and
 /// Connection Type's Proxy with the type of the proxy in use.
 final class DataAndStorageViewController: SettingsListViewController {
     private var storageSize: Int64?
     private var networkBytes: Int64?
     /// The enabled proxy's type, "None" without one; nil until TDLib answers.
     private var proxyValue: String?
+    /// TDLib's autosave settings and each exception's kind of chat, for Save to Camera Roll.
+    private var autosave: TDNativeAutosaveSettings?
+    private var autosaveExceptionScopes = [AutosaveScope]()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -45,7 +49,7 @@ final class DataAndStorageViewController: SettingsListViewController {
             ) { [weak self] in
                 self?.navigationController?.pushViewController(NetworkUsageViewController(), animated: true)
             },
-        ]), autoDownloadSection(), SettingsSection(
+        ]), autoDownloadSection()] + autosaveSections() + [SettingsSection(
             header: L10n.telegram("ChatSettings.Other").uppercased(),
             footer: L10n.telegram("Settings.RaiseToListenInfo"),
             rows: [
@@ -160,6 +164,47 @@ final class DataAndStorageViewController: SettingsListViewController {
         present(sheet, animated: true)
     }
 
+    /// DataAndStorageSettingsController's SAVE TO CAMERA ROLL: Private Chats, Groups and Channels with On or Off, what
+    /// they save and their exceptions under the title, each opening its settings.
+    private func autosaveSections() -> [SettingsSection] {
+        guard let autosave else { return [] }
+        return [SettingsSection(
+            header: L10n.telegram("Settings.SaveToCameraRollSection"),
+            footer: L10n.telegram("Settings.SaveToCameraRollInfo"),
+            rows: AutosaveScope.allCases.map { scope in
+                let settings = scope.settings(in: autosave)
+                let exceptions = autosaveExceptionScopes.count { $0 == scope }
+                let label = AutosaveScope.label(for: settings, exceptions: exceptions)
+                let value = L10n.telegram(
+                    settings.autosavePhotos || settings.autosaveVideos
+                        ? "Settings.AutosaveMediaOn"
+                        : "Settings.AutosaveMediaOff",
+                )
+                var row = SettingsRow(
+                    title: scope.title,
+                    detail: label.isEmpty ? nil : label,
+                    style: label.isEmpty ? .value : .subtitle,
+                    symbol: scope.symbol,
+                    symbolTint: scope.tint,
+                    accessory: .disclosure,
+                ) { [weak self] in
+                    self?.navigationController?.pushViewController(
+                        AutosaveSettingsViewController(target: .scope(scope)), animated: true,
+                    )
+                }
+                row.trailingView = SettingsTrailingView {
+                    let valueLabel = UILabel()
+                    valueLabel.text = value
+                    valueLabel.textColor = .secondaryLabel
+                    valueLabel.font = .preferredFont(forTextStyle: .body)
+                    valueLabel.sizeToFit()
+                    return valueLabel
+                }
+                return row
+            },
+        )]
+    }
+
     private func load() {
         guard contextIsCurrent else { return }
         let client = client
@@ -167,7 +212,15 @@ final class DataAndStorageViewController: SettingsListViewController {
             let storage = try? await client.send(TDNativeRequests.getStorageStatisticsFast())
             let network = try? await client.send(TDNativeRequests.getNetworkStatistics(onlyCurrent: false))
             let proxies = try? await client.send(TDNativeRequests.getProxies())
+            let autosave = try? await client.send(TDNativeRequests.getAutosaveSettings())
+            var exceptionScopes = [AutosaveScope]()
+            for exception in autosave?.exceptions ?? [] {
+                guard let chat = try? await client.getChat(chatId: exception.chatId) else { continue }
+                exceptionScopes.append(AutosaveScope(chatType: chat.type))
+            }
             guard let self, contextIsCurrent else { return }
+            self.autosave = autosave
+            autosaveExceptionScopes = exceptionScopes
             proxyValue = proxies.map { list in
                 list.proxies.first(where: \.isEnabled).map { ProxyPresentation.typeTitle($0.proxy) }
                     ?? L10n.telegram("GroupInfo.SharedMediaNone")

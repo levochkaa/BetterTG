@@ -344,7 +344,7 @@ private final class AutoDownloadDataUsageCell: UITableViewCell {
 
 /// AutodownloadSizeLimitItem: "up to 10 MB" in 17 pt above a slider from 512 KB to 1.5 GB, its ends in 13 pt, on
 /// Telegram's uneven scale (1 MB at a quarter, 10 MB at half, 100 MB at three quarters).
-private final class AutoDownloadSizeLimitCell: UITableViewCell {
+final class AutoDownloadSizeLimitCell: UITableViewCell {
     static let reuseIdentifier = "AutoDownloadSizeLimitCell"
 
     private static let stops: [(position: CGFloat, size: Int64)] = [
