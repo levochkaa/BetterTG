@@ -1274,7 +1274,8 @@ ClientRestorableNavigationEntry {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if currentSharedTab == .media {
+        // PeerInfoVisualMediaPaneNode's and PeerInfoStoryPaneNode's grids have the scroller.
+        if currentSharedTab == .media || currentSharedTab.isStories {
             scrollingArea.update(isScrolling: scrollView.isDragging || scrollView.isDecelerating)
         } else {
             scrollingArea.hide(animated: false)
@@ -3636,19 +3637,23 @@ ClientRestorableNavigationEntry {
 
     /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
     /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
-    /// The month and year of the first photo or video at the top of the grid, for the fast scroller.
+    /// The month and year of the first photo, video or post at the top of the grid, for the fast scroller.
     private func topMediaMonth() -> (text: String, order: Int)? {
         let top = collectionView.contentOffset.y + collectionView.safeAreaInsets.top
+        let stories = currentSharedTab.isStories
+        func date(_ id: Int64) -> Int? {
+            stories ? postsByID[id]?.date : messagesByID[id]?.date
+        }
         let visible = collectionView.indexPathsForVisibleItems.sorted()
         let indexPath = visible.first { indexPath in
             (collectionView.layoutAttributesForItem(at: indexPath)?.frame.maxY ?? 0) > top
-                && dataSource.itemIdentifier(for: indexPath).flatMap { messagesByID[$0] } != nil
+                && dataSource.itemIdentifier(for: indexPath).flatMap(date) != nil
         }
-        guard let indexPath, let id = dataSource.itemIdentifier(for: indexPath), let message = messagesByID[id] else {
+        guard let indexPath, let id = dataSource.itemIdentifier(for: indexPath), let unixTime = date(id) else {
             return nil
         }
         let parts = Calendar.current.dateComponents(
-            [.year, .month], from: Date(timeIntervalSince1970: TimeInterval(message.date)),
+            [.year, .month], from: Date(timeIntervalSince1970: TimeInterval(unixTime)),
         )
         let year = parts.year ?? 2000
         let month = parts.month ?? 1
