@@ -6,10 +6,12 @@ import UIKit
 // MARK: - ArchiveSettingsViewController
 
 /// Telegram's ArchiveSettingsController on TDLib's archiveChatListSettings: Always Keep Archived for unmuted chats,
-/// and while that is off, for chats from folders. Archiving chats from unknown users is a Premium setting and is not
-/// offered.
+/// and while that is off, for chats from folders; then NEW CHATS FROM UNKNOWN USERS with Automatically Archive where
+/// TDLib allows it (`can_archive_and_mute_new_chats_from_unknown_users`). Telegram shows that one locked behind
+/// Premium elsewhere, which BetterTG leaves out.
 final class ArchiveSettingsViewController: SettingsListViewController {
     private var settings: TDNativeArchiveChatListSettings?
+    private var canAutoArchive = false
     private var loadTask: Task<Void, Never>?
 
     deinit {
@@ -22,8 +24,19 @@ final class ArchiveSettingsViewController: SettingsListViewController {
         let client = client
         loadTask = Task { [weak self] in
             let settings = try? await client.send(TDNativeRequests.getArchiveChatListSettings())
+            var canAutoArchive = false
+            if case .optionValueBoolean(let value) = try? await client.getOption(
+                name: "can_archive_and_mute_new_chats_from_unknown_users",
+            ) {
+                canAutoArchive = value.value
+            }
+            #if DEBUG
+                // `-ui-probe-privacy-autoarchive` shows the section the server offers only to some accounts.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-autoarchive") { canAutoArchive = true }
+            #endif
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             self.settings = settings
+            self.canAutoArchive = canAutoArchive
             reload()
         }
     }
@@ -52,14 +65,26 @@ final class ArchiveSettingsViewController: SettingsListViewController {
                 )],
             ))
         }
+        if canAutoArchive {
+            sections.append(SettingsSection(
+                header: L10n.telegram("ArchiveSettings.UnknownChatsHeader"),
+                footer: L10n.telegram("ArchiveSettings.UnknownChatsFooter"),
+                rows: [SettingsRow(
+                    title: L10n.telegram("ArchiveSettings.AutomaticallyArchive"),
+                    accessory: .toggle(isOn: settings.archiveAndMuteNewChatsFromUnknownUsers) { [weak self] isOn in
+                        self?.update(archiveUnknown: isOn)
+                    },
+                )],
+            ))
+        }
         return sections
     }
 
     /// updateAccountKeepArchivedUnmuted and updateAccountKeepArchivedFolders, kept on screen at once.
-    private func update(keepUnmuted: Bool? = nil, keepFolders: Bool? = nil) {
+    private func update(keepUnmuted: Bool? = nil, keepFolders: Bool? = nil, archiveUnknown: Bool? = nil) {
         guard let current = settings, contextIsCurrent else { return }
         let updated = TDNativeArchiveChatListSettings(
-            archiveAndMuteNewChatsFromUnknownUsers: current.archiveAndMuteNewChatsFromUnknownUsers,
+            archiveAndMuteNewChatsFromUnknownUsers: archiveUnknown ?? current.archiveAndMuteNewChatsFromUnknownUsers,
             keepUnmutedChatsArchived: keepUnmuted ?? current.keepUnmutedChatsArchived,
             keepChatsFromFoldersArchived: keepFolders ?? current.keepChatsFromFoldersArchived,
         )
