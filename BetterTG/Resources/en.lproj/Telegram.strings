@@ -4149,3 +4149,4 @@
 "Channel.AdminLog.EmptyFilterText" = "No recent actions that match your query have been found.";
 "Group.AdminLog.EmptyText" = "No service actions were taken by the group's members and admins in the last 48 hours.";
 "Broadcast.AdminLog.EmptyText" = "No service actions were taken by the channel's admins in the last 48 hours.";
+"AuthSessions.AddedDeviceTerminate" = "Terminate";

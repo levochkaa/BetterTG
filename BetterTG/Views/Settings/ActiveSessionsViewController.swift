@@ -150,8 +150,8 @@ final class ActiveSessionsViewController: SettingsListViewController {
     }
 
     /// addDevice: the QR scanner (QrCodeScanScreen's `.authTransfer`); a tg://login code confirms the login
-    /// (confirmQrCodeAuthentication), closes the scanner and says which app logged in; another code is ignored, and
-    /// one TDLib refuses says the code is invalid.
+    /// (confirmQrCodeAuthentication), closes the scanner and says which app logged in with Terminate to undo it;
+    /// another code is ignored, and one TDLib refuses says the code is invalid.
     private func linkDesktopDevice() {
         let scanner = WebAppQRScannerViewController(
             info: L10n.telegram("AuthSessions.AddDevice.ScanInstallInfo").withoutTelegramLinks,
@@ -168,12 +168,20 @@ final class ActiveSessionsViewController: SettingsListViewController {
                     let session = try await client.send(TDNativeRequests.confirmQrCodeAuthentication(link: code))
                     scanner?.dismiss(animated: true)
                     guard let self else { return }
+                    // QrCodeScanScreen's dismissWithSession: Terminate ends the session that was just added.
+                    let sessionID = session.id
                     TelegramUndoToast.show(
                         title: L10n.telegram("AuthSessions.AddedDeviceTitle"),
                         text: session.applicationName,
                         in: view,
                         bottomInset: 12,
-                        undo: nil,
+                        actionTitle: L10n.telegram("AuthSessions.AddedDeviceTerminate"),
+                        undo: { [weak self] in
+                            Task { [weak self] in
+                                _ = try? await client.send(TDNativeRequests.terminateSession(sessionId: sessionID))
+                                self?.load()
+                            }
+                        },
                     )
                     load()
                 } catch {
