@@ -3913,7 +3913,16 @@ ClientRestorableNavigationEntry {
             collectionView.backgroundView = nil
             return
         }
-        if let historyError {
+        if currentSharedTab == .gifts, historyError == nil, !isLoading, let giftsPane, giftsPane.isFiltered {
+            // GiftsListView centres it in the pane under the header and tabs, which the list's top inset holds.
+            collectionView.backgroundView = nil
+            collectionView.backgroundView = TopInsetBackgroundView(
+                content: GiftsNoResultsView { [weak giftsPane] in giftsPane?.resetFilter() },
+                topInset: collectionView.adjustedContentInset.top
+                    + (giftsPane.showsCollectionTabs(canManage: isMyProfile) ? StoryAlbumTabsView.height + 8 : 0),
+            )
+            return
+        } else if let historyError {
             var configuration = UIButton.Configuration.plain()
             configuration.title = L10n.betterTG("Profile.TapToRetryFormat", historyError)
             let button = UIButton(configuration: configuration)

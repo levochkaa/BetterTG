@@ -1,6 +1,7 @@
 // PeerProfileGiftsPane.swift
 
 import Combine
+import Lottie
 import TDLibKit
 import UIKit
 
@@ -53,6 +54,11 @@ import UIKit
     private let sortsByValue = CurrentValueSubject<Bool, Never>(false)
 
     var isLoading: Bool { loadTask != nil }
+
+    /// Whether the filter hides some kind of gift, which turns an empty list into GiftsListView's no-results state.
+    var isFiltered: Bool {
+        filter.value != .all
+    }
 
     init(ownerID: MessageSender, client: TDLibClient, isCurrent: @escaping () -> Bool) {
         self.ownerID = ownerID
@@ -301,6 +307,13 @@ import UIKit
             })
         }
         return actions
+    }
+
+    /// GiftsListView's View All Gifts: `updateFilter(.All)`.
+    func resetFilter() {
+        guard isFiltered else { return }
+        filter.send(.all)
+        reload()
     }
 
     private func toggle(_ value: Filter) {
@@ -730,6 +743,65 @@ private extension UIColor {
             saturation: max(0, min(1, s * saturation)),
             brightness: max(0, min(1, b * brightness)),
             alpha: a,
+        )
+    }
+}
+
+// MARK: - GiftsNoResultsView
+
+/// GiftsListView's `filteredResultsAreEmpty` state: ChatListNoResults played once at 148 pt, No Matching Gifts in
+/// 17 pt semibold 20 pt under it, and View All Gifts in the accent colour 18 pt lower, which clears the filter.
+final class GiftsNoResultsView: UIView {
+    private let animationView = LottieAnimationView(configuration: LottieConfiguration(
+        renderingEngine: .automatic,
+        decodingStrategy: .legacyCodable,
+    ))
+    private let titleLabel = UILabel()
+    private let button = UIButton(type: .system)
+
+    init(onViewAll: @escaping () -> Void) {
+        super.init(frame: .zero)
+        animationView.loopMode = .playOnce
+        animationView.contentMode = .scaleAspectFit
+        titleLabel.text = L10n.telegram("PeerInfo.Gifts.NoResults")
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        button.setTitle(L10n.telegram("PeerInfo.Gifts.NoResults.ViewAll"), for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 17)
+        button.addAction(UIAction { _ in onViewAll() }, for: .touchUpInside)
+        for view in [animationView, titleLabel, button] as [UIView] {
+            addSubview(view)
+        }
+        if let path = Bundle.main.path(forResource: "ChatListNoResults", ofType: "tgs") {
+            Task { [weak self] in
+                guard let animation = await TGSAnimationRepository.animation(at: path), let self else { return }
+                animationView.animation = animation
+                animationView.play()
+            }
+        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side: CGFloat = 148
+        let width = bounds.width - 88
+        let titleSize = titleLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let buttonSize = button.sizeThatFits(CGSize(width: width, height: 44))
+        let total = side + 20 + titleSize.height + 18 + buttonSize.height
+        var y = floor((bounds.height - total) / 2)
+        animationView.frame = CGRect(x: floor((bounds.width - side) / 2), y: y, width: side, height: side)
+        y += side + 20
+        titleLabel.frame = CGRect(
+            x: floor((bounds.width - titleSize.width) / 2), y: y, width: titleSize.width, height: titleSize.height,
+        )
+        y += titleSize.height + 18
+        button.frame = CGRect(
+            x: floor((bounds.width - buttonSize.width) / 2), y: y, width: buttonSize.width, height: buttonSize.height,
         )
     }
 }

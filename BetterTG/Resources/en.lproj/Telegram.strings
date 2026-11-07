@@ -3471,3 +3471,5 @@
 "SharedMedia.ShowPhotos" = "Show Photos";
 "SharedMedia.ShowVideos" = "Show Videos";
 "SharedMedia.ShowCalendar" = "Show Calendar";
+"PeerInfo.Gifts.NoResults" = "No Matching Gifts";
+"PeerInfo.Gifts.NoResults.ViewAll" = "View All Gifts";
