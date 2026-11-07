@@ -47,7 +47,7 @@ import UIKit
 /// the
 /// page's text above it, the torch below it when the camera has one, and Close in the corner. A QR code centred in the
 /// view draws the frame around itself and is reported half a second later.
-private final class WebAppQRScannerViewController: UIViewController {
+final class WebAppQRScannerViewController: UIViewController {
     private struct Code {
         let value: String
         let bounds: CGRect

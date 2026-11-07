@@ -1,5 +1,6 @@
 // ActiveSessionsViewController.swift
 
+import Lottie
 import TDLibKit
 import UIKit
 
@@ -11,10 +12,24 @@ import UIKit
 final class ActiveSessionsViewController: SettingsListViewController {
     private var sessions: TDNativeSessions?
 
+    private let headerView = DevicesHeaderView()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("AuthSessions.DevicesTitle")
+        headerView.onLink = { [weak self] in self?.linkDesktopDevice() }
+        headerView.onOpenLink = { [weak self] url in WebBrowser.open(url, from: self) }
+        tableView.tableHeaderView = headerView
         load()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let height = headerView.height(forWidth: tableView.bounds.width)
+        if headerView.frame.size != CGSize(width: tableView.bounds.width, height: height) {
+            headerView.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: height)
+            tableView.tableHeaderView = headerView
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -132,6 +147,48 @@ final class ActiveSessionsViewController: SettingsListViewController {
         case .sessionDeviceTypeXbox: ("gamecontroller", .systemGreen)
         case .sessionDeviceTypeUnknown: ("questionmark.app", .systemGray)
         }
+    }
+
+    /// addDevice: the QR scanner (QrCodeScanScreen's `.authTransfer`); a tg://login code confirms the login
+    /// (confirmQrCodeAuthentication), closes the scanner and says which app logged in; another code is ignored, and
+    /// one TDLib refuses says the code is invalid.
+    private func linkDesktopDevice() {
+        let scanner = WebAppQRScannerViewController(
+            info: L10n.telegram("AuthSessions.AddDevice.ScanInstallInfo").withoutTelegramLinks,
+        )
+        var isConfirming = false
+        scanner.completion = { [weak self, weak scanner] code in
+            guard let self, let code, !isConfirming,
+                  let url = URL(string: code), url.scheme == "tg", url.host == "login"
+            else { return }
+            isConfirming = true
+            let client = client
+            Task { [weak self, weak scanner] in
+                do {
+                    let session = try await client.send(TDNativeRequests.confirmQrCodeAuthentication(link: code))
+                    scanner?.dismiss(animated: true)
+                    guard let self else { return }
+                    TelegramUndoToast.show(
+                        title: L10n.telegram("AuthSessions.AddedDeviceTitle"),
+                        text: session.applicationName,
+                        in: view,
+                        bottomInset: 12,
+                        undo: nil,
+                    )
+                    load()
+                } catch {
+                    isConfirming = false
+                    guard let scanner else { return }
+                    TelegramUndoToast.show(
+                        text: L10n.telegram("AuthSessions.AddDevice.InvalidQRCode"),
+                        in: scanner.view,
+                        bottomInset: 12,
+                        undo: nil,
+                    )
+                }
+            }
+        }
+        present(scanner, animated: true)
     }
 
     private func load() {
@@ -375,5 +432,108 @@ private final class SessionDetailViewController: SettingsListViewController {
 
     @objc private func closePressed() {
         dismiss(animated: true)
+    }
+}
+
+// MARK: - DevicesHeaderView
+
+/// RecentSessionsHeaderItem: the Devices animation, "Link Telegram Desktop or Telegram Web by scanning a QR code." with
+/// its links, and Link Desktop Device in a 50 pt button.
+private final class DevicesHeaderView: UIView, UITextViewDelegate {
+    var onLink: (() -> Void)?
+    var onOpenLink: ((URL) -> Void)?
+
+    private let animationView = LottieAnimationView(configuration: LottieConfiguration(
+        renderingEngine: .automatic, decodingStrategy: .legacyCodable,
+    ))
+    private let textView = UITextView()
+    private let button = UIButton(configuration: .prominentGlass())
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        animationView.contentMode = .scaleAspectFit
+        animationView.loopMode = .playOnce
+        addSubview(animationView)
+        if let path = Bundle.main.path(forResource: "Devices", ofType: "tgs") {
+            Task { [weak self] in
+                guard let animation = await TGSAnimationRepository.animation(at: path), let self else { return }
+                animationView.animation = animation
+                animationView.play()
+            }
+        }
+        textView.isEditable = false
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.delegate = self
+        textView.attributedText = Self.text()
+        textView.linkTextAttributes = [.foregroundColor: UIColor.tintColor]
+        addSubview(textView)
+        var configuration = UIButton.Configuration.prominentGlass()
+        configuration.image = UIImage(systemName: "qrcode")
+        configuration.imagePadding = 8
+        configuration.attributedTitle = AttributedString(
+            L10n.telegram("AuthSessions.LinkDesktopDevice"),
+            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]),
+        )
+        button.configuration = configuration
+        button.addAction(UIAction { [weak self] _ in self?.onLink?() }, for: .touchUpInside)
+        addSubview(button)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        animationView.frame = CGRect(x: floor((bounds.width - 128) / 2), y: -10, width: 128, height: 128)
+        let textWidth = max(1, bounds.width - 64)
+        let textHeight = textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height
+        textView.frame = CGRect(x: 32, y: 124, width: textWidth, height: textHeight)
+        let buttonWidth = min(375, bounds.width - 32)
+        button.frame = CGRect(
+            x: floor((bounds.width - buttonWidth) / 2),
+            y: bounds.height - 50 - 4,
+            width: buttonWidth,
+            height: 50,
+        )
+    }
+
+    /// AuthSessions.HeaderInfo with its desktop and web links.
+    private static func text() -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let base: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor.secondaryLabel, .paragraphStyle: paragraph,
+        ]
+        let markdown = L10n.telegram("AuthSessions.HeaderInfo")
+        let result = NSMutableAttributedString()
+        var rest = Substring(markdown)
+        while let match = rest.firstMatch(of: /\[([^\]]*)\]\(([^)]*)\)/) {
+            result.append(NSAttributedString(
+                string: String(rest[rest.startIndex..<match.range.lowerBound]),
+                attributes: base,
+            ))
+            var attributes = base
+            let target = match.output.2 == "web" ? "https://web.telegram.org" : "https://getdesktop.telegram.org"
+            attributes[.link] = URL(string: target)
+            result.append(NSAttributedString(string: String(match.output.1), attributes: attributes))
+            rest = rest[match.range.upperBound...]
+        }
+        result.append(NSAttributedString(string: String(rest), attributes: base))
+        return result
+    }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        let textHeight = textView.sizeThatFits(CGSize(width: max(1, width - 64), height: .greatestFiniteMagnitude))
+            .height
+        return 124 + textHeight + 69
+    }
+
+    func textView(_: UITextView, primaryActionFor textItem: UITextItem, defaultAction _: UIAction) -> UIAction? {
+        guard case .link(let url) = textItem.content else { return nil }
+        return UIAction { [weak self] _ in self?.onOpenLink?(url) }
     }
 }

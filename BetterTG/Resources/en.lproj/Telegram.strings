@@ -3922,3 +3922,8 @@
 "Privacy.SecretChatsLinkPreviewsHelp" = "Link previews will be generated on Telegram servers. We do not store data about the links you send.";
 "Conversation.SecretLinkPreviewAlert" = "Would you like to enable extended link previews in Secret Chats? Note that link previews are generated on Telegram servers.";
 "SettingsSearch.Synonyms.Privacy.Data.SecretChatLinkPreview" = " ";
+"AuthSessions.HeaderInfo" = "Link [Telegram Desktop](desktop) or [Telegram Web](web) by scanning a QR code.";
+"AuthSessions.LinkDesktopDevice" = "Link Desktop Device";
+"AuthSessions.AddDevice.ScanInstallInfo" = "Go to [getdesktop.telegram.org](desktop) or [web.telegram.org](web) to get the QR code";
+"AuthSessions.AddedDeviceTitle" = "Login Successful";
+"AuthSessions.AddDevice.InvalidQRCode" = "Invalid QR Code";
