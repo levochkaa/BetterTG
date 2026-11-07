@@ -3867,3 +3867,8 @@
 "Profile.ShareContactButton" = "Share Contact";
 "UserInfo.ContactForwardTooltip.Chat.One" = "Contact forwarded to **%@**";
 "UserInfo.ContactForwardTooltip.SavedMessages.One" = "Contact forwarded to **Saved Messages**";
+"PeerInfo.AlertLeaveAction" = "Leave";
+"PeerInfo.LeaveGroupTitle" = "Leave Group";
+"PeerInfo.LeaveGroupText" = "Are you sure you want to leave the group **%@**?";
+"PeerInfo.LeaveChannelTitle" = "Leave Channel";
+"PeerInfo.LeaveChannelText" = "Are you sure you want to leave the channel **%@**?";

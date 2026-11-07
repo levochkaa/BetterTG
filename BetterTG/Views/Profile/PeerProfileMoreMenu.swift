@@ -87,6 +87,33 @@ import UIKit
         }
     }
 
+    /// The leave alert's title and text for a group or channel the account doesn't own; nil for the rest, which keep
+    /// the chat list's sheet.
+    private static func leaveAlertTexts(for customChat: CustomChat) -> (title: String, text: String)? {
+        let isChannel: Bool
+        switch customChat.type {
+        case .group(let group):
+            guard !group.status.isOwner else { return nil }
+            isChannel = false
+        case .supergroup(let group):
+            guard !group.status.isOwner else { return nil }
+            isChannel = group.isChannel
+        case .bot,
+             .user:
+            return nil
+        }
+        let name = customChat.chat.title
+        return isChannel
+            ? (
+                L10n.telegram("PeerInfo.LeaveChannelTitle"),
+                L10n.telegram("PeerInfo.LeaveChannelText", name).withoutTelegramMarkup,
+            )
+            : (
+                L10n.telegram("PeerInfo.LeaveGroupTitle"),
+                L10n.telegram("PeerInfo.LeaveGroupText", name).withoutTelegramMarkup,
+            )
+    }
+
     func actions() -> [TelegramContextMenuAction] {
         var actions = [muteAction()]
         if let discussion = viewDiscussionAction() {
@@ -598,7 +625,8 @@ import UIKit
             startsNewSection: true,
         ) { [weak host] in
             guard let host, scope.isCurrent else { return }
-            ChatListChatRemoval(chat: customChat, client: client, scope: scope, host: host) { [weak host] status in
+            let removal = ChatListChatRemoval(chat: customChat, client: client, scope: scope, host: host) {
+                [weak host] status in
                 guard let navigation = host?.navigationController else { return }
                 // Clearing keeps the chat; leaving or deleting returns to the chat list, as Telegram does.
                 if status != L10n.telegram("Undo.ChatCleared") {
@@ -607,7 +635,18 @@ import UIKit
                 if let root = navigation.viewControllers.first?.view {
                     TelegramUndoToast.show(text: status, in: root, bottomInset: 12, undo: nil)
                 }
-            }.start()
+            }
+            guard let leave = Self.leaveAlertTexts(for: customChat) else {
+                removal.start()
+                return
+            }
+            // openLeavePeer: Leave Group or Leave Channel, asked about the chat by name.
+            let alert = UIAlertController(title: leave.title, message: leave.text, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.telegram("PeerInfo.AlertLeaveAction"), style: .destructive) {
+                _ in removal.leaveConfirmed()
+            })
+            host.present(alert, animated: true)
         }
     }
 

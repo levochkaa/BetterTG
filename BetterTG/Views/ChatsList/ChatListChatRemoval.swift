@@ -91,6 +91,12 @@ import UIKit
 
     // MARK: Internal
 
+    /// Leaves a group or channel whose leaving the caller has already confirmed, as PeerInfoScreen's openLeavePeer
+    /// does before deletePeerChat: an owner still hears who takes over.
+    func leaveConfirmed() {
+        leave()
+    }
+
     func start() {
         guard scope.isCurrent else { return }
         // Telegram asks right away about a person whose chat it can delete for both sides.
