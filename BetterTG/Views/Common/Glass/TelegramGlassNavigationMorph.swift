@@ -253,6 +253,21 @@ import UIKit
         // The other bar's back has nothing left to pair with; it keeps its own key, alone.
     }
 
+    /// Chats' search button and a chat's title pill, each with nothing to pair with on the other bar: the search's
+    /// glass becomes the title's on the way into the chat and comes back from it on the way out, as the search
+    /// button's glass becomes the search field.
+    private static func pairSearchWithTitle(
+        _ search: inout [Key: TelegramGlassPlatter],
+        with other: inout [Key: TelegramGlassPlatter],
+    ) {
+        guard let button = search[.leadingSection(0)], other[.leadingSection(0)] == nil,
+              let titleKey = other.first(where: { $0.value.role == .title })?.key,
+              search[titleKey] == nil
+        else { return }
+        search[.leadingSection(0)] = nil
+        search[titleKey] = button
+    }
+
     /// The platter of `other` an unpaired right pill `key` grows out of or collapses into: the nearest one nearer the
     /// screen edge.
     private static func partner(of key: Key, in other: [Key: TelegramGlassPlatter]) -> TelegramGlassPlatter? {
@@ -302,6 +317,8 @@ import UIKit
         var to = Self.keys(of: destination)
         Self.pairLoneRowPill(&from, with: &to)
         Self.pairLoneRowPill(&to, with: &from)
+        Self.pairSearchWithTitle(&from, with: &to)
+        Self.pairSearchWithTitle(&to, with: &from)
         for key in Set(from.keys).union(to.keys).sorted() {
             let outgoing = from[key]
             let incoming = to[key]
