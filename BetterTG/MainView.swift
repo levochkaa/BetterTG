@@ -275,26 +275,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         return lastName.isEmpty ? chat.title : lastName
     }
 
-    /// chatListFilterType's icons: a folder of every kind of chat is unread, unmuted or a list; one of a single kind
-    /// shows that kind.
-    private static func menuSymbol(for folder: CustomFolder) -> String {
-        guard case .folder(_, let definition) = folder.type else { return "list.bullet" }
-        let kinds = [
-            definition.includeContacts, definition.includeNonContacts, definition.includeGroups,
-            definition.includeChannels, definition.includeBots,
-        ]
-        if kinds.allSatisfy(\.self) {
-            if definition.excludeRead { return "message.badge" }
-            return definition.excludeMuted ? "speaker.wave.2" : "list.bullet"
-        }
-        guard kinds.filter(\.self).count == 1 else { return "list.bullet" }
-        if definition.includeChannels { return "megaphone" }
-        if definition.includeGroups { return "person.2" }
-        if definition.includeBots { return "cpu" }
-        if definition.includeContacts { return "person" }
-        return "person.crop.circle.badge.questionmark"
-    }
-
     /// The archive and Settings as buttons before compose while BetterTG's settings hide their tabs, as Swiftgram
     /// puts Settings in the chat list's bar with Hide Tab Bar. Holding Settings opens the account switcher, as its tab.
     func setTabShortcuts(archive: Bool, settings: Bool) {
@@ -341,7 +321,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.FolderAllChats"),
-                image: UIImage(systemName: "bubble.left.and.bubble.right"),
+                image: main.icon?.image(side: TelegramContextMenuLayout.iconSize),
                 startsNewSection: true,
             ) { [weak self] in
                 showChats()
@@ -351,7 +331,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         for (index, folder) in folders.enumerated() {
             var action = TelegramContextMenuAction(
                 title: folder.name,
-                image: UIImage(systemName: Self.menuSymbol(for: folder)),
+                image: folder.icon?.image(side: TelegramContextMenuLayout.iconSize),
                 startsNewSection: index == 0 && actions.count == 1,
             ) { [weak self] in
                 showChats()
