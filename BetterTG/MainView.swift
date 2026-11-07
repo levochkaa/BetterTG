@@ -1479,6 +1479,17 @@ final class FolderPickerView: UIView {
         /// The icon before the title; a tab that doesn't show its title shows only the icon.
         var icon: FolderIcon?
         var showsTitle = true
+        /// GiftsTabItemComponent's icons after the title, such as a profile's first three gifts.
+        var trailingStickers = [TrailingSticker]()
+    }
+
+    /// A sticker after a tab's title, compared by its file.
+    struct TrailingSticker: Equatable {
+        let sticker: Sticker
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.sticker.sticker.id == rhs.sticker.sticker.id
+        }
     }
 
     /// The strip's height above the bottom inset: the blur above the capsule, the capsule and the same gap under it.
@@ -1496,6 +1507,9 @@ final class FolderPickerView: UIView {
     private static let liftDuration: TimeInterval = 0.3
     private static let restingTintFadeDuration: TimeInterval = 0.2
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
+
+    /// The client that loads the tabs' trailing stickers.
+    var stickerClient: TDLibClient?
 
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
@@ -1891,7 +1905,7 @@ final class FolderPickerView: UIView {
         for (index, folder) in items.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
-            button.configure(item: folder, unreadState: unreadStates[index], animated: false)
+            button.configure(item: folder, unreadState: unreadStates[index], animated: false, client: stickerClient)
             button.addTarget(self, action: #selector(folderPressed(_:)), for: .touchUpInside)
             let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
             // A text-only segment has no shape of its own to cast the platter shadow.
@@ -1906,7 +1920,9 @@ final class FolderPickerView: UIView {
             guard lens != nil else { continue }
             let selectedButton = FolderButton(type: .system)
             selectedButton.isUserInteractionEnabled = false
-            selectedButton.configure(item: folder, unreadState: unreadStates[index], animated: false)
+            selectedButton.configure(
+                item: folder, unreadState: unreadStates[index], animated: false, client: stickerClient,
+            )
             selectedButtonStack.addArrangedSubview(selectedButton)
             let selectedWidth = selectedButton.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
             selectedWidth.isActive = true
@@ -2052,7 +2068,9 @@ final class FolderPickerView: UIView {
         guard items.count == buttons.count, unreadStates.count == buttons.count else { return }
         for copies in [buttons, selectedButtons] where copies.count == items.count {
             for index in copies.indices {
-                copies[index].configure(item: items[index], unreadState: unreadStates[index], animated: animated)
+                copies[index].configure(
+                    item: items[index], unreadState: unreadStates[index], animated: animated, client: stickerClient,
+                )
             }
         }
         naturalSegmentWidths = items.indices.map { index in
@@ -2450,6 +2468,13 @@ private final class FolderButton: UIButton {
     }
 
     private static let iconSpacing: CGFloat = 5
+    /// GiftsTabItemComponent: 18 pt stickers a point apart, 2 pt after the title.
+    private static let stickerSide: CGFloat = 18
+    private static let stickerSpacing: CGFloat = 1
+    private static let stickerSpacingAfterTitle: CGFloat = 2
+
+    private let stickersStack = UIStackView()
+    private var stickerIDs = [Int]()
 
     private let contentStack = UIStackView()
     private let iconView = UIImageView()
@@ -2474,12 +2499,22 @@ private final class FolderButton: UIButton {
         if item.icon != nil {
             width += FolderIcon.side + (item.showsTitle ? iconSpacing : 0)
         }
+        if !item.trailingStickers.isEmpty {
+            let count = CGFloat(item.trailingStickers.count)
+            width += stickerSpacingAfterTitle + count * stickerSide + (count - 1) * stickerSpacing
+        }
         guard unreadCount > 0 else { return width }
         let badgeTextWidth = ("\(unreadCount)" as NSString).size(withAttributes: [.font: badgeFont]).width
         return width + 4 + max(18, badgeTextWidth + 8)
     }
 
-    func configure(item: FolderPickerView.Item, unreadState: FolderUnreadState, animated: Bool) {
+    func configure(
+        item: FolderPickerView.Item,
+        unreadState: FolderUnreadState,
+        animated: Bool,
+        client: TDLibClient? = nil,
+    ) {
+        configureStickers(item.trailingStickers.map(\.sticker), client: client)
         folderTitleLabel.text = item.title
         folderTitleLabel.isHidden = !item.showsTitle
         iconView.image = item.icon?.image
@@ -2538,6 +2573,34 @@ private final class FolderButton: UIButton {
         }
     }
 
+    /// The stickers play once as they appear, as GiftsTabItemComponent's `loopCount: 1`.
+    private func configureStickers(_ stickers: [Sticker], client: TDLibClient?) {
+        let ids = stickers.map(\.sticker.id)
+        guard ids != stickerIDs else { return }
+        stickerIDs = ids
+        stickersStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        stickersStack.isHidden = stickers.isEmpty
+        // The badge keeps its 4 pt after a title without stickers.
+        contentStack.setCustomSpacing(
+            stickers.isEmpty ? contentStack.spacing : Self.stickerSpacingAfterTitle,
+            after: folderTitleLabel,
+        )
+        guard let client else { return }
+        for sticker in stickers {
+            let view = CustomEmojiInlineView()
+            view.loopLimit = 1
+            view.isUserInteractionEnabled = false
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                view.widthAnchor.constraint(equalToConstant: Self.stickerSide),
+                view.heightAnchor.constraint(equalToConstant: Self.stickerSide),
+            ])
+            view.configure(sticker: sticker, client: client)
+            view.setPlaybackVisible(true)
+            stickersStack.addArrangedSubview(view)
+        }
+    }
+
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .horizontal
@@ -2559,10 +2622,16 @@ private final class FolderButton: UIButton {
         // The button's accessibility value reads the count.
         unreadBadgeView.accessibilityElementsHidden = true
 
+        stickersStack.axis = .horizontal
+        stickersStack.alignment = .center
+        stickersStack.spacing = Self.stickerSpacing
+        stickersStack.isHidden = true
         contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(folderTitleLabel)
+        contentStack.addArrangedSubview(stickersStack)
         contentStack.addArrangedSubview(unreadBadgeView)
         contentStack.setCustomSpacing(Self.iconSpacing, after: iconView)
+
         addSubview(contentStack)
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),

@@ -76,6 +76,16 @@ import UIKit
         gifts[id]
     }
 
+    /// The first gifts' stickers (an upgraded gift's model), for the pane's tab.
+    func leadingStickers(_ count: Int) -> [Sticker] {
+        items.prefix(count).compactMap { gifts[$0] }.map { gift in
+            switch gift.gift {
+            case .sentGiftRegular(let value): value.gift.sticker
+            case .sentGiftUpgraded(let value): value.gift.model.sticker
+            }
+        }
+    }
+
     func loadMore() {
         guard loadTask == nil, hasMore, isCurrent() else { return }
         error = nil

@@ -2241,6 +2241,7 @@ ClientRestorableNavigationEntry {
         )
         sharedTabs.alpha = restoration == nil ? 0 : 1
         sharedTabsHeightConstraint = sharedTabs.heightAnchor.constraint(equalToConstant: 58)
+        sharedTabs.stickerClient = client
         sharedTabs.onSelection = { [weak self] id in
             guard let self, let tab = SharedTab(rawValue: id), tab != selectedSharedTab else { return }
             selectedSharedTab = tab
@@ -5087,10 +5088,7 @@ ClientRestorableNavigationEntry {
         if !tabs.contains(selectedSharedTab) || !wasResolved && restoration == nil, let first = tabs.first {
             selectedSharedTab = first
         }
-        sharedTabs.configure(
-            items: tabs.map { .init(id: $0.rawValue, title: $0.title) },
-            selectedID: tabs.isEmpty ? nil : selectedSharedTab.rawValue,
-        )
+        sharedTabs.configure(items: sharedTabItems(tabs), selectedID: tabs.isEmpty ? nil : selectedSharedTab.rawValue)
         sharedTabs.alpha = tabs.isEmpty ? 0 : 1
         sharedTabs.isUserInteractionEnabled = !tabs.isEmpty
         sharedTabsHeightConstraint.constant = tabs.isEmpty ? 0 : 58
@@ -5141,6 +5139,17 @@ ClientRestorableNavigationEntry {
         if groupsInCommon.isEmpty { applySnapshot() }
     }
 
+    /// The panes' tabs; Gifts shows its first three gifts after its title, as GiftsTabItemComponent does.
+    private func sharedTabItems(_ tabs: [SharedTab]) -> [FolderPickerView.Item] {
+        tabs.map { tab in
+            var item = FolderPickerView.Item(id: tab.rawValue, title: tab.title)
+            if tab == .gifts, let giftsPane {
+                item.trailingStickers = giftsPane.leadingStickers(3).map { .init(sticker: $0) }
+            }
+            return item
+        }
+    }
+
     private func makeGiftsPaneIfNeeded() {
         guard giftsPane == nil else { return }
         let ownerID: MessageSender =
@@ -5154,12 +5163,18 @@ ClientRestorableNavigationEntry {
             self?.contextIsCurrent ?? false
         }
         pane.onChange = { [weak self] in
-            guard let self, currentSharedTab == .gifts else { return }
+            guard let self else { return }
+            if let tabs = availableSharedTabs, tabs.contains(.gifts) {
+                sharedTabs.configure(items: sharedTabItems(tabs), selectedID: selectedSharedTab.rawValue)
+            }
+            guard currentSharedTab == .gifts else { return }
             historyError = giftsPane?.error
             applySnapshot()
         }
         giftsPane = pane
         pane.loadCollections()
+        // The tab's icons come from the first page, read with the profile as ProfileGiftsContext is.
+        pane.loadMore()
     }
 
     /// The full info's gift count, which shows or hides the Gifts pane.
