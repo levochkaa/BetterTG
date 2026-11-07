@@ -279,7 +279,8 @@ import UIKit
 /// Telegram's ChatRecentActionsController: the admin log of the last 48 hours (getChatEventLog), newest first and
 /// grouped by day, each event with who did it, Telegram's sentence and the time. Older events load while scrolling.
 /// A message Aggressive Anti-Spam deleted offers Report False Positive.
-final class ChatRecentActionsViewController: SettingsListViewController {
+final class ChatRecentActionsViewController: SettingsListViewController, TelegramConditionalNavigationSearchProvider,
+UISearchResultsUpdating, UISearchControllerDelegate {
     private struct Event {
         let id: Int64
         let date: Int
@@ -306,6 +307,23 @@ final class ChatRecentActionsViewController: SettingsListViewController {
     private var filterTask: Task<Void, Never>?
     /// ChatRecentActionsControllerNode's panel: Settings (the filter) and the "?" that explains the log.
     private let panel = ChatListSelectionToolbar()
+    /// ChatRecentActionsController's search: the bar's button opens a field whose text getChatEventLog looks for.
+    private lazy var search: UISearchController = {
+        let search = UISearchController(searchResultsController: nil)
+        search.obscuresBackgroundDuringPresentation = false
+        search.searchResultsUpdater = self
+        search.delegate = self
+        search.searchBar.placeholder = L10n.telegram("Common.Search")
+        return search
+    }()
+
+    private var isSearching = false
+    private var query = ""
+    private var queryTask: Task<Void, Never>?
+
+    var shownTelegramNavigationSearch: UISearchController? {
+        isSearching ? search : nil
+    }
 
     init(target: ChatManagementTarget) {
         self.target = target
@@ -319,6 +337,7 @@ final class ChatRecentActionsViewController: SettingsListViewController {
     deinit {
         loadTask?.cancel()
         filterTask?.cancel()
+        queryTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -332,6 +351,7 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         )
         panel.onLeft = { [weak self] in self?.openFilter() }
         panel.onRight = { [weak self] in self?.showInfo() }
+        updateBarButtons()
         panel.layer.zPosition = 999
         tableView.addSubview(panel)
         additionalSafeAreaInsets.bottom += ChatListSelectionToolbar.contentHeight
@@ -354,11 +374,18 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         )
         guard !events.isEmpty else {
             // ChatRecentActionsControllerNode's empty node names the filter when one is set.
-            let filtered = !filter.isDefault(isChannel: target.isChannel)
+            let filtered = !filter.isDefault(isChannel: target.isChannel) || !query.isEmpty
+            // ChatRecentActionsControllerNode: EmptyFilterQueryText for a search, else Group_AdminLog_EmptyText or
+            // Broadcast_AdminLog_EmptyText.
+            let text =
+                if !query.isEmpty {
+                    L10n.telegram("Channel.AdminLog.EmptyFilterQueryText", query)
+                } else {
+                    L10n.telegram(target.isChannel ? "Broadcast.AdminLog.EmptyText" : "Group.AdminLog.EmptyText")
+                }
             return [SettingsSection(footer: info, rows: [SettingsRow(
                 title: L10n.telegram(filtered ? "Channel.AdminLog.EmptyFilterTitle" : "Channel.AdminLog.EmptyTitle"),
-                // ChatRecentActionsControllerNode: Group_AdminLog_EmptyText or Broadcast_AdminLog_EmptyText.
-                detail: L10n.telegram(target.isChannel ? "Broadcast.AdminLog.EmptyText" : "Group.AdminLog.EmptyText"),
+                detail: text,
                 style: .subtitle,
             )])]
         }
@@ -397,6 +424,34 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         loadMore()
     }
 
+    // MARK: Search
+
+    func updateSearchResults(for search: UISearchController) {
+        let text = search.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard text != query else { return }
+        // The log is searched on the server; typing waits a moment before asking again.
+        queryTask?.cancel()
+        queryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled else { return }
+            queryTask = nil
+            query = text
+            restartLog()
+        }
+    }
+
+    func didDismissSearchController(_: UISearchController) {
+        guard isSearching else { return }
+        isSearching = false
+        queryTask?.cancel()
+        queryTask = nil
+        updateBarButtons()
+        if !query.isEmpty {
+            query = ""
+            restartLog()
+        }
+    }
+
     /// The root is the scrolling table: the panel stays at the viewport's bottom, over the home indicator.
     private func layoutPanel() {
         let bottom = max(0, tableView.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom)
@@ -420,11 +475,12 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         let filters = filter.native(isChannel: isChannel)
         let userIDs = filter.adminUserIDs.map { Array($0).sorted() } ?? []
         let generation = loadGeneration
+        let query = query
         loadTask = Task { [weak self] in
             var names = knownNames
             let page = await (try? client.send(TDNativeRequests.getChatEventLog(
                 chatId: chatID,
-                query: "",
+                query: query,
                 fromEventId: fromEventID,
                 limit: Self.pageLimit,
                 filters: filters,
@@ -508,6 +564,10 @@ final class ChatRecentActionsViewController: SettingsListViewController {
     private func apply(_ newFilter: ChatEventLogFilter) {
         guard newFilter != filter else { return }
         filter = newFilter
+        restartLog()
+    }
+
+    private func restartLog() {
         loadTask?.cancel()
         loadTask = nil
         loadGeneration += 1
@@ -529,6 +589,27 @@ final class ChatRecentActionsViewController: SettingsListViewController {
                     : "Channel.AdminLog.InfoPanelAlertText",
             ),
         )
+    }
+
+    private func openSearch() {
+        guard !isSearching else { return }
+        isSearching = true
+        updateBarButtons()
+        search.beginTelegramNavigationSearch()
+    }
+
+    /// The search button on the right; an open search takes the row.
+    private func updateBarButtons() {
+        guard !isSearching else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+        let button = UIBarButtonItem(
+            image: UIImage(systemName: "magnifyingglass"),
+            primaryAction: UIAction { [weak self] _ in self?.openSearch() },
+        )
+        button.accessibilityLabel = L10n.telegram("Common.Search")
+        navigationItem.rightBarButtonItem = button
     }
 
     // MARK: Anti-spam false positives
