@@ -300,6 +300,27 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         let onAdded: @MainActor () -> Void
     }
 
+    /// ChannelAdminController's RightsItem.Sub: the rights Telegram gathers under one switch.
+    private enum RightsGroup: CaseIterable {
+        case messages
+        case stories
+
+        var title: String {
+            switch self {
+            case .messages: L10n.telegram("Channel.EditAdmin.SectionMessages")
+            case .stories: L10n.telegram("Channel.EditAdmin.SectionStories")
+            }
+        }
+
+        /// messageRelatedFlags and storiesRelatedFlags; a group's Delete Messages stays a right of its own.
+        func keys(isChannel: Bool) -> [WritableKeyPath<AdminRightsSet, Bool>] {
+            switch self {
+            case .messages: isChannel ? [\.canPostMessages, \.canEditMessages, \.canDeleteMessages] : []
+            case .stories: [\.canPostStories, \.canEditStories, \.canDeleteStories]
+            }
+        }
+    }
+
     private let target: ChatManagementTarget
     private let member: ChatManagementMember
     private let isNew: Bool
@@ -312,6 +333,8 @@ final class ChatAdminRightsViewController: SettingsListViewController {
     private var addsBotAsAdmin = true
     /// The admin is a person, not a bot or a deleted account, as ownership can only go to one.
     private var memberCanOwn = false
+    /// ChannelAdminControllerState's expandedPermissions.
+    private var expandedGroups = Set<RightsGroup>()
 
     /// ChannelAdminController's canTransfer: the owner of a supergroup or channel sees Transfer Ownership for a person
     /// once every right of this chat is on but anonymity (areAllAdminRightsEnabled, except canBeAnonymous).
@@ -436,15 +459,7 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 isEnabled: !isSaving,
             )]))
         }
-        let rows = items.map { item in
-            SettingsRow(
-                title: item.title,
-                accessory: .toggle(isOn: rights[keyPath: item.key], onChange: { [weak self] isOn in
-                    self?.setRight(item.key, isOn)
-                }),
-                isEnabled: !isSaving && grantable[keyPath: item.key],
-            )
-        }
+        let rows = rightsRows()
         if !rows.isEmpty, editsRights {
             sections.append(SettingsSection(
                 header: L10n.telegram("Channel.EditAdmin.PermissionsHeader"),
@@ -508,6 +523,72 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 memberCanOwn = true
                 reload()
             }
+        }
+    }
+
+    /// ChannelAdminController's rightsOrder as rows: single rights as switches, and a channel's messages rights and
+    /// every chat's stories rights as an ItemListExpandableSwitchItem whose switch sets them all and whose options
+    /// open from its title.
+    private func rightsRows() -> [SettingsRow] {
+        var rows = [SettingsRow]()
+        var emitted = Set<RightsGroup>()
+        let all = items
+        for item in all {
+            guard let group = RightsGroup.allCases
+                .first(where: { $0.keys(isChannel: target.isChannel).contains(item.key) })
+            else {
+                rows.append(SettingsRow(
+                    title: item.title,
+                    accessory: .toggle(isOn: rights[keyPath: item.key], onChange: { [weak self] isOn in
+                        self?.setRight(item.key, isOn)
+                    }),
+                    isEnabled: !isSaving && grantable[keyPath: item.key],
+                ))
+                continue
+            }
+            guard emitted.insert(group).inserted else { continue }
+            let options = all.filter { group.keys(isChannel: target.isChannel).contains($0.key) }
+            let selected = options.count { rights[keyPath: $0.key] }
+            let isExpanded = expandedGroups.contains(group)
+            let title = group.title
+            rows.append(SettingsRow(
+                title: title,
+                style: .expandable(count: "\(selected)/\(options.count)", isExpanded: isExpanded),
+                accessory: .toggle(isOn: selected == options.count, onChange: { [weak self] isOn in
+                    self?.setRights(options.map(\.key), isOn)
+                }),
+                isEnabled: !isSaving && options.contains { grantable[keyPath: $0.key] },
+            ) { [weak self] in self?.toggleExpanded(group, headTitle: title) })
+            guard isExpanded else { continue }
+            for option in options {
+                rows.append(SettingsRow(
+                    title: option.title,
+                    style: .option(isSelected: rights[keyPath: option.key]),
+                    isEnabled: !isSaving && grantable[keyPath: option.key],
+                ) { [weak self] in
+                    guard let self else { return }
+                    setRights([option.key], !rights[keyPath: option.key])
+                })
+            }
+        }
+        return rows
+    }
+
+    private func toggleExpanded(_ group: RightsGroup, headTitle: String) {
+        if expandedGroups.remove(group) == nil { expandedGroups.insert(group) }
+        reloadAnimating(sectionWithRowTitled: headTitle)
+    }
+
+    /// toggleRight for a group or one of its options: the rights the account may grant change, the others stay.
+    private func setRights(_ keys: [WritableKeyPath<AdminRightsSet, Bool>], _ value: Bool) {
+        let couldTransfer = canTransferOwnership
+        for key in keys where grantable[keyPath: key] {
+            rights[keyPath: key] = value
+        }
+        if canTransferOwnership != couldTransfer {
+            reload()
+        } else {
+            refreshRowsInPlace()
         }
     }
 

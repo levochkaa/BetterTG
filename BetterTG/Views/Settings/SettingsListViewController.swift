@@ -30,6 +30,12 @@ struct SettingsRow {
         case input(SettingsTextInput)
         /// A sticker or emoji set as ItemListStickerPackItem shows it; `detail` is its count.
         case stickerSet(SettingsStickerSet)
+        /// ItemListExpandableSwitchItem's head: the title, how many of its options are on out of all in bold, and an
+        /// arrow that points down while the options are hidden and up while they show. Its action opens or closes them.
+        case expandable(count: String, isExpanded: Bool)
+        /// One of an expandable group's options (ItemListExpandableSwitchItem's SubItem): indented under the head, a
+        /// check before the title. Its action flips it.
+        case option(isSelected: Bool)
     }
 
     var title: String
@@ -166,6 +172,8 @@ struct SettingsTextInput {
 class SettingsListViewController: UITableViewController {
     private static let cellIdentifier = "SettingsListCell"
 
+    private static let expandArrowTag = 0x6578_7061
+
     let accountID: UUID?
     private(set) var sections = [SettingsSection]()
     /// focusOnItemTag: the row with this title, once the list has it on screen, comes into view and shows its
@@ -173,6 +181,8 @@ class SettingsListViewController: UITableViewController {
     var focusedRowTitle: String?
 
     private var highlightedRow: (title: String, until: Date)?
+
+    private var isRefreshingInPlace = false
 
     var client: TDLibClient {
         TDLib.shared.activeClient
@@ -286,7 +296,9 @@ class SettingsListViewController: UITableViewController {
             case .value: .valueCell()
             case .subtitle: .subtitleCell()
             case .action,
+                 .expandable,
                  .input,
+                 .option,
                  .peer,
                  .status,
                  .stickerSet: .cell()
@@ -315,6 +327,28 @@ class SettingsListViewController: UITableViewController {
         case .status(let color):
             configuration.textProperties.color = color
             configuration.textProperties.font = .preferredFont(forTextStyle: .footnote)
+        case .expandable(let count, _):
+            let font = configuration.textProperties.font
+            let title = NSMutableAttributedString(
+                string: row.title,
+                attributes: [.font: font, .foregroundColor: row.isEnabled ? UIColor.label : UIColor.tertiaryLabel],
+            )
+            title.append(NSAttributedString(
+                string: " " + count,
+                attributes: [
+                    .font: UIFontMetrics(forTextStyle: .subheadline)
+                        .scaledFont(for: .systemFont(ofSize: 14, weight: .bold)),
+                    .foregroundColor: row.isEnabled ? UIColor.label : UIColor.tertiaryLabel,
+                ],
+            ))
+            configuration.attributedText = title
+        case .option(let isSelected):
+            // The check sits in the indent the head's title starts at, as SubItem's CheckNode does.
+            configuration.image = UIImage(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            configuration.imageProperties.tintColor = isSelected ? .tintColor : .tertiaryLabel
+            configuration.imageProperties.maximumSize = CGSize(width: 22, height: 22)
+            configuration.imageToTextPadding = 14
+            configuration.directionalLayoutMargins.leading += 16
         case .input,
              .peer,
              .stickerSet,
@@ -332,6 +366,9 @@ class SettingsListViewController: UITableViewController {
         }
         cell.contentConfiguration = configuration
         apply(row, to: cell)
+        if case .expandable(_, let isExpanded) = row.style {
+            Self.addExpandArrow(to: cell, isExpanded: isExpanded, title: configuration)
+        }
         return cell
     }
 
@@ -371,6 +408,37 @@ class SettingsListViewController: UITableViewController {
         return configuration
     }
 
+    /// ItemListExpandableSwitchItem's arrow 9 pt after the count, turned down while closed and up while open.
+    private static func addExpandArrow(
+        to cell: UITableViewCell,
+        isExpanded: Bool,
+        title configuration: UIListContentConfiguration,
+    ) {
+        let arrow = UIImageView(image: UIImage(
+            systemName: "chevron.right",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold),
+        ))
+        arrow.tintColor = .label
+        arrow.tag = expandArrowTag
+        arrow.transform = CGAffineTransform(rotationAngle: isExpanded ? -.pi / 2 : .pi / 2)
+        cell.contentView.addSubview(arrow)
+        let text = configuration.attributedText ?? NSAttributedString(string: configuration.text ?? "")
+        let width = ceil(text.boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            context: nil,
+        )
+        .width)
+        arrow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            arrow.leadingAnchor.constraint(
+                equalTo: cell.contentView.layoutMarginsGuide.leadingAnchor,
+                constant: width + 9,
+            ),
+            arrow.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+        ])
+    }
+
     /// Puts the cursor in the input row at `indexPath`, as ItemListController's `focusItemTag` does.
     func focusInput(at indexPath: IndexPath) {
         tableView.layoutIfNeeded()
@@ -406,6 +474,38 @@ class SettingsListViewController: UITableViewController {
         UIView.performWithoutAnimation {
             tableView.reloadSections(indexes, with: .none)
         }
+    }
+
+    /// Rebuilds the rows and redraws the visible ones in place, as a group's count and checks follow one of its
+    /// switches; switches keep their animation and a field keeps its keyboard. A change in the rows' count reloads.
+    func refreshRowsInPlace() {
+        let previousCounts = sections.map(\.rows.count)
+        sections = makeSections()
+        guard isViewLoaded else { return }
+        guard previousCounts == sections.map(\.rows.count) else {
+            tableView.reloadData()
+            return
+        }
+        let visible = (tableView.indexPathsForVisibleRows ?? []).filter { indexPath in
+            if case .input = settingsRow(at: indexPath)?.style { return false }
+            return true
+        }
+        isRefreshingInPlace = true
+        tableView.reconfigureRows(at: visible)
+        isRefreshingInPlace = false
+    }
+
+    /// Rebuilds the rows and animates the section holding a row with this title, for an expandable group opening or
+    /// closing.
+    func reloadAnimating(sectionWithRowTitled title: String) {
+        let previousCounts = sections.map(\.rows.count)
+        sections = makeSections()
+        guard isViewLoaded else { return }
+        guard sections.count == previousCounts.count, let indexPath = indexPath(titled: title) else {
+            tableView.reloadData()
+            return
+        }
+        tableView.reloadSections(IndexSet(integer: indexPath.section), with: .fade)
     }
 
     /// Runs a request the user asked for on the account's client. A failure shows Telegram's generic error, or
@@ -513,6 +613,9 @@ class SettingsListViewController: UITableViewController {
     }
 
     private func apply(_ row: SettingsRow, to cell: UITableViewCell) {
+        cell.contentView.viewWithTag(Self.expandArrowTag)?.removeFromSuperview()
+        // A row redrawn in place keeps its switch, so a flip in progress finishes its animation.
+        let currentSwitch = cell.accessoryView as? SettingsSwitch
         cell.backgroundColor = .secondarySystemGroupedBackground
         cell.accessoryView = nil
         cell.accessoryType = .none
@@ -525,12 +628,17 @@ class SettingsListViewController: UITableViewController {
         case .checkmark:
             cell.accessoryType = .checkmark
         case .toggle(let isOn, let onChange):
-            let toggle = SettingsSwitch()
-            toggle.isOn = isOn
+            let toggle = currentSwitch ?? SettingsSwitch()
+            if toggle.isOn != isOn { toggle.setOn(isOn, animated: isRefreshingInPlace) }
             toggle.isEnabled = row.isEnabled
             toggle.onChange = onChange
             cell.accessoryView = toggle
-            cell.selectionStyle = .none
+            // An expandable head opens from its title while the switch takes the whole group.
+            if case .expandable = row.style, row.action != nil {
+                cell.selectionStyle = .default
+            } else {
+                cell.selectionStyle = .none
+            }
         case .activity:
             let indicator = UIActivityIndicatorView(style: .medium)
             indicator.startAnimating()

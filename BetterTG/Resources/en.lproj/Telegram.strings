@@ -4119,3 +4119,6 @@
 "Channel.OwnershipTransfer.ErrorPublicChannelsTooMuch" = "Sorry, the target user has too many public groups or channels already. Please ask them to make one of their existing groups or channels private first.";
 "Channel.OwnershipTransfer.ErrorPrivacyRestricted" = "Sorry, this user is not a member of this channel and their privacy settings prevent you from adding them manually.";
 "Channel.OwnershipTransfer.TransferCompleted" = "**%1$@** is now the owner of **%2$@**";
+"Channel.BanUser.PermissionSendMedia" = "Can Send Media";
+"Channel.EditAdmin.SectionMessages" = "Manage Messages";
+"Channel.EditAdmin.SectionStories" = "Manage Stories";
