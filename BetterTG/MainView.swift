@@ -305,7 +305,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// ChatListController.tabBarItemContextAction: Edit Folders (Add Folder without any), All Chats while a folder is
     /// shown, then the folders with their unread counts; choosing one shows it.
-    func showFolderMenu(from source: UIView, tracking gesture: UIGestureRecognizer) {
+    func showFolderMenu(from source: UIView, tracking gesture: UIGestureRecognizer, anchor: UIView) {
         guard actionAuthority.scope(owner: self).isCurrent else { return }
         let folders = rootVM.folders.filter {
             if case .folder = $0.type {
@@ -347,12 +347,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             }
             actions.append(action)
         }
-        presentTelegramContextMenu(
-            sourceView: source,
-            actions: actions,
-            tracking: gesture,
-            presentationStyle: .sourceMorph,
-        )
+        presentTabMenu(actions, from: source, tracking: gesture, anchor: anchor)
     }
 
     func setStandingTabBar(_ standing: Bool) {
@@ -459,7 +454,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: Add Account and
     /// the current account, then the other accounts in a section of their own.
-    func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer) {
+    func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer, anchor: UIView? = nil) {
         let tdlib = TDLib.shared
         var actions = [TelegramContextMenuAction(
             title: L10n.telegram("Settings.AddAccount"),
@@ -514,11 +509,24 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             )
             actions.append(action)
         }
+        presentTabMenu(actions, from: source, tracking: gesture, anchor: anchor)
+    }
+
+    /// A tab's menu opens over the tab bar without the button morph, as a folder tab's does: the tab shares the bar's
+    /// glass, which the morph can't take in. A button with glass of its own morphs.
+    private func presentTabMenu(
+        _ actions: [TelegramContextMenuAction],
+        from source: UIView,
+        tracking gesture: UIGestureRecognizer,
+        anchor: UIView?,
+    ) {
         presentTelegramContextMenu(
             sourceView: source,
             actions: actions,
             tracking: gesture,
-            presentationStyle: .sourceMorph,
+            presentationStyle: anchor == nil ? .sourceMorph : .menuOnly,
+            menuAnchorView: anchor,
+            menuSpacing: anchor == nil ? 4 : FolderPickerView.controlTopInset / 2,
         )
     }
 
