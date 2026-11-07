@@ -89,8 +89,10 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 isEnabled: autoDeleteTime != nil,
             ) { [weak self] in self?.openAutoDelete() },
         ])
+        // groupPrivacyFooter under the rules, Invites last among them.
         let privacy = SettingsSection(
             header: L10n.telegram("PrivacySettings.PrivacyTitle"),
+            footer: L10n.telegram("PrivacySettings.InviteSectionFooter"),
             rows: PrivacyKind.allCases.map { kind in
                 SettingsRow(
                     title: kind.rowTitle,
