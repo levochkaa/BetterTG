@@ -243,6 +243,7 @@ struct SettingsSearchItem {
             child("in-app-sounds", "Notifications.InAppNotificationsSounds", "InAppNotificationsSound"),
             child("in-app-vibrate", "Notifications.InAppNotificationsVibrate", "InAppNotificationsVibrate"),
             child("in-app-preview", "Notifications.InAppNotificationsPreview", "InAppNotificationsPreview"),
+            child("include-channels", "Notifications.Badge.IncludeChannels", "BadgeIncludeMutedChannels"),
             child("count-unread-messages", "Notifications.Badge.CountUnreadMessages", "BadgeCountUnreadMessages"),
             child("new-contacts", "NotificationSettings.ContactJoined", "ContactJoined"),
             child("reset", "Notifications.ResetAllNotifications", "ResetAllNotifications"),

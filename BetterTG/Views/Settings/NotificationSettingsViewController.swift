@@ -314,7 +314,7 @@ final class NotificationSettingsViewController: SettingsListViewController {
         ])
     }
 
-    /// The Badge Counter's Count Unread Messages, with the note on what switching it does.
+    /// The Badge Counter's Include Channels and Count Unread Messages, with the note on what the latter does.
     private func badgeSection() -> SettingsSection {
         let countsMessages = InAppNotificationSettings.badgeCountsMessages
         return SettingsSection(
@@ -322,13 +322,21 @@ final class NotificationSettingsViewController: SettingsListViewController {
             footer: L10n.telegram(countsMessages
                 ? "Notifications.Badge.CountUnreadMessages.InfoOn"
                 : "Notifications.Badge.CountUnreadMessages.InfoOff"),
-            rows: [SettingsRow(
-                title: L10n.telegram("Notifications.Badge.CountUnreadMessages"),
-                accessory: .toggle(isOn: countsMessages) { [weak self] isOn in
-                    InAppNotificationSettings.badgeCountsMessages = isOn
-                    self?.reload()
-                },
-            )],
+            rows: [
+                SettingsRow(
+                    title: L10n.telegram("Notifications.Badge.IncludeChannels"),
+                    accessory: .toggle(isOn: InAppNotificationSettings.badgeIncludesChannels) { isOn in
+                        InAppNotificationSettings.badgeIncludesChannels = isOn
+                    },
+                ),
+                SettingsRow(
+                    title: L10n.telegram("Notifications.Badge.CountUnreadMessages"),
+                    accessory: .toggle(isOn: countsMessages) { [weak self] isOn in
+                        InAppNotificationSettings.badgeCountsMessages = isOn
+                        self?.reload()
+                    },
+                ),
+            ],
         )
     }
 

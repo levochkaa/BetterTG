@@ -268,6 +268,25 @@ import TDLibKit
         )
     }
 
+    /// The unread of the list's unmuted channels, as messages and as chats (a chat marked as unread counts), for a
+    /// badge that leaves channels out. A channel on its default follows the channels' scope.
+    func unmutedChannelUnread(in list: ChatList, channelsMuteFor: Int?) -> (messages: Int, chats: Int) {
+        var messages = 0
+        var chats = 0
+        for record in records.values {
+            guard case .chatTypeSupergroup(let peer) = record.type, peer.isChannel,
+                  record.unreadCount > 0 || record.isMarkedAsUnread,
+                  record.positions.contains(where: { $0.list == list && $0.order != 0 })
+            else { continue }
+            let settings = record.notificationSettings
+            let muteFor = settings.useDefaultMuteFor ? channelsMuteFor ?? 0 : settings.muteFor
+            guard muteFor == 0 else { continue }
+            messages += record.unreadCount
+            chats += 1
+        }
+        return (messages, chats)
+    }
+
     /// The list's pinned chats in TDLib's order, including chats the list cannot show, such as secret chats.
     func pinnedChatIDs(in list: ChatList) -> [Int64] {
         records.values

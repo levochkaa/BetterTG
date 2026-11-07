@@ -3793,3 +3793,5 @@
 "SettingsSearch.Synonyms.Stickers.SuggestStickers" = " ";
 "SettingsSearch.Synonyms.Stickers.Title" = " ";
 "SettingsSearch.Synonyms.Support" = "Support";
+"Notifications.Badge.IncludeChannels" = "Include Channels";
+"SettingsSearch.Synonyms.Notifications.BadgeIncludeMutedChannels" = " ";

@@ -15,6 +15,7 @@ enum InAppNotificationSettings {
         static let vibrate = "BetterTG.inApp.vibrate"
         static let displayPreviews = "BetterTG.inApp.displayPreviews"
         static let badgeCountsMessages = "BetterTG.badge.countsMessages"
+        static let badgeIncludesChannels = "BetterTG.badge.includesChannels"
     }
 
     static var playSounds: Bool {
@@ -30,6 +31,15 @@ enum InAppNotificationSettings {
     static var displayPreviews: Bool {
         get { UserDefaults.standard.object(forKey: Keys.displayPreviews) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Keys.displayPreviews) }
+    }
+
+    /// totalUnreadCountIncludeTags' channels: the badge counts unmuted channels too; on by default.
+    @MainActor static var badgeIncludesChannels: Bool {
+        get { UserDefaults.standard.object(forKey: Keys.badgeIncludesChannels) as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.badgeIncludesChannels)
+            AppBadge.shared.refresh()
+        }
     }
 
     /// totalUnreadCountDisplayCategory: the badge counts unread messages, or unread chats when off.
@@ -79,12 +89,34 @@ enum InAppNotificationSettings {
 // MARK: - AppBadge
 
 /// The app badge: the active account's unread messages, or unread chats, outside muted chats, as Telegram's Badge
-/// Counter shows them by default.
+/// Counter shows them; without Include Channels the unmuted channels' unread leave the count, which then follows the
+/// chat list's changes.
 @MainActor final class AppBadge {
     static let shared = AppBadge()
 
     private var unreadMessages = 0
     private var unreadChats = 0
+    private var shownCount: Int?
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        TelegramChatListStore.shared
+            .changes
+            .sink { [weak self] _ in
+                guard !InAppNotificationSettings.badgeIncludesChannels else { return }
+                self?.refresh()
+            }
+            .store(in: &cancellables)
+        RootVM.shared
+            .$scopeNotificationSettings
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard !InAppNotificationSettings.badgeIncludesChannels else { return }
+                self?.refresh()
+            }
+            .store(in: &cancellables)
+    }
 
     func update(unreadMessages: Int) {
         self.unreadMessages = unreadMessages
@@ -97,8 +129,20 @@ enum InAppNotificationSettings {
     }
 
     func refresh() {
-        let count = InAppNotificationSettings.badgeCountsMessages ? unreadMessages : unreadChats
-        UNUserNotificationCenter.current().setBadgeCount(max(0, count)) { error in
+        let countsMessages = InAppNotificationSettings.badgeCountsMessages
+        var count = countsMessages ? unreadMessages : unreadChats
+        if !InAppNotificationSettings.badgeIncludesChannels {
+            let channels = TelegramChatListStore.shared.unmutedChannelUnread(
+                in: .chatListMain,
+                channelsMuteFor: RootVM.shared.scopeNotificationSettings[.notificationSettingsScopeChannelChats]?
+                    .muteFor,
+            )
+            count -= countsMessages ? channels.messages : channels.chats
+        }
+        count = max(0, count)
+        guard count != shownCount else { return }
+        shownCount = count
+        UNUserNotificationCenter.current().setBadgeCount(count) { error in
             if let error { log("App badge update failed: \(error.localizedDescription)") }
         }
     }
