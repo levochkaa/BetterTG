@@ -3723,3 +3723,4 @@
 "PrivacySettings.LoginEmailAlertText" = "This email address will be used every time you login to your Telegram account from a new device.";
 "PrivacySettings.LoginEmailInfo" = "Change your email address for Telegram login codes.";
 "PrivacySettings.LoginEmailSetupInfo" = "Setup your email address for Telegram login codes.";
+"Settings.SaveEditedPhotos" = "Save Edited Photos";

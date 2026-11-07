@@ -54,24 +54,12 @@ import TDLibKit
 
     /// The file into the photo library, dated when the message was sent, under Telegram's file name.
     private nonisolated static func store(path: String, isVideo: Bool, date: Int, uniqueID: String) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else { return }
-            let source = URL(fileURLWithPath: path)
-            let name = "telegram-\(isVideo ? "video" : "photo")-\(uniqueID).\(isVideo ? "mov" : "jpg")"
-            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-            try? FileManager.default.removeItem(at: copy)
-            guard (try? FileManager.default.copyItem(at: source, to: copy)) != nil else { return }
-            PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                let options = PHAssetResourceCreationOptions()
-                options.originalFilename = name
-                options.shouldMoveFile = true
-                request.addResource(with: isVideo ? .video : .photo, fileURL: copy, options: options)
-                request.creationDate = Date(timeIntervalSince1970: TimeInterval(date))
-            } completionHandler: { _, _ in
-                try? FileManager.default.removeItem(at: copy)
-            }
-        }
+        PhotoLibrarySaver.save(
+            fileURL: URL(fileURLWithPath: path),
+            isVideo: isVideo,
+            name: "telegram-\(isVideo ? "video" : "photo")-\(uniqueID).\(isVideo ? "mov" : "jpg")",
+            date: Date(timeIntervalSince1970: TimeInterval(date)),
+        )
     }
 
     func start() {
@@ -173,5 +161,42 @@ import TDLibKit
         saved.append(uniqueID)
         if saved.count > Self.savedLimit { saved.removeFirst(saved.count - Self.savedLimit) }
         UserDefaults.standard.set(saved, forKey: Self.savedKey)
+    }
+}
+
+// MARK: - PhotoLibrarySaver
+
+/// Adds a copy of a file to the photo library with add-only access, as Telegram's StoreDownloadedMedia and its edited
+/// photos do.
+enum PhotoLibrarySaver {
+    static func save(fileURL: URL, isVideo: Bool, name: String, date: Date) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "-" + name)
+            guard (try? FileManager.default.copyItem(at: fileURL, to: copy)) != nil else { return }
+            PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = name
+                options.shouldMoveFile = true
+                request.addResource(with: isVideo ? .video : .photo, fileURL: copy, options: options)
+                request.creationDate = date
+            } completionHandler: { _, _ in
+                try? FileManager.default.removeItem(at: copy)
+            }
+        }
+    }
+}
+
+// MARK: - SaveEditedPhotosSettings
+
+/// GeneratedMediaStoreSettings' storeEditedPhotos: a photo edited before it is sent goes to the library too; on by
+/// default.
+enum SaveEditedPhotosSettings {
+    private static let key = "BetterTG.saveEditedPhotos"
+
+    static var isEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }

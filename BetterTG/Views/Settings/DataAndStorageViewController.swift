@@ -54,6 +54,12 @@ final class DataAndStorageViewController: SettingsListViewController {
             footer: L10n.telegram("Settings.RaiseToListenInfo"),
             rows: [
                 SettingsRow(
+                    title: L10n.telegram("Settings.SaveEditedPhotos"),
+                    accessory: .toggle(isOn: SaveEditedPhotosSettings.isEnabled, onChange: { isOn in
+                        SaveEditedPhotosSettings.isEnabled = isOn
+                    }),
+                ),
+                SettingsRow(
                     title: L10n.telegram("Settings.PauseMusicOnRecording"),
                     accessory: .toggle(isOn: PauseMusicOnRecordingSettings.isEnabled, onChange: { isOn in
                         PauseMusicOnRecordingSettings.isEnabled = isOn

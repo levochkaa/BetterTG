@@ -108,7 +108,14 @@ enum PhotoAssetSelectionLoader {
             // Photos answers on the main queue; the photo is scaled and written off it.
             DispatchQueue.global(qos: .userInitiated).async {
                 if let crop {
-                    completion(writeImage(data: data, cropping: crop, maximumSide: maximumSide))
+                    let edited = writeImage(data: data, cropping: crop, maximumSide: maximumSide)
+                    // legacyAssetPicker's saveEditedPhotos: the edited photo goes to the library as well.
+                    if let edited, SaveEditedPhotosSettings.isEnabled {
+                        PhotoLibrarySaver.save(
+                            fileURL: edited.url, isVideo: false, name: edited.url.lastPathComponent, date: Date(),
+                        )
+                    }
+                    completion(edited)
                 } else {
                     completion(writeImage(data: data, maximumSide: maximumSide))
                 }
