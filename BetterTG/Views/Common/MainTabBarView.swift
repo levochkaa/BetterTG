@@ -150,7 +150,20 @@ final class MainTabBarView: UIView {
             return CGSize(width: Metrics.compactThickness + inset * 2, height: length)
         case .horizontal:
             let thickness = (isCompact ? Metrics.compactThickness : Metrics.itemLength) + inset * 2
-            guard isCompact else { return CGSize(width: availableLength, height: thickness) }
+            guard isCompact else {
+                // TabBarComponent's 500-point cap, then Swiftgram's default narrow bar (its Wide Tab Bar setting
+                // off): the room divided by 1.75, 1.5 or 1.25 for one to three tabs, less the 48-point search button's
+                // room and its insets, as the bar carries no search.
+                let reducer: CGFloat =
+                    switch count {
+                    case 1: 1.75
+                    case 2: 1.5
+                    case 3: 1.25
+                    default: 1
+                    }
+                let width = min(500, availableLength) / reducer - 48 - inset * 2
+                return CGSize(width: width, height: thickness)
+            }
             let hugging = CGFloat(count) * Metrics.itemLength + inset * 2
             let width = availableLength - hugging < Metrics.compactFillThreshold ? availableLength : hugging
             return CGSize(width: width, height: thickness)
