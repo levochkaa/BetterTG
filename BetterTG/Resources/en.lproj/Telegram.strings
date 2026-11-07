@@ -3476,3 +3476,10 @@
 "Chat.Context.Timecode.Copy" = "Copy Timecode";
 "Chat.Context.Card.Copy" = "Copy Card Number";
 "Conversation.CardNumberCopied" = "Card number copied to clipboard";
+"Chat.Context.Phone.SendMessage" = "Send Message";
+"Chat.Context.Phone.InviteToTelegram" = "Invite to Telegram";
+"Chat.Context.Phone.CallViaCarrier" = "Call via Carrier";
+"Chat.Context.Phone.CopyNumber" = "Copy Number";
+"Chat.Context.Phone.NotOnTelegram" = "This number is not on Telegram.";
+"InviteText.URL" = "https://telegram.org/dl";
+"InviteText.SingleContact" = "Hey, I'm using Telegram to chat. Join me! Download it here: %@";

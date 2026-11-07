@@ -95,7 +95,7 @@ import UIKit
             try require(target(at: "@name") == .mention("@name"), "mention")
             try require(target(at: "/go") == .botCommand("/go"), "command")
             try require(target(at: "Ann") == .userMention(42, text: "Ann"), "text mention")
-            try require(target(at: "+123") == nil, "phone has no menu yet")
+            try require(target(at: "+123") == .phone("+123"), "phone")
             try require(target(at: "#tag") == .hashtag("#tag"), "hashtag")
             try require(target(at: "1:05") == .timecode("1:05", seconds: 65), "timecode")
             try require(target(at: "4242424242424242") == .bankCard("4242424242424242"), "bank card")
@@ -115,6 +115,25 @@ import UIKit
         }
 
         private static func verifyMenus() throws {
+            let unknownPhone = MessagePhoneMenu(number: "+123", peer: nil)
+                .actions(sendMessage: { _ in }, openProfile: { _ in }, invite: {}, copied: { _ in })
+.map(\.title)
+            try require(unknownPhone == [
+                L10n.telegram("Chat.Context.Phone.InviteToTelegram"),
+                L10n.telegram("Chat.Context.Phone.CallViaCarrier"),
+                L10n.telegram("Chat.Context.Phone.CopyNumber"),
+                L10n.telegram("Chat.Context.Phone.NotOnTelegram"),
+            ], "phone off Telegram \(unknownPhone)")
+            let knownPhone = MessagePhoneMenu(
+                number: "+888 123",
+                peer: .init(userID: 7, name: "Probe Person", avatar: nil, isSelf: false),
+            ).actions(sendMessage: { _ in }, openProfile: { _ in }, invite: {}, copied: { _ in })
+            try require(knownPhone.map(\.title) == [
+                L10n.telegram("Chat.Context.Phone.SendMessage"),
+                L10n.telegram("Chat.Context.Phone.CopyNumber"),
+                "Probe Person",
+            ], "phone on Telegram \(knownPhone.map(\.title))")
+            try require(knownPhone[2].secondLine?.showsArrow == true, "phone peer row")
             let card = MessageBankCardMenu.actions(number: "4242", title: "Visa", copied: { _ in })
             try require(
                 card.map(\.title) == [L10n.telegram("Chat.Context.Card.Copy"), "Visa"],

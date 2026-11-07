@@ -10522,6 +10522,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let actions = MessageBankCardMenu.actions(number: number, title: info?.title, copied: copied)
                 showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
             }
+        case .phone(let number):
+            // The menu waits for the number's account, as Telegram's does behind its progress.
+            let client = chatVM.client
+            let accountUserID = TDLib.shared.activeAccount?.userID
+            Task { [weak self, weak textView, weak cell] in
+                let peer = await MessagePhoneMenu.peer(for: number, accountUserID: accountUserID, client: client)
+                guard let self, let textView, let cell, chatVM.locationContextIsCurrent, !isSelectingMessages,
+                      textView.window != nil else { return }
+                let actions = MessagePhoneMenu(number: number, peer: peer).actions(
+                    sendMessage: { [weak self] userID in TelegramLinkRouter.shared.openUser(userID, from: self) },
+                    openProfile: { [weak self] userID in
+                        TelegramLinkRouter.shared.openUser(userID, profile: true, from: self)
+                    },
+                    invite: { [weak self] in
+                        let sheet = UIActivityViewController(
+                            activityItems: [MessagePhoneMenu.inviteText], applicationActivities: nil,
+                        )
+                        sheet.popoverPresentationController?.sourceView = textView
+                        self?.present(sheet, animated: true)
+                    },
+                    copied: copied,
+                )
+                showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+            }
         case .hashtag(let hashtag):
             let actions = MessageHashtagMenu.actions(
                 hashtag: hashtag,

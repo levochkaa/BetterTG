@@ -22,6 +22,8 @@ struct MessageTextLink: Equatable {
         case timecode(String, seconds: Int)
         /// A bank card number as written.
         case bankCard(String)
+        /// A phone number as written.
+        case phone(String)
     }
 
     let target: Target
@@ -36,6 +38,7 @@ struct MessageTextLink: Equatable {
              .botCommand(let text),
              .hashtag(let text),
              .mention(let text),
+             .phone(let text),
              .timecode(let text, _): text
         case .userMention(_, let text): text
         }
@@ -164,13 +167,14 @@ struct MessageMentionMenu {
         case .bankCard,
              .botCommand,
              .hashtag,
+             .phone,
              .timecode,
              .url:
             return nil
         }
     }
 
-    private nonisolated static func avatar(_ file: TDNativeFile?, client: TDLibClient) async -> UIImage? {
+    nonisolated static func avatar(_ file: TDNativeFile?, client: TDLibClient) async -> UIImage? {
         guard let file else { return nil }
         if file.local.isDownloadingCompleted { return PollOptionMenu.avatar(path: file.local.path) }
         guard let downloaded = try? await client.downloadFile(
@@ -222,6 +226,106 @@ struct MessageMentionMenu {
         } else {
             var row = TelegramContextMenuAction(
                 title: L10n.telegram("Chat.Context.Username.NotOnTelegram"),
+                startsNewSection: true,
+            )
+            row.isInformational = true
+            actions.append(row)
+        }
+        return actions
+    }
+}
+
+// MARK: - MessagePhoneMenu
+
+/// ChatControllerOpenPhoneContextMenu: for a number on Telegram Send Message (none for the account's own), otherwise
+/// Invite to Telegram; Call via Carrier (not for +888 numbers); Copy Number; and under them the person with View
+/// Profile, or that the number is not on Telegram. Add to Contacts and Telegram calls are not ported.
+struct MessagePhoneMenu {
+    struct Peer {
+        let userID: Int64
+        let name: String
+        let avatar: UIImage?
+        let isSelf: Bool
+    }
+
+    /// inviteToTelegram: InviteText.SingleContact with Telegram's link, through the system share sheet.
+    static var inviteText: String {
+        L10n.telegram("InviteText.SingleContact", L10n.telegram("InviteText.URL"))
+    }
+
+    /// The number as written, which Copy puts on the pasteboard.
+    let number: String
+    let peer: Peer?
+
+    /// resolvePeerByPhone through searchUserByPhoneNumber.
+    nonisolated static func peer(for number: String, accountUserID: Int64?, client: TDLibClient) async -> Peer? {
+        let digits = number.filter(\.isNumber)
+        guard !digits.isEmpty,
+              let user = try? await client.send(TDNativeRequests.searchUserByPhoneNumber(
+                  phoneNumber: digits, onlyLocal: false,
+              )) else { return nil }
+        let avatar = await MessageMentionMenu.avatar(user.profilePhoto?.small, client: client)
+        return Peer(
+            userID: user.id,
+            name: ServiceMessageText.displayTitle(user),
+            avatar: avatar,
+            isSelf: user.id == accountUserID,
+        )
+    }
+
+    func actions(
+        sendMessage: @escaping (Int64) -> Void,
+        openProfile: @escaping (Int64) -> Void,
+        invite: @escaping () -> Void,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        if let peer {
+            if !peer.isSelf {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Chat.Context.Phone.SendMessage"),
+                    image: UIImage(systemName: "bubble.left"),
+                    handler: { sendMessage(peer.userID) },
+                ))
+            }
+        } else {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Phone.InviteToTelegram"),
+                image: UIImage(systemName: "paperplane"),
+                handler: invite,
+            ))
+        }
+        let digits = number.filter { $0.isNumber || $0 == "+" }
+        if !digits.hasPrefix("+888") {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Phone.CallViaCarrier"),
+                image: UIImage(systemName: "phone"),
+                handler: {
+                    guard let url = URL(string: "tel:\(digits)") else { return }
+                    UIApplication.shared.open(url)
+                },
+            ))
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Chat.Context.Phone.CopyNumber"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: { [number] in
+                UIPasteboard.general.string = number
+                copied(L10n.telegram("Conversation.PhoneCopied"))
+            },
+        ))
+        if let peer {
+            var row = TelegramContextMenuAction(
+                title: peer.name,
+                image: peer.avatar ?? UIImage(systemName: "person.crop.circle"),
+                startsNewSection: true,
+                handler: { openProfile(peer.userID) },
+            )
+            row.secondLine = (L10n.telegram("Chat.Context.Phone.ViewProfile"), true)
+            actions.append(row)
+        } else {
+            var row = TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Phone.NotOnTelegram"),
                 startsNewSection: true,
             )
             row.isInformational = true
