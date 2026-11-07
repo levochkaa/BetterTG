@@ -3724,3 +3724,13 @@
 "PrivacySettings.LoginEmailInfo" = "Change your email address for Telegram login codes.";
 "PrivacySettings.LoginEmailSetupInfo" = "Setup your email address for Telegram login codes.";
 "Settings.SaveEditedPhotos" = "Save Edited Photos";
+"Notifications.PermissionsTitle" = "Turn ON Notifications";
+"Notifications.PermissionsText" = "Don't miss important messages from your friends and coworkers.";
+"Notifications.PermissionsUnreachableTitle" = "Check Notification Settings";
+"Notifications.PermissionsUnreachableText" = "Please note that you partly disabled message notifications in your Settings.";
+"Notifications.PermissionsAllow" = "Turn Notifications ON";
+"Notifications.PermissionsAllowInSettings" = "Turn ON in Settings";
+"Notifications.PermissionsSuppressWarningTitle" = "Keep notifications disabled?";
+"Notifications.PermissionsSuppressWarningText" = "You may miss important messages on Telegram due to your current settings.\n\nFor better results, enable alerts or banners and try muting certain chats or chat types in Telegram settings.";
+"Notifications.PermissionsKeepDisabled" = "Keep Disabled";
+"Notifications.PermissionsEnable" = "Enable";

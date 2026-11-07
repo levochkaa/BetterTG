@@ -3,6 +3,7 @@
 import Combine
 import TDLibKit
 import UIKit
+import UserNotifications
 
 // MARK: - NotificationSettingsViewController
 
@@ -12,12 +13,25 @@ import UIKit
 /// unread chats without telling channels apart, so Include Channels has no counterpart. BetterTG adds the switch for
 /// its push relay.
 final class NotificationSettingsViewController: SettingsListViewController {
+    /// The states NotificationsAndSoundsController warns about: never asked, refused, or allowed without alerts.
+    private enum NotificationPermissionWarning {
+        case notDetermined
+        case denied
+        case unreachable
+    }
+
+    /// ApplicationSpecificNotice's permission warning: the unreachable warning closed with Keep Disabled.
+    private static let suppressedWarningKey = "BetterTG.notificationPermissionWarningSuppressed"
+
     private var settings = [NotificationScope: ScopeNotificationSettings]()
     private var exceptionCounts = [NotificationScope: Int]()
     /// Whether TDLib notifies about contacts who join Telegram; nil until read.
     private var contactJoinedEnabled: Bool?
     private var storyExceptionCount: Int?
     private var reactionCancellable: AnyCancellable?
+    private var activeCancellable: AnyCancellable?
+    /// DeviceAccess' notification status: nil while allowed (or unknown).
+    private var permission: NotificationPermissionWarning?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,11 +40,15 @@ final class NotificationSettingsViewController: SettingsListViewController {
             .changes
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.reload() }
+        activeCancellable = NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.loadPermission() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         load()
+        loadPermission()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -58,7 +76,7 @@ final class NotificationSettingsViewController: SettingsListViewController {
         if let reactions = ReactionNotificationSettingsStore.shared.settings(for: client) {
             rows.append(reactionsRow(reactions))
         }
-        var sections = [
+        var sections = permissionSections() + [
             SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: rows),
             inAppSection(),
             badgeSection(),
@@ -81,6 +99,117 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 style: .action(destructive: true),
             ) { [weak self] in self?.confirmReset() }]),
         ]
+    }
+
+    /// DeviceAccess.authorizationStatus: refused, never asked, or allowed with neither alerts nor the lock screen.
+    private func loadPermission() {
+        Task { [weak self] in
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            var warning: NotificationPermissionWarning? =
+                switch settings.authorizationStatus {
+                case .denied: .denied
+                case .notDetermined: .notDetermined
+                default:
+                    settings.alertSetting != .enabled && settings.lockScreenSetting != .enabled
+                        && settings.notificationCenterSetting != .enabled ? .unreachable : nil
+                }
+            #if DEBUG
+                // `-ui-probe-notification-permission denied|unreachable|not-determined` shows a warning.
+                let arguments = ProcessInfo.processInfo.arguments
+                if let index = arguments.firstIndex(of: "-ui-probe-notification-permission") {
+                    warning =
+ switch arguments[safe: index + 1] {
+                    case "unreachable": .unreachable
+                    case "not-determined": .notDetermined
+                    default: .denied
+                    }
+                }
+            #endif
+            guard let self else { return }
+            if warning == .unreachable, UserDefaults.standard.bool(forKey: Self.suppressedWarningKey) {
+                warning = nil
+            }
+            guard warning != permission else { return }
+            permission = warning
+            reload()
+        }
+    }
+
+    /// The warning's section: Turn ON Notifications (Check Notification Settings when alerts are off) with its text,
+    /// and Turn Notifications ON, Turn ON in Settings or Open Settings; the unreachable warning can be closed.
+    private func permissionSections() -> [SettingsSection] {
+        guard let permission else { return [] }
+        let unreachable = permission == .unreachable
+        var info = SettingsRow(
+            title: L10n.telegram(unreachable
+                ? "Notifications.PermissionsUnreachableTitle"
+                : "Notifications.PermissionsTitle"),
+            detail: L10n.telegram(unreachable
+                ? "Notifications.PermissionsUnreachableText"
+                : "Notifications.PermissionsText"),
+            style: .subtitle,
+        )
+        if unreachable {
+            info.trailingView = SettingsTrailingView { [weak self] in
+                let close = UIButton(type: .system)
+                close.setImage(UIImage(systemName: "xmark"), for: .normal)
+                close.tintColor = .tertiaryLabel
+                close.frame = CGRect(x: 0, y: 0, width: 28, height: 28)
+                close.accessibilityLabel = L10n.telegram("Common.Close")
+                close.addAction(UIAction { [weak self] _ in self?.suppressPermissionWarning() }, for: .touchUpInside)
+                return close
+            }
+        }
+        let actionKey =
+            switch permission {
+            case .notDetermined: "Notifications.PermissionsAllow"
+            case .denied: "Notifications.PermissionsAllowInSettings"
+            case .unreachable: "Notifications.PermissionsOpenSettings"
+            }
+        let action = SettingsRow(
+            title: L10n.telegram(actionKey),
+            style: .action(destructive: false),
+        ) { [weak self] in self?.authorizeNotifications() }
+        return [SettingsSection(rows: [info, action])]
+    }
+
+    /// authorizeNotifications: the system's question when it hasn't been asked, otherwise the app's settings.
+    private func authorizeNotifications() {
+        if permission == .notDetermined {
+            Task { [weak self] in
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
+                    .alert,
+                    .badge,
+                    .sound,
+                ])
+                UIApplication.shared.registerForRemoteNotifications()
+                self?.loadPermission()
+            }
+            return
+        }
+        if permission == .unreachable { UserDefaults.standard.set(true, forKey: Self.suppressedWarningKey) }
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// suppressWarning: Keep notifications disabled? with Keep Disabled and Enable.
+    private func suppressPermissionWarning() {
+        let alert = UIAlertController(
+            title: L10n.telegram("Notifications.PermissionsSuppressWarningTitle"),
+            message: L10n.telegram("Notifications.PermissionsSuppressWarningText"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Notifications.PermissionsKeepDisabled"), style: .default) {
+            [weak self] _ in
+            UserDefaults.standard.set(true, forKey: Self.suppressedWarningKey)
+            self?.permission = nil
+            self?.reload()
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Notifications.PermissionsEnable"), style: .cancel) { _ in
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        })
+        present(alert, animated: true)
     }
 
     private func load() {
