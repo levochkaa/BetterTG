@@ -93,6 +93,7 @@ import UIKit
         RichNotificationCacheCoordinator.shared.start()
         LiveLocationManager.shared.start()
         AttachmentMenuBotStore.shared.start()
+        SuggestedActionsStore.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

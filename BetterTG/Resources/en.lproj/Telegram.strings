@@ -3529,3 +3529,14 @@
 "FormattedDate.LongDate_m10" = "October %1$@, %2$@";
 "FormattedDate.LongDate_m11" = "November %1$@, %2$@";
 "FormattedDate.LongDate_m12" = "December %1$@, %2$@";
+"Settings.CheckPhoneNumberTitle" = "Is %@ still your number?";
+"Settings.CheckPhoneNumberText" = "Keep your number up to date to ensure you can always log in to Telegram. [Learn more]()";
+"Settings.KeepPhoneNumber" = "Keep %@";
+"Settings.CheckPhoneNumberFAQAnchor" = "q-i-have-a-new-phone-number-what-do-i-do";
+"Settings.CheckPasswordTitle" = "Your Password";
+"Settings.CheckPasswordText" = "Your account is protected by 2-Step Verification. Do you still remember your password?";
+"Settings.KeepPassword" = "Yes, definitely";
+"Settings.TryEnterPassword" = "Not sure, let me try";
+"Settings.SuggestSetupPasswordTitle" = "Protect Your Account";
+"Settings.SuggestSetupPasswordText" = "Set a password that will be required each time you log in with this phone number.";
+"Settings.SuggestSetupPasswordAction" = "Set Additional Password";

@@ -57,6 +57,10 @@ final class SettingsViewController: UITableViewController {
             self?.title = L10n.telegram("Settings.Title")
             self?.tableView.reloadData()
         }
+        SuggestedActionsStore.shared
+            .changes
+            .sink { [weak self] in self?.tableView.reloadData() }
+            .store(in: &cancellables)
         AttachmentMenuBotStore.shared
             .changes
             .sink { [weak self] in self?.tableView.reloadData() }
@@ -172,6 +176,22 @@ final class SettingsViewController: UITableViewController {
             toggle.isOn = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
             toggle.addTarget(self, action: #selector(animatedMediaChanged(_:)), for: .valueChanged)
             cell.accessoryView = toggle
+        case .suggestionInfo(let reminder):
+            configuration = .subtitleCell()
+            configuration.text = suggestionTitle(reminder)
+            configuration.textProperties.font = .systemFont(ofSize: 17, weight: .semibold)
+            configuration.secondaryText = Self.suggestionText(reminder)
+            configuration.secondaryTextProperties.font = .systemFont(ofSize: 15)
+            configuration.secondaryTextProperties.color = .secondaryLabel
+            configuration.textToSecondaryTextVerticalPadding = 4
+            cell.contentConfiguration = configuration
+        case .suggestionAction,
+             .suggestionKeep:
+            if row == .suggestionKeep(.checkPhoneNumber) {
+                configuration.text = L10n.telegram("Settings.KeepPhoneNumber", "+" + (me?.phoneNumber ?? ""))
+            }
+            configuration.textProperties.color = .tintColor
+            cell.contentConfiguration = configuration
         case .logOut,
              .profile,
              .version:
@@ -234,9 +254,61 @@ final class SettingsViewController: UITableViewController {
             if let url = URL(string: "https://bettertg.su/terms") { WebBrowser.open(url, from: self) }
         case .logOut:
             confirmLogout(from: indexPath)
+        case .suggestionInfo(let reminder):
+            // The phone reminder's Learn more opens the FAQ's answer on a new number.
+            guard reminder == .checkPhoneNumber,
+                  let base = L10n.telegram("Settings.FAQ_URL").split(separator: "#").first,
+                  let url = URL(string: base + "#" + L10n.telegram("Settings.CheckPhoneNumberFAQAnchor"))
+            else { return }
+            WebBrowser.open(url, from: self)
+        case .suggestionKeep(let reminder):
+            guard let source = TDLib.shared.activeUpdateSource else { return }
+            SuggestedActionsStore.shared.dismiss(reminder, client: TDLib.shared.activeClient, source: source)
+        case .suggestionAction:
+            openTwoStepVerification()
         case .animatedMedia,
              .version:
             break
+        }
+    }
+
+    /// The text without its Markdown link brackets.
+    private static func suggestionText(_ reminder: SuggestedActionsStore.Reminder) -> String {
+        let key =
+            switch reminder {
+            case .checkPhoneNumber: "Settings.CheckPhoneNumberText"
+            case .checkPassword: "Settings.CheckPasswordText"
+            case .setPassword: "Settings.SuggestSetupPasswordText"
+            }
+        return L10n.telegram(key).replacingOccurrences(
+            of: #"\[([^\]]*)\]\(\)"#,
+            with: "$1",
+            options: .regularExpression,
+        )
+    }
+
+    /// Settings' rememberPassword and passwordSetup both reach the password's screen: entering it there proves it is
+    /// remembered; without one it opens the setup.
+    private func openTwoStepVerification() {
+        let service = TDLibTwoStepVerificationService(client: TDLib.shared.activeClient)
+        Task { [weak self] in
+            let configuration = try? await service.configuration()
+            guard let self else { return }
+            navigationController?.pushViewController(
+                TwoStepVerificationViewController.entry(for: configuration, service: service),
+                animated: true,
+            )
+        }
+    }
+
+    private func suggestionTitle(_ reminder: SuggestedActionsStore.Reminder) -> String {
+        switch reminder {
+        case .checkPhoneNumber:
+            L10n.telegram("Settings.CheckPhoneNumberTitle", "+" + (me?.phoneNumber ?? ""))
+        case .checkPassword:
+            L10n.telegram("Settings.CheckPasswordTitle")
+        case .setPassword:
+            L10n.telegram("Settings.SuggestSetupPasswordTitle")
         }
     }
 
@@ -245,6 +317,16 @@ final class SettingsViewController: UITableViewController {
         switch section {
         case .profile:
             return TDLib.shared.activeAccountID == nil ? [] : [.profile]
+        case .suggestion:
+            guard TDLib.shared.activeAccountID != nil,
+                  let reminder = SuggestedActionsStore.shared.reminder(for: TDLib.shared.activeUpdateSource)
+            else { return [] }
+            // Change Number has no flow in BetterTG, so the phone reminder offers only Keep.
+            return switch reminder {
+            case .checkPhoneNumber: [.suggestionInfo(reminder), .suggestionKeep(reminder)]
+            case .checkPassword: [.suggestionInfo(reminder), .suggestionKeep(reminder), .suggestionAction(reminder)]
+            case .setPassword: [.suggestionInfo(reminder), .suggestionAction(reminder)]
+            }
         case .accounts:
             let accountRows: [Row] = TDLib.shared.sortedAccounts.map { .account($0.id) }
             #if DEBUG
@@ -481,6 +563,8 @@ final class SettingsViewController: UITableViewController {
 private extension SettingsViewController {
     enum Section: Int, CaseIterable {
         case profile
+        /// PeerInfoSettingsItems' `.phone` section: the server's phone number or password reminder.
+        case suggestion
         case accounts
         case myProfile
         case proxy
@@ -506,6 +590,7 @@ private extension SettingsViewController {
                  .profile,
                  .proxy,
                  .shortcuts,
+                 .suggestion,
                  .support: nil
             }
         }
@@ -513,6 +598,12 @@ private extension SettingsViewController {
 
     enum Row: Equatable {
         case profile
+        /// The reminder's title and text (PeerInfoScreenInfoItem).
+        case suggestionInfo(SuggestedActionsStore.Reminder)
+        /// Keep the number or the password, which dismisses the reminder.
+        case suggestionKeep(SuggestedActionsStore.Reminder)
+        /// Try the password, or set one up.
+        case suggestionAction(SuggestedActionsStore.Reminder)
         case account(UUID)
         case addAccount
         /// Debug builds' sign-in on Telegram's test server.
@@ -549,6 +640,16 @@ private extension SettingsViewController {
 
         var title: String {
             switch self {
+            case .suggestionInfo:
+                ""
+            case .suggestionKeep(let reminder):
+                reminder == .checkPassword
+                    ? L10n.telegram("Settings.KeepPassword")
+                    : L10n.telegram("Settings.KeepPhoneNumber", "")
+            case .suggestionAction(let reminder):
+                reminder == .setPassword
+                    ? L10n.telegram("Settings.SuggestSetupPasswordAction")
+                    : L10n.telegram("Settings.TryEnterPassword")
             case .account:
                 account?.localizedTitle ?? L10n.betterTG("Accounts.Account")
             case .addAccount:
@@ -604,6 +705,10 @@ private extension SettingsViewController {
 
         @MainActor var subtitle: String? {
             switch self {
+            case .suggestionAction,
+                 .suggestionInfo,
+                 .suggestionKeep:
+                nil
             case .account(let id):
                 accountSubtitle(isCurrent: id == TDLib.shared.activeAccountID)
             case .appearance:
@@ -654,6 +759,9 @@ private extension SettingsViewController {
 
         var symbolName: String {
             switch self {
+            case .suggestionAction,
+                 .suggestionInfo,
+                 .suggestionKeep: ""
             case .profile: "person.crop.circle"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
@@ -684,6 +792,9 @@ private extension SettingsViewController {
 
         var tintColor: UIColor {
             switch self {
+            case .suggestionAction,
+                 .suggestionInfo,
+                 .suggestionKeep: .tintColor
             case .account: .systemTeal
             case .addAccount,
                  .addTestServerAccount,
