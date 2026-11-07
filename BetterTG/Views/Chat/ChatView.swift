@@ -10739,11 +10739,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch link.target {
         case .url(let url):
             let menu = MessageLinkMenu(url: url)
+            let webURL = menu.isEmail ? nil : getUrl(from: url)
+            let reverseOpen = webURL.flatMap { target in
+                WebBrowser.opensInApp(target).map { opensInApp in
+                    (opensInApp: opensInApp, handler: { [weak self] in
+                        WebBrowser.open(target, from: self, inApp: !opensInApp)
+                    })
+                }
+            }
             let actions = menu.actions(
                 open: { [weak self] in
                     guard let self, let target = menu.isEmail ? URL(string: url) : getUrl(from: url) else { return }
                     TelegramLinkRouter.shared.open(target, from: self)
                 },
+                reverseOpen: reverseOpen,
                 copied: copied,
             )
             showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)

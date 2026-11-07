@@ -50,9 +50,9 @@ struct MessageTextLink: Equatable {
 
 // MARK: - MessageLinkMenu
 
-/// Telegram's menu for a link in a message (ChatControllerOpenLinkContextMenu): Open, Copy Link or Copy Email, and
-/// Add to Reading List for anything but an email address. BetterTG opens web links in Safari, so the in-app browser's
-/// Open in Browser and Open in App have nothing to switch to.
+/// Telegram's menu for a link in a message (ChatControllerOpenLinkContextMenu): Open, for a web link the other way to
+/// open it (Open in Browser where it would open in the app, Open In-App where it wouldn't), Copy Link or Copy Email,
+/// and Add to Reading List for anything but an email address.
 struct MessageLinkMenu {
     let url: String
 
@@ -78,13 +78,30 @@ struct MessageLinkMenu {
         return hasNonLatin ? url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url : url
     }
 
-    func actions(open: @escaping () -> Void, copied: @escaping (String) -> Void) -> [TelegramContextMenuAction] {
+    /// `reverseOpen` is chatLinkContextMenuOpenMode's answer, whether the link opens in the app, with the handler that
+    /// opens it the other way.
+    func actions(
+        open: @escaping () -> Void,
+        reverseOpen: (opensInApp: Bool, handler: () -> Void)? = nil,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
         var actions = [
             TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.LinkDialogOpen"),
-                image: UIImage(systemName: "globe"),
+                image: UIImage(systemName: reverseOpen?.opensInApp == true ? "safari" : "globe"),
                 handler: open,
             ),
+        ]
+        if let reverseOpen {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(reverseOpen.opensInApp
+                    ? "Chat.ContextMenu.OpenInBrowser"
+                    : "Chat.ContextMenu.OpenInApp"),
+                image: UIImage(systemName: reverseOpen.opensInApp ? "globe" : "safari"),
+                handler: reverseOpen.handler,
+            ))
+        }
+        actions += [
             TelegramContextMenuAction(
                 title: L10n
                     .telegram(isEmail ? "Conversation.ContextMenuCopyEmail" : "Conversation.ContextMenuCopyLink"),

@@ -128,9 +128,21 @@ enum WebBrowser: String, CaseIterable {
         return host
     }
 
+    /// chatLinkContextMenuOpenMode: whether a web link opens in the in-app browser, after the exceptions; nil for links
+    /// that don't go to a browser (another scheme, no host, Telegram's own domains).
+    @MainActor static func opensInApp(_ url: URL) -> Bool? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased(), !host.isEmpty,
+              !["t.me", "telegram.me", "telegram.dog"].contains(host)
+        else { return nil }
+        let isExcepted = matches(url, domains: exceptions)
+        return current == .telegram ? !isExcepted : isExcepted
+    }
+
     /// Opens a web link in the chosen browser: the in-app one over `presenter`, or the browser's app. Links that
-    /// aren't http or https go to the system.
-    @MainActor static func open(_ url: URL, from presenter: UIViewController?) {
+    /// aren't http or https go to the system. `inApp` overrides the choice, as the link menu's Open in Browser and
+    /// Open In-App do; out of the app it takes the chosen browser, or Safari while the in-app one is chosen.
+    @MainActor static func open(_ url: URL, from presenter: UIViewController?, inApp: Bool? = nil) {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             UIApplication.shared.open(url)
             return
@@ -139,13 +151,13 @@ enum WebBrowser: String, CaseIterable {
         // controllers: presented from the preview, the browser stayed blank and its dismissal left the menu's dimmed
         // backdrop behind.
         if let presenter, presenter.isInsideContextMenuPreview {
-            presenter.leavingContextMenuPreview { host in open(url, from: host) }
+            presenter.leavingContextMenuPreview { host in open(url, from: host, inApp: inApp) }
             return
         }
         let browser = current
         // A website among the exceptions opens the other way.
         let isExcepted = matches(url, domains: exceptions)
-        let opensInApp = browser == .telegram ? !isExcepted : isExcepted
+        let opensInApp = inApp ?? (browser == .telegram ? !isExcepted : isExcepted)
         if opensInApp, let presenter = presenter?.topmostPresented {
             let controller = SFSafariViewController(url: url)
             controller.dismissButtonStyle = .close

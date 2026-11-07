@@ -4046,3 +4046,5 @@
 "Chat.SendAllowedContentTypeFile" = "files";
 "Chat.SendAllowedContentTypeMusic" = "music";
 "Chat.SendAllowedContentTypeSticker" = "stickers & GIFs";
+"Chat.ContextMenu.OpenInBrowser" = "Open in Browser";
+"Chat.ContextMenu.OpenInApp" = "Open In-App";
