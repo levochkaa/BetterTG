@@ -210,6 +210,9 @@ import UIKit
     @Published private(set) var administratorRanks = [Int64: MessageSenderName.Rank]()
     /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
     let scheduledComposerSend = PassthroughSubject<Void, Never>()
+    /// interactiveChatLinkPreviewsEnabled's alert: a link in a secret chat before the user chose; the view asks and
+    /// calls back with the answer.
+    let secretLinkPreviewConsentNeeded = PassthroughSubject<(Bool) -> Void, Never>()
     @Published var memberCount = 0
     @Published var onlineMemberCount = 0
     @Published private(set) var editCustomMessage: CustomMessage? {
@@ -393,6 +396,8 @@ import UIKit
     /// The secret chat's state and whether this account started it, for its handshake and closed panels.
     private(set) var secretChatState: TDNativeSecretChatState?
     private(set) var secretChatIsOutbound = false
+
+    private var isAskingSecretLinkPreviews = false
 
     private var timerCountStorage = 0.0
     private var voiceFinalizationGeneration = UInt64.zero
@@ -6770,7 +6775,25 @@ import UIKit
         composerLinkPreviewTask?.cancel()
         let formatted = FormattedText(entities: getEntities(from: text), text: text.string)
         var canPreview = !previewing && formatted.text.contains(".")
-        if case .chatTypeSecret = customChat.chat.type { canPreview = false }
+        // A secret chat previews links only once the user agreed (Data Settings' Link Previews); the first link asks.
+        if case .chatTypeSecret = customChat.chat.type, canPreview {
+            switch SecretChatLinkPreviews.isEnabled {
+            case true?:
+                break
+            case false?:
+                canPreview = false
+            case nil:
+                canPreview = false
+                if !isAskingSecretLinkPreviews {
+                    isAskingSecretLinkPreviews = true
+                    secretLinkPreviewConsentNeeded.send { [weak self] allowed in
+                        SecretChatLinkPreviews.isEnabled = allowed
+                        self?.isAskingSecretLinkPreviews = false
+                        if allowed { self?.scheduleComposerLinkPreview() }
+                    }
+                }
+            }
+        }
         guard canPreview else {
             composerLinkPreviewRequest = nil
             if composerLinkPreview != nil { composerLinkPreview = nil }

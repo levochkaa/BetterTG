@@ -384,6 +384,7 @@ struct SettingsSearchSection {
             dataChild("delete-synced", "Privacy.ContactsReset", "ContactsReset"),
             dataChild("suggest-contacts", "Privacy.TopPeers", "TopPeers"),
             dataChild("delete-cloud-drafts", "Privacy.DeleteDrafts", "DeleteDrafts"),
+            dataChild("link-previews", "Privacy.SecretChatsLinkPreviews", "SecretChatLinkPreview"),
             item(
                 "delete-account", "DeleteAccount.DeleteMyAccount",
                 synonyms: "SettingsSearch.DeleteAccount.DeleteMyAccount", icon: .privacy, target: .deleteAccount,

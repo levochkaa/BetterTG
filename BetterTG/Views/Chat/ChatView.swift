@@ -2391,6 +2391,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// Telegram's Scheduled Messages for this chat or topic, from the input panel's button or after a message was
     /// scheduled (ChatController.openScheduledMessages).
+    /// UpdateChatPresentationInterfaceState's Conversation.SecretLinkPreviewAlert with Yes and No.
+    private func askSecretLinkPreviews(_ answer: @escaping (Bool) -> Void) {
+        let alert = UIAlertController(
+            title: nil, message: L10n.telegram("Conversation.SecretLinkPreviewAlert"), preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.No"), style: .cancel) { _ in answer(false) })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Yes"), style: .default) { _ in answer(true) })
+        present(alert, animated: true)
+    }
+
     private func openScheduledMessages() {
         guard presentationMode == .full, chatVM.locationContextIsCurrent,
               navigationController?.topViewController === self else { return }
@@ -4594,6 +4604,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .store(in: &cancellables)
         chatVM.scheduledComposerSend
             .sink { [weak self] in self?.openScheduledMessages() }
+            .store(in: &cancellables)
+        chatVM.secretLinkPreviewConsentNeeded
+            .sink { [weak self] answer in self?.askSecretLinkPreviews(answer) }
             .store(in: &cancellables)
         chatVM.sendTransitionMessageIDReplaced
             .sink { [weak self] replacement in

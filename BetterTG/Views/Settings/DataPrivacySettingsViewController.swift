@@ -7,8 +7,8 @@ import UIKit
 
 /// Telegram's Data Settings (DataPrivacySettingsController): Delete Synced Contacts behind its warning, Suggest
 /// Frequent Contacts (`disable_top_chats`, turned off behind its warning) and Delete All Cloud Drafts behind its
-/// sheet, each confirmed with Telegram's toast. BetterTG doesn't sync device contacts, has no secret-chat link
-/// preview setting and leaves payments out, so Sync Contacts, Link Previews and Clear Payment Info aren't offered.
+/// sheet, each confirmed with Telegram's toast, and SECRET CHATS' Link Previews. BetterTG doesn't sync device
+/// contacts and leaves payments out, so Sync Contacts and Clear Payment Info aren't offered.
 final class DataPrivacySettingsViewController: SettingsListViewController {
     /// Whether TDLib suggests frequent contacts; nil until read.
     private var suggestsFrequentContacts: Bool?
@@ -44,6 +44,17 @@ final class DataPrivacySettingsViewController: SettingsListViewController {
                 style: .action(destructive: false),
                 isEnabled: !isDeletingDrafts,
             ) { [weak self] in self?.confirmDeleteDrafts() }]),
+            // secretChatLinkPreviews: on until the user says otherwise.
+            SettingsSection(
+                header: L10n.telegram("Privacy.SecretChatsTitle"),
+                footer: L10n.telegram("Privacy.SecretChatsLinkPreviewsHelp"),
+                rows: [SettingsRow(
+                    title: L10n.telegram("Privacy.SecretChatsLinkPreviews"),
+                    accessory: .toggle(isOn: SecretChatLinkPreviews.isEnabled ?? true) { isOn in
+                        SecretChatLinkPreviews.isEnabled = isOn
+                    },
+                )],
+            ),
         ]
     }
 
@@ -146,5 +157,18 @@ final class DataPrivacySettingsViewController: SettingsListViewController {
         })
         sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         present(sheet, animated: true)
+    }
+}
+
+// MARK: - SecretChatLinkPreviews
+
+/// ApplicationSpecificSharedDataKeys' secretChatLinkPreviews: whether a secret chat's composer previews links; nil
+/// until the user answered the first link's question or switched it in Data Settings.
+enum SecretChatLinkPreviews {
+    private static let key = "BetterTG.secretChatLinkPreviews"
+
+    static var isEnabled: Bool? {
+        get { UserDefaults.standard.object(forKey: key) as? Bool }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
