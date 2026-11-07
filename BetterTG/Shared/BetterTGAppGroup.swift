@@ -10,6 +10,13 @@ enum BetterTGAppGroup {
         UserDefaults(suiteName: identifier)
     }
 
+    /// InAppNotificationSettings.displayNameOnLockscreen, shared with the notification service: on, notifications name
+    /// their sender while the device is locked; on by default.
+    static var displaysNamesOnLockScreen: Bool {
+        get { defaults?.object(forKey: "displaysNamesOnLockScreen") as? Bool ?? true }
+        set { defaults?.set(newValue, forKey: "displaysNamesOnLockScreen") }
+    }
+
     static func containerURL(fileManager: FileManager = .default) -> URL? {
         fileManager.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }

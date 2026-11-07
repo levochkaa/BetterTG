@@ -79,6 +79,7 @@ final class NotificationSettingsViewController: SettingsListViewController {
         var sections = permissionSections() + [
             SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: rows),
             inAppSection(),
+            lockScreenNamesSection(),
             badgeSection(),
         ]
         if let contactJoinedEnabled {
@@ -312,6 +313,26 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 },
             ),
         ])
+    }
+
+    /// Names on Lock Screen, its note linking to the app's notification settings in iOS.
+    private func lockScreenNamesSection() -> SettingsSection {
+        SettingsSection(
+            footer: L10n.telegram("Notifications.DisplayNamesOnLockScreenInfoWithLink")
+                .replacingOccurrences(of: #"\[([^\]]*)\](?!\()"#, with: "[$1]()", options: .regularExpression),
+            rows: [SettingsRow(
+                title: L10n.telegram("Notifications.DisplayNamesOnLockScreen"),
+                accessory: .toggle(isOn: BetterTGAppGroup.displaysNamesOnLockScreen) { isOn in
+                    BetterTGAppGroup.displaysNamesOnLockScreen = isOn
+                    PushRelayCoordinator.shared.configureNotificationCategories()
+                },
+            )],
+            footerLinks: ["default": {
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }],
+        )
     }
 
     /// The Badge Counter's Include Channels and Count Unread Messages, with the note on what the latter does.

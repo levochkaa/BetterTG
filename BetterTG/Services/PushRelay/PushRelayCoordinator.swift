@@ -290,7 +290,9 @@ import UserNotifications
         await handleNotificationResponse(response)
     }
 
-    private func configureNotificationCategories(center: UNUserNotificationCenter) {
+    /// registerForNotifications' categories: "Message" in place of a hidden preview, and the sender's name kept on the
+    /// locked screen (`hiddenPreviewsShowTitle`) while Names on Lock Screen is on.
+    func configureNotificationCategories(center: UNUserNotificationCenter = .current()) {
         let replyAction = UNTextInputNotificationAction(
             identifier: QuickReplyNotification.actionIdentifier,
             title: L10n.telegram("Conversation.ContextMenuReply"),
@@ -298,16 +300,24 @@ import UserNotifications
             textInputButtonTitle: L10n.telegram("Conversation.ContextMenuReply"),
             textInputPlaceholder: L10n.telegram("Conversation.InputTextPlaceholder"),
         )
+        let placeholder = L10n.telegram("Watch.MessageView.Title")
+        let options: UNNotificationCategoryOptions = BetterTGAppGroup.displaysNamesOnLockScreen
+            ? [.hiddenPreviewsShowTitle]
+            : []
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: QuickReplyNotification.messageCategoryIdentifier,
                 actions: [],
                 intentIdentifiers: [],
+                hiddenPreviewsBodyPlaceholder: placeholder,
+                options: options,
             ),
             UNNotificationCategory(
                 identifier: QuickReplyNotification.categoryIdentifier,
                 actions: [replyAction],
                 intentIdentifiers: [],
+                hiddenPreviewsBodyPlaceholder: placeholder,
+                options: options,
             ),
         ])
     }

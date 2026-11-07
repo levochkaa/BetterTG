@@ -316,6 +316,7 @@ struct SettingsSearchSection {
             child("in-app-sounds", "Notifications.InAppNotificationsSounds", "InAppNotificationsSound"),
             child("in-app-vibrate", "Notifications.InAppNotificationsVibrate", "InAppNotificationsVibrate"),
             child("in-app-preview", "Notifications.InAppNotificationsPreview", "InAppNotificationsPreview"),
+            child("lock-screen-names", "Notifications.DisplayNamesOnLockScreen", "DisplayNamesOnLockScreen"),
             child("include-channels", "Notifications.Badge.IncludeChannels", "BadgeIncludeMutedChannels"),
             child("count-unread-messages", "Notifications.Badge.CountUnreadMessages", "BadgeCountUnreadMessages"),
             child("new-contacts", "NotificationSettings.ContactJoined", "ContactJoined"),

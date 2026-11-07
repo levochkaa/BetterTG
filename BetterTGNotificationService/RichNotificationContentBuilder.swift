@@ -34,6 +34,9 @@ enum RichNotificationContentBuilder {
             mutable.attachments = [attachment]
         }
 
+        // Names on Lock Screen off: no communication notification, whose sender iOS would show while locked.
+        guard BetterTGAppGroup.displaysNamesOnLockScreen else { return mutable }
+
         let senderAvatar = resolved.senderAvatarData
             ?? RichNotificationCache.avatarData(for: metadata.sender, accountID: metadata.accountID)
             ?? generatedAvatar(name: resolved.senderName, id: metadata.sender.id)
