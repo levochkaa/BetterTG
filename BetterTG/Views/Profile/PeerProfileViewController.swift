@@ -1086,6 +1086,10 @@ ClientRestorableNavigationEntry {
         }
         if currentSharedTab == .gifts {
             collectionView.deselectItem(at: indexPath, animated: true)
+            // GiftsListView opens GiftViewScreen for the tapped gift.
+            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath),
+                  let gift = giftsPane?.gift(for: id) else { return }
+            GiftInfoViewController.present(gift, isOwnProfile: isMyProfile, client: client, from: self)
             return
         }
         if currentSharedTab.isStories {
