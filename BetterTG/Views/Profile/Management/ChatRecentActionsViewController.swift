@@ -300,6 +300,12 @@ final class ChatRecentActionsViewController: SettingsListViewController {
     private var loadTask: Task<Void, Never>?
     private var reportedMessageIDs = Set<Int64>()
     private var eventIndexPaths = [Int64: IndexPath]()
+    private var filter = ChatEventLogFilter()
+    /// The page loads belong to one filter; a new one drops what an older one still brings.
+    private var loadGeneration = 0
+    private var filterTask: Task<Void, Never>?
+    /// ChatRecentActionsControllerNode's panel: Settings (the filter) and the "?" that explains the log.
+    private let panel = ChatListSelectionToolbar()
 
     init(target: ChatManagementTarget) {
         self.target = target
@@ -312,12 +318,33 @@ final class ChatRecentActionsViewController: SettingsListViewController {
 
     deinit {
         loadTask?.cancel()
+        filterTask?.cancel()
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Group.Info.AdminLog")
+        panel.update(
+            left: L10n.telegram("Channel.AdminLog.Settings"),
+            leftEnabled: true,
+            right: "?",
+            rightEnabled: true,
+        )
+        panel.onLeft = { [weak self] in self?.openFilter() }
+        panel.onRight = { [weak self] in self?.showInfo() }
+        panel.layer.zPosition = 999
+        tableView.addSubview(panel)
+        additionalSafeAreaInsets.bottom += ChatListSelectionToolbar.contentHeight
         loadMore()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutPanel()
+    }
+
+    override func scrollViewDidScroll(_: UIScrollView) {
+        layoutPanel()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -326,9 +353,12 @@ final class ChatRecentActionsViewController: SettingsListViewController {
             target.isChannel ? "Channel.AdminLog.InfoPanelChannelAlertText" : "Channel.AdminLog.InfoPanelAlertText",
         )
         guard !events.isEmpty else {
+            // ChatRecentActionsControllerNode's empty node names the filter when one is set.
+            let filtered = !filter.isDefault(isChannel: target.isChannel)
             return [SettingsSection(footer: info, rows: [SettingsRow(
-                title: L10n.telegram("Channel.AdminLog.EmptyTitle"),
-                detail: L10n.telegram("Channel.AdminLog.EmptyText"),
+                title: L10n.telegram(filtered ? "Channel.AdminLog.EmptyFilterTitle" : "Channel.AdminLog.EmptyTitle"),
+                // ChatRecentActionsControllerNode: Group_AdminLog_EmptyText or Broadcast_AdminLog_EmptyText.
+                detail: L10n.telegram(target.isChannel ? "Broadcast.AdminLog.EmptyText" : "Group.AdminLog.EmptyText"),
                 style: .subtitle,
             )])]
         }
@@ -367,6 +397,19 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         loadMore()
     }
 
+    /// The root is the scrolling table: the panel stays at the viewport's bottom, over the home indicator.
+    private func layoutPanel() {
+        let bottom = max(0, tableView.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom)
+        let height = ChatListSelectionToolbar.contentHeight + bottom
+        panel.frame = CGRect(
+            x: tableView.bounds.minX,
+            y: tableView.bounds.maxY - height,
+            width: tableView.bounds.width,
+            height: height,
+        )
+        tableView.bringSubviewToFront(panel)
+    }
+
     private func loadMore() {
         guard contextIsCurrent, loadTask == nil, hasMore else { return }
         let client = client
@@ -374,10 +417,18 @@ final class ChatRecentActionsViewController: SettingsListViewController {
         let fromEventID = oldestEventID
         let isChannel = target.isChannel
         let knownNames = names
+        let filters = filter.native(isChannel: isChannel)
+        let userIDs = filter.adminUserIDs.map { Array($0).sorted() } ?? []
+        let generation = loadGeneration
         loadTask = Task { [weak self] in
             var names = knownNames
             let page = await (try? client.send(TDNativeRequests.getChatEventLog(
-                chatId: chatID, query: "", fromEventId: fromEventID, limit: Self.pageLimit, filters: nil, userIds: [],
+                chatId: chatID,
+                query: "",
+                fromEventId: fromEventID,
+                limit: Self.pageLimit,
+                filters: filters,
+                userIds: userIDs,
             )))?.events
             var resolved = [Event]()
             for event in page ?? [] {
@@ -403,7 +454,7 @@ final class ChatRecentActionsViewController: SettingsListViewController {
                     falsePositiveMessageID: falsePositiveMessageID,
                 ))
             }
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, generation == loadGeneration else { return }
             loadTask = nil
             guard contextIsCurrent else { return }
             self.names = names
@@ -413,6 +464,71 @@ final class ChatRecentActionsViewController: SettingsListViewController {
             isLoaded = true
             reload()
         }
+    }
+
+    // MARK: Filter
+
+    /// openFilterSetup: the admins load first, then the filter opens as a sheet.
+    private func openFilter() {
+        guard contextIsCurrent, filterTask == nil, presentedViewController == nil else { return }
+        let client = client
+        let group = target.group
+        let chatID = target.chatID
+        filterTask = Task { [weak self] in
+            let found: [ChatMember] =
+                switch group {
+                case .supergroup(let id):
+                    await (try? client.send(TDNativeRequests.getSupergroupMembers(
+                        supergroupId: id, filter: .supergroupMembersFilterAdministrators, offset: 0, limit: 200,
+                    )))?.members ?? []
+                case .basic:
+                    await (ChatManagementTarget.load(chatID: chatID, client: client)?.basicGroupInfo?.members ?? [])
+                        .filter {
+                            switch $0.status {
+                            case .chatMemberStatusAdministrator,
+                                 .chatMemberStatusCreator: true
+                            default: false
+                            }
+                        }
+                }
+            let admins = await ChatManagementMember.resolve(found, client: client).filter { $0.userID != nil }
+            guard let self else { return }
+            filterTask = nil
+            guard !Task.isCancelled, contextIsCurrent else { return }
+            let screen = ChatRecentActionsFilterViewController(
+                filter: filter,
+                isChannel: target.isChannel,
+                admins: admins,
+            ) { [weak self] filter in self?.apply(filter) }
+            present(TelegramNavigationController(rootViewController: screen), animated: true)
+        }
+    }
+
+    /// A new filter reads the log again from its newest event.
+    private func apply(_ newFilter: ChatEventLogFilter) {
+        guard newFilter != filter else { return }
+        filter = newFilter
+        loadTask?.cancel()
+        loadTask = nil
+        loadGeneration += 1
+        events = []
+        oldestEventID = 0
+        hasMore = true
+        isLoaded = false
+        reload()
+        loadMore()
+    }
+
+    /// infoButtonPressed: what the event log is.
+    private func showInfo() {
+        presentAlert(
+            title: L10n.telegram("Channel.AdminLog.InfoPanelAlertTitle"),
+            message: L10n.telegram(
+                target.isChannel
+                    ? "Channel.AdminLog.InfoPanelChannelAlertText"
+                    : "Channel.AdminLog.InfoPanelAlertText",
+            ),
+        )
     }
 
     // MARK: Anti-spam false positives
