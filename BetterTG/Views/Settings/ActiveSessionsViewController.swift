@@ -226,11 +226,15 @@ final class ActiveSessionsViewController: SettingsListViewController {
 
 // MARK: - SessionDetailViewController
 
-/// Telegram's RecentSessionScreen: the session's application, system, IP address and location, and Terminate
-/// Session for any session but this one.
+/// Telegram's RecentSessionScreen: the session's application, system, IP address and location, Accept on This Device
+/// with New Secret Chats and Incoming Calls, and Terminate Session for any session but this one.
 private final class SessionDetailViewController: SettingsListViewController {
     private let session: TDNativeSession
     private let onTerminated: () -> Void
+    /// Nil where RecentSessionScreen offers no switch: a session waiting for its password, Telegram's apiId 22, and
+    /// for secret chats apiIds 2040 and 2496, which have none.
+    private var acceptsSecretChats: Bool?
+    private var acceptsCalls: Bool?
 
     private var sessionTitle: String {
         session.deviceModel.isEmpty ? session.applicationName : session.deviceModel
@@ -239,6 +243,10 @@ private final class SessionDetailViewController: SettingsListViewController {
     init(session: TDNativeSession, onTerminated: @escaping () -> Void) {
         self.session = session
         self.onTerminated = onTerminated
+        if !session.isPasswordPending, session.apiId != 22 {
+            self.acceptsCalls = session.canAcceptCalls
+            if ![2040, 2496].contains(session.apiId) { self.acceptsSecretChats = session.canAcceptSecretChats }
+        }
         super.init()
     }
 
@@ -286,6 +294,23 @@ private final class SessionDetailViewController: SettingsListViewController {
             ].compactMap(\.self)),
         ]
         sections[1].footer = L10n.telegram("AuthSessions.View.LocationInfo")
+        let acceptRows = [
+            acceptsSecretChats.map { isOn in
+                SettingsRow(
+                    title: L10n.telegram("AuthSessions.View.AcceptSecretChats"),
+                    accessory: .toggle(isOn: isOn) { [weak self] isOn in self?.setAcceptsSecretChats(isOn) },
+                )
+            },
+            acceptsCalls.map { isOn in
+                SettingsRow(
+                    title: L10n.telegram("AuthSessions.View.AcceptIncomingCalls"),
+                    accessory: .toggle(isOn: isOn) { [weak self] isOn in self?.setAcceptsCalls(isOn) },
+                )
+            },
+        ].compactMap(\.self)
+        if !acceptRows.isEmpty {
+            sections.append(SettingsSection(header: L10n.telegram("AuthSessions.View.AcceptTitle"), rows: acceptRows))
+        }
         if !session.isCurrent {
             sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram("AuthSessions.View.TerminateSession"),
@@ -293,6 +318,43 @@ private final class SessionDetailViewController: SettingsListViewController {
             ) { [weak self] in self?.confirmTerminate() }]))
         }
         return sections
+    }
+
+    /// updateAcceptSecretChats: the switch moves at once and goes back if TDLib refuses.
+    private func setAcceptsSecretChats(_ isOn: Bool) {
+        let previous = acceptsSecretChats
+        acceptsSecretChats = isOn
+        let id = session.id
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleSessionCanAcceptSecretChats(
+                    sessionId: id, canAcceptSecretChats: isOn,
+                ))
+            } catch {
+                self?.acceptsSecretChats = previous
+                self?.reload()
+            }
+        }
+    }
+
+    /// updateAcceptIncomingCalls, as the secret chats' switch.
+    private func setAcceptsCalls(_ isOn: Bool) {
+        let previous = acceptsCalls
+        acceptsCalls = isOn
+        let id = session.id
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleSessionCanAcceptCalls(
+                    sessionId: id,
+                    canAcceptCalls: isOn,
+                ))
+            } catch {
+                self?.acceptsCalls = previous
+                self?.reload()
+            }
+        }
     }
 
     private func confirmTerminate() {

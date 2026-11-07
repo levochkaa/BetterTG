@@ -3803,3 +3803,6 @@
 "PrivacySettings.AutoArchiveTitle" = "NEW CHATS FROM UNKNOWN USERS";
 "PrivacySettings.AutoArchiveInfo" = "Automatically archive and mute new chats, groups and channels from non-contacts.";
 "PrivacySettings.AutoArchive" = "Archive and Mute";
+"AuthSessions.View.AcceptTitle" = "Accept on This Device";
+"AuthSessions.View.AcceptSecretChats" = "New Secret Chats";
+"AuthSessions.View.AcceptIncomingCalls" = "Incoming Calls";
