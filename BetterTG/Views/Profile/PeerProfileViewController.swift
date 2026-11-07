@@ -213,6 +213,7 @@ ClientRestorableNavigationEntry {
     private let bioLabel = UILabel()
     private let personalChannelView = PersonalChannelCardView()
     private let infoCardView = ProfileInfoCardView()
+    private var businessLocation: TDNativeBusinessLocation?
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -2478,6 +2479,7 @@ ClientRestorableNavigationEntry {
         headerStack.addArrangedSubview(personalChannelView)
         personalChannelView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         infoCardView.isHidden = true
+        infoCardView.onOpenAddress = { [weak self] in self?.openBusinessLocation() }
         headerStack.setCustomSpacing(20, after: personalChannelView)
         headerStack.addArrangedSubview(infoCardView)
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
@@ -3411,18 +3413,55 @@ ClientRestorableNavigationEntry {
     }
 
     /// PeerInfoProfileItems' peerInfo rows the header doesn't show: the date of birth with the age ("birthday today" on
-    /// the day) and the account's notes on the person, "only visible to you".
+    /// the day), the account's notes on the person, "only visible to you", and a business's hours and address.
     private func applyInfoRows(_ info: UserFullInfo) {
         var rows = [ProfileInfoCardView.Row]()
         if let birthdate = info.birthdate {
-            rows.append(.init(
+            rows.append(.value(
                 label: L10n.telegram(birthdate.isToday ? "UserInfo.BirthdayToday" : "UserInfo.Birthday"),
                 text: birthdate.compactText,
             ))
         }
         if let note = info.note?.text.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
-            rows.append(.init(
+            rows.append(.value(
                 label: L10n.telegram("PeerInfo.Notes"), rightLabel: L10n.telegram("PeerInfo.NotesInfo"), text: note,
+            ))
+        }
+        if let hours = info.businessInfo?.openingHours, !hours.openingHours.isEmpty {
+            let ranges = { (hours: TDNativeBusinessOpeningHours?) in
+                (hours?.openingHours ?? []).map { $0.startMinute..<$0.endMinute }
+            }
+            let local = info.businessInfo?.localOpeningHours
+            rows.append(.hours(.init(
+                timeZoneID: hours.timeZoneId,
+                intervals: ranges(hours),
+                localIntervals: local == nil ? ranges(hours) : ranges(local),
+            )))
+        }
+        businessLocation = info.businessInfo?.location
+        #if DEBUG
+            // `-ui-probe-business-info`: My Profile shows a New York business, weekdays 9 to 18 and Saturday to 2 at
+            // night, at Times Square.
+            if isSelfProfile, ProcessInfo.processInfo.arguments.contains("-ui-probe-business-info") {
+                let day = 24 * 60
+                let hours = (0..<5)
+                    .map { $0 * day + 9 * 60..<$0 * day + 18 * 60 } + [5 * day + 10 * 60..<6 * day + 2 * 60]
+                let offset = ((Foundation.TimeZone.current.secondsFromGMT()
+                        - (Foundation.TimeZone(identifier: "America/New_York")?.secondsFromGMT() ?? 0)) / 60)
+                rows.append(.hours(.init(
+                    timeZoneID: "America/New_York", intervals: hours,
+                    localIntervals: hours.map { $0.lowerBound + offset..<$0.upperBound + offset },
+                )))
+                businessLocation = TDNativeBusinessLocation(
+                    location: TDNativeLocation(latitude: 40.758, longitude: -73.9855, horizontalAccuracy: 0),
+                    address: "Times Square, New York",
+                )
+            }
+        #endif
+        if let location = businessLocation, !location.address.isEmpty {
+            rows.append(.address(
+                label: L10n.telegram("PeerInfo.Location.Label"), text: location.address,
+                opens: location.location != nil,
             ))
         }
         guard rows != infoCardView.rows else { return }
@@ -3456,6 +3495,20 @@ ClientRestorableNavigationEntry {
             personalChannelView.isHidden = false
             view.setNeedsLayout()
         }
+    }
+
+    /// PeerInfoScreen's openLocation: the business's place on the map, titled with its name.
+    private func openBusinessLocation() {
+        guard contextIsCurrent, presentedViewController == nil, let business = businessLocation,
+              let location = business.location
+        else { return }
+        let venue = TDNativeVenue(
+            location: location, title: profileTitle(), address: business.address, provider: "", id: "", type: "",
+        )
+        let viewer = LocationViewController(
+            subject: LocationViewSubject(venue: venue), client: client, source: TDLib.shared.activeUpdateSource,
+        )
+        present(viewer.makeNavigationController(), animated: true)
     }
 
     private func openPersonalChannel() {
