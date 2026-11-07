@@ -3845,3 +3845,11 @@
 "Settings.Birthday.PrivacyHelpEveryone" = "Everyone can see your birthday. [Change >]()";
 "Settings.Birthday.PrivacyHelpContacts" = "Only your contacts can see your birthday. [Change >]()";
 "Settings.Birthday.PrivacyHelpNobody" = "Nobody can see your birthday. [Change >]()";
+"Settings.PersonalChannelItem" = "Channel";
+"Settings.PersonalChannelEmptyValue" = "Add";
+"Settings.PersonalChannelAddedToast" = "Personal channel added.";
+"Settings.PersonalChannelUpdatedToast" = "Personal channel updated.";
+"Settings.PersonalChannelRemovedToast" = "Personal channel removed.";
+"Settings.PersonalChannelSelectTitle" = "Channel";
+"Settings.PersonalChannelSelectSubtitle" = "select your channel";
+"Settings.PersonalChannelRemove" = "Hide Channel";

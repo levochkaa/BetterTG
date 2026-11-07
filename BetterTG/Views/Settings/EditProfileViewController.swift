@@ -25,6 +25,9 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     private var birthdate: TDNativeBirthdate?
     /// Who may see the bio and the birthday, for the notes under them; nil until read.
     private var bioRule: PrivacyRuleState?
+    /// The personal channel's title, nil without one; and whether the account has a channel it could show.
+    private var personalChannel: (id: Int64, title: String)?
+    private var hasSuitableChannels = false
     private var birthdayRule: PrivacyRuleState?
     private var firstName = ""
     private var lastName = ""
@@ -139,6 +142,14 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         ) { [weak self] in
             self?.navigationController?.pushViewController(UsernameSetupViewController(), animated: true)
         }]))
+        // ItemPeerPersonalChannel: shown with a channel set or one to choose.
+        if personalChannel != nil || hasSuitableChannels {
+            sections[sections.count - 1].rows.append(SettingsRow(
+                title: L10n.telegram("Settings.PersonalChannelItem"),
+                detail: personalChannel?.title ?? L10n.telegram("Settings.PersonalChannelEmptyValue"),
+                accessory: .disclosure,
+            ) { [weak self] in self?.openPersonalChannel() })
+        }
         return sections
     }
 
@@ -204,6 +215,30 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         picker.dismiss(animated: true)
     }
 
+    /// editingOpenPersonalChannel: the account's channels to show on its profile, then Telegram's toast.
+    private func openPersonalChannel() {
+        let picker = PersonalChannelPickerViewController(currentID: personalChannel?.id)
+        picker.onSelect = { [weak self] channel in
+            guard let self else { return }
+            let previous = personalChannel
+            personalChannel = channel
+            reload(sections: IndexSet([3]))
+            let toast = channel == nil
+                ? "Settings.PersonalChannelRemovedToast"
+                : previous == nil ? "Settings.PersonalChannelAddedToast" : "Settings.PersonalChannelUpdatedToast"
+            perform(failureText: { [weak self] _ in
+                self?.personalChannel = previous
+                self?.reload(sections: IndexSet([3]))
+                return nil
+            }) { client in
+                _ = try await client.send(TDNativeRequests.setPersonalChat(chatId: channel?.id ?? 0))
+            } completion: { [weak self] in
+                self?.showToast(L10n.telegram(toast))
+            }
+        }
+        navigationController?.pushViewController(picker, animated: true)
+    }
+
     private func openIfAsked() {
         guard let opening, isLoaded, viewIfLoaded?.window != nil else { return }
         self.opening = nil
@@ -221,6 +256,9 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         Task { [weak self] in
             guard let me = try? await client.getMe() else { return }
             let fullInfo = try? await client.getUserFullInfo(userId: me.id)
+            let suitable = try? await client.send(TDNativeRequests.getSuitablePersonalChats())
+            let channelID = fullInfo?.personalChatId ?? 0
+            let channel = channelID == 0 ? nil : try? await client.getChat(chatId: channelID)
             let bioRules = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
                 setting: .userPrivacySettingShowBio,
             ))
@@ -239,6 +277,8 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
             savedBio = fullInfo?.bio?.text ?? ""
             birthdate = fullInfo?.birthdate
             bioRule = bioRules.map(PrivacyRuleState.init(rules:))
+            personalChannel = channel.map { ($0.id, $0.title) }
+            hasSuitableChannels = !(suitable?.chatIds.isEmpty ?? true)
             birthdayRule = birthdayRules.map(PrivacyRuleState.init(rules:))
             if let limit, limit > 0 { bioLimit = limit }
             if !wasLoaded {
