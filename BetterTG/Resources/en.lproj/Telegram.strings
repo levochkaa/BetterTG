@@ -3556,3 +3556,6 @@
 "PeerInfo.Gifts.Context.RemoveFromCollection" = "Remove from Collection";
 "PeerInfo.Gifts.RemoveCollectionConfirmation" = "This will remove the collection.";
 "PeerInfo.Gifts.RemoveCollectionAction" = "Remove";
+"PeerInfo.Gifts.ShareCollection" = "Share";
+"PeerInfo.Gifts.CollectionLimitReached.Title" = "Limit Reached";
+"PeerInfo.Gifts.CollectionLimitReached.Text" = "Please remove one of the existing collections to add a new one.";

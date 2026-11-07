@@ -156,6 +156,8 @@ ClientRestorableNavigationEntry {
         static var probeShowsOpenApp = false
     #endif
 
+    private static let giftCollectionsLimit = 6
+
     var onOpenMessage: ((Int64) -> Void)?
     var onPrepareGalleryReturn: ((Int64) async -> Bool)?
     var onGalleryReturnCompleted: ((Int64) -> Void)?
@@ -1315,8 +1317,19 @@ ClientRestorableNavigationEntry {
         )
     }
 
-    /// PeerInfoGiftsPaneNode.createCollection: a name of at most 12 characters, then the collection, shown.
+    /// PeerInfoGiftsPaneNode.createCollection: a name of at most 12 characters, then the collection, shown; at the
+    /// limit (the app config's stargifts_collections_limit, 6 by default) Limit Reached instead.
     private func presentCreateGiftCollection(giftIDs: [String]) {
+        if let giftsPane, giftsPane.collections.count >= Self.giftCollectionsLimit {
+            let alert = UIAlertController(
+                title: L10n.telegram("PeerInfo.Gifts.CollectionLimitReached.Title"),
+                message: L10n.telegram("PeerInfo.Gifts.CollectionLimitReached.Text"),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            present(alert, animated: true)
+            return
+        }
         presentAlbumNamePrompt(
             title: L10n.telegram("PeerInfo.Gifts.CreateCollection.Title"),
             text: L10n.telegram("PeerInfo.Gifts.CreateCollection.Text"),
@@ -1329,8 +1342,32 @@ ClientRestorableNavigationEntry {
         }
     }
 
-    /// openCollectionContextMenu for the account's own collections: Rename and Delete Collection. Add Gifts, Share
-    /// and Reorder are not ported.
+    /// The collection's link, `https://t.me/<username>/c/<id>`, for a profile with a username.
+    private func giftCollectionLink(_ id: Int) -> URL? {
+        let username = customChat.user?.usernames?.activeUsernames.first
+            ?? customChat.supergroup?.usernames?.activeUsernames.first
+        guard let username, !username.isEmpty else { return nil }
+        return URL(string: "https://t.me/\(username)/c/\(id)")
+    }
+
+    /// Share: the collection's link through the system sheet, in place of Telegram's share screen.
+    private func shareGiftCollection(_ id: Int) {
+        guard let url = giftCollectionLink(id) else { return }
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        sheet.popoverPresentationController?.sourceView = view
+        present(sheet, animated: true)
+    }
+
+    private func shareGiftCollectionAction(_ id: Int) -> TelegramContextMenuAction? {
+        guard giftCollectionLink(id) != nil else { return nil }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.Gifts.ShareCollection"),
+            image: UIImage(systemName: "square.and.arrow.up"),
+        ) { [weak self] in self?.shareGiftCollection(id) }
+    }
+
+    /// openCollectionContextMenu for the account's own collections: Rename, Share for a profile with a username, and
+    /// Delete Collection. Add Gifts and Reorder are not ported.
     private func openGiftCollectionMenu(_ id: Int, source: UIView, gesture: UIGestureRecognizer) {
         guard let collection = giftsPane?.collections.first(where: { $0.id == id }) else { return }
         presentTelegramContextMenu(sourceView: source, actions: [
@@ -1349,6 +1386,7 @@ ClientRestorableNavigationEntry {
                     giftsPane?.renameCollection(id, to: name, host: self)
                 }
             },
+        ] + [shareGiftCollectionAction(id)].compactMap(\.self) + [
             TelegramContextMenuAction(
                 title: L10n.telegram("PeerInfo.Gifts.DeleteCollection"),
                 image: UIImage(systemName: "trash"),
@@ -3613,6 +3651,11 @@ ClientRestorableNavigationEntry {
                     image: UIImage(systemName: "trash"),
                     isDestructive: true,
                 ) { [weak self] in self?.confirmDeleteGiftCollection(id) }, at: 0)
+                if let share = shareGiftCollectionAction(id) {
+                    var share = share
+                    share.startsNewSection = true
+                    actions.insert(share, at: 1)
+                }
             } else {
                 actions.insert(TelegramContextMenuAction(
                     title: L10n.telegram("PeerInfo.Gifts.AddCollection"),
