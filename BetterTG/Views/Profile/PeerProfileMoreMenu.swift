@@ -96,6 +96,9 @@ import UIKit
         if let secretChat = startSecretChatAction() {
             actions.append(secretChat)
         }
+        if let shareContact = shareContactAction() {
+            actions.append(shareContact)
+        }
         if canSetAutoDelete {
             actions.append(autoDeleteAction())
         }
@@ -107,6 +110,52 @@ import UIKit
         }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Share Contact
+
+    /// Profile.ShareContactButton for a contact with a phone number: the chat picker, then the contact sent there
+    /// (inputMessageContact) with Telegram's "Contact forwarded to …".
+    private func shareContactAction() -> TelegramContextMenuAction? {
+        guard case .user(let user) = customChat.type, user.isContact, !user.phoneNumber.isEmpty,
+              !customChat.isSavedMessages
+        else { return nil }
+        let contact = TDNativeContact(
+            phoneNumber: user.phoneNumber, firstName: user.firstName, lastName: user.lastName, vcard: "",
+            userId: user.id,
+        )
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Profile.ShareContactButton"),
+            image: UIImage(systemName: "square.and.arrow.up"),
+        ) { [weak host, client] in
+            guard let host else { return }
+            var pickerNavigation: UIViewController?
+            pickerNavigation = StoryForwarding.picker(client: client) { [weak host] chat, topic in
+                let target = chat.chat
+                let topicID = topic.map {
+                    MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId))
+                }
+                let tooltip = target.id == TDLib.shared.activeAccount?.userID
+                    ? L10n.telegram("UserInfo.ContactForwardTooltip.SavedMessages.One")
+                    : L10n.telegram("UserInfo.ContactForwardTooltip.Chat.One", target.title)
+                pickerNavigation?.dismiss(animated: true)
+                Task { [weak host] in
+                    do {
+                        _ = try await client.send(TDNativeRequests.sendMessage(
+                            chatId: target.id, topicId: topicID, replyTo: nil, options: nil, replyMarkup: nil,
+                            inputMessageContent: .inputMessageContact(TDNativeInputMessageContact(contact: contact)),
+                        ))
+                        guard let view = host?.view else { return }
+                        TelegramUndoToast.show(
+                            text: tooltip.withoutTelegramMarkup, in: view, bottomInset: 12, undo: nil,
+                        )
+                    } catch {
+                        host?.presentChatListActionFailure()
+                    }
+                }
+            }
+            if let pickerNavigation { host.present(pickerNavigation, animated: true) }
+        }
     }
 
     // MARK: Discussion

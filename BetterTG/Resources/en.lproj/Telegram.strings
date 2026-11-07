@@ -3864,3 +3864,6 @@
 "Report.Title.Group" = "Report Group";
 "Report.Title.Channel" = "Report Channel";
 "PeerInfo.ViewDiscussion" = "View Discussion";
+"Profile.ShareContactButton" = "Share Contact";
+"UserInfo.ContactForwardTooltip.Chat.One" = "Contact forwarded to **%@**";
+"UserInfo.ContactForwardTooltip.SavedMessages.One" = "Contact forwarded to **Saved Messages**";
