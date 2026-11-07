@@ -212,6 +212,7 @@ ClientRestorableNavigationEntry {
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
     private let personalChannelView = PersonalChannelCardView()
+    private let infoCardView = ProfileInfoCardView()
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -2476,6 +2477,10 @@ ClientRestorableNavigationEntry {
         headerStack.setCustomSpacing(20, after: actionStack)
         headerStack.addArrangedSubview(personalChannelView)
         personalChannelView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
+        infoCardView.isHidden = true
+        headerStack.setCustomSpacing(20, after: personalChannelView)
+        headerStack.addArrangedSubview(infoCardView)
+        infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
 
         if let tab = restoration?.tab { selectedSharedTab = tab }
         sharedTabs.translatesAutoresizingMaskIntoConstraints = false
@@ -3395,6 +3400,7 @@ ClientRestorableNavigationEntry {
         )
         applyGiftCount(info.giftCount)
         loadPersonalChannel(info.personalChatId)
+        applyInfoRows(info)
         if !isSelfProfile, groupsInCommonCount != info.groupInCommonCount {
             groupsInCommonCount = info.groupInCommonCount
             updateSharedTabAvailability()
@@ -3402,6 +3408,26 @@ ClientRestorableNavigationEntry {
         if roleSignatureChanged, !photoIDWillChange, activeAvatarGallery != nil {
             resetAvatarGalleryForMetadataChange()
         }
+    }
+
+    /// PeerInfoProfileItems' peerInfo rows the header doesn't show: the date of birth with the age ("birthday today" on
+    /// the day) and the account's notes on the person, "only visible to you".
+    private func applyInfoRows(_ info: UserFullInfo) {
+        var rows = [ProfileInfoCardView.Row]()
+        if let birthdate = info.birthdate {
+            rows.append(.init(
+                label: L10n.telegram(birthdate.isToday ? "UserInfo.BirthdayToday" : "UserInfo.Birthday"),
+                text: birthdate.compactText,
+            ))
+        }
+        if let note = info.note?.text.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+            rows.append(.init(
+                label: L10n.telegram("PeerInfo.Notes"), rightLabel: L10n.telegram("PeerInfo.NotesInfo"), text: note,
+            ))
+        }
+        guard rows != infoCardView.rows else { return }
+        infoCardView.configure(rows: rows)
+        view.setNeedsLayout()
     }
 
     /// PeerInfoProfileItems' personal channel: the user's channel (getChat, its subscribers from getSupergroup) under
