@@ -8805,7 +8805,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         if let poster, preview.image == nil {
             preview.image = poster
         }
-        guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
+        guard canPlay else { return }
         spinner.startAnimating()
         retryButton.isHidden = true
         controlsAreVisible = !loops

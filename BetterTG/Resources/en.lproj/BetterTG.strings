@@ -13,11 +13,7 @@
 "Accounts.TestServer" = "Test Server";
 "Accounts.ProductionServer" = "Production Server";
 
-"Settings.MediaSection" = "Media";
 "Settings.AboutSection" = "About";
-"Settings.AnimatedMedia" = "Animated Media";
-"Settings.AnimatedMediaInfo" = "Animated stickers and media can use more processing power.";
-"Settings.AnimatedMediaFormats" = "TGS, WebP and WebM";
 "Settings.Version" = "BetterTG Version";
 "Settings.Licenses" = "Licenses";
 "Settings.PrivacyPolicy" = "Privacy Policy";

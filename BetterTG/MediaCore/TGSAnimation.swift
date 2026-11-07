@@ -338,10 +338,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         source?.frameRate
     }
 
-    private var playbackEnabled: Bool {
-        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
-    }
-
     private var isShown: Bool {
         fileRequest?.isCurrent == true && playbackVisible && window != nil
     }
@@ -538,8 +534,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         case .stillEnd:
             return (source.lastFrame, true)
         case .once(let startedAt):
-            // With autoplay off the result stays readable at the roll's last frame.
-            guard playbackEnabled else { return (source.lastFrame, true) }
             let frame = Int(((now - startedAt) * source.frameRate).rounded(.down))
             return frame >= source.lastFrame ? (source.lastFrame, true) : (max(0, frame), false)
         case .loop:
@@ -579,7 +573,6 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         case .stillEnd:
             return source.lastFrame
         case .once(let startedAt):
-            guard playbackEnabled else { return source.lastFrame }
             return min(source.lastFrame, max(0, Int(((now - startedAt) * source.frameRate).rounded(.down))))
         case .loop:
             if let limit = energySaving?.limit { return limit == .once && energyPassPlayed ? source.lastFrame : 0 }
@@ -607,7 +600,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         }
         // A hold keeps players that haven't started where they are, and one that pauses stops those playing too.
         let held = TGSPlaybackHold.pausesPlayback || (TGSPlaybackHold.isActive && displayLink == nil)
-        guard isShown, playbackEnabled || playbackMode != .loop, !held else {
+        guard isShown, !held else {
             stopDisplayLink()
             if shownFrame == nil { request(restingFrame(now: CACurrentMediaTime())) }
             return

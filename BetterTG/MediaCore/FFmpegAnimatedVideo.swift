@@ -379,10 +379,6 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         private var decoderProbe: FFmpegAnimationWorkerProbe?
     #endif
 
-    private var playbackEnabled: Bool {
-        UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
-    }
-
     /// Power Saving holds a looping animation to a single pass, or to its first frame.
     private var energyAllowsPlayback: Bool {
         switch energySaving?.limit {
@@ -627,7 +623,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         let isShown = fileRequest?.isCurrent == true && playbackVisible && window != nil
         // A hidden player plays its limited loops again when shown, as InlineStickerItemLayer resets its count.
         if !isShown { limitedLoopsPlayed = false }
-        let shouldPlay = isShown && playbackEnabled && decoder != nil && (asset?.frameCount ?? 0) > 1
+        let shouldPlay = isShown && decoder != nil && (asset?.frameCount ?? 0) > 1
             && energyAllowsPlayback && !limitedLoopsPlayed
         if shouldPlay {
             startDisplayLink()

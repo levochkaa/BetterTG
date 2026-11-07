@@ -46,15 +46,6 @@ import Foundation
         set { set(newValue, "searchBarAtTop") }
     }
 
-    var animatedMedia: Bool {
-        get { UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true }
-        set {
-            guard newValue != animatedMedia else { return }
-            UserDefaults.standard.set(newValue, forKey: "animatedMediaEnabled")
-            changes.send()
-        }
-    }
-
     private init() {}
 
     private func bool(_ key: String, default value: Bool) -> Bool {

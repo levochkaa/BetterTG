@@ -13,11 +13,7 @@
 "Accounts.TestServer" = "Тестовый сервер";
 "Accounts.ProductionServer" = "Основной сервер";
 
-"Settings.MediaSection" = "Медиа";
 "Settings.AboutSection" = "О приложении";
-"Settings.AnimatedMedia" = "Анимированные медиа";
-"Settings.AnimatedMediaInfo" = "Анимированные стикеры и медиа могут использовать больше ресурсов устройства.";
-"Settings.AnimatedMediaFormats" = "TGS, WebP и WebM";
 "Settings.Version" = "Версия BetterTG";
 "Settings.Licenses" = "Лицензии";
 "Settings.PrivacyPolicy" = "Политика конфиденциальности";

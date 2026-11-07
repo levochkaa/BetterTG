@@ -187,9 +187,8 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
     }
 
     private func updatePlayback() {
-        let animationsEnabled = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
         // Power Saving's Autoplay GIFs: off, a GIF shows its first frame until the gallery opens it.
-        if playbackVisible, window != nil, animationsEnabled, EnergyUsage.shared.allows(.autoplayGif) {
+        if playbackVisible, window != nil, EnergyUsage.shared.allows(.autoplayGif) {
             player?.play()
         } else {
             player?.pause()
