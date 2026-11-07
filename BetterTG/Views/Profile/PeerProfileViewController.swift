@@ -1659,6 +1659,15 @@ ClientRestorableNavigationEntry {
             presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
             return
         }
+        if currentSharedTab == .gifts {
+            guard gesture.state == .began, contextIsCurrent,
+                  let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: path),
+                  let actions = giftsPane?.menuActions(for: id, canManage: isMyProfile, host: self), !actions.isEmpty,
+                  let cell = collectionView.cellForItem(at: path) else { return }
+            presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
+            return
+        }
         if currentSharedTab == .members {
             // PeerInfoScreenNode.openMemberContextMenu.
             guard gesture.state == .began, contextIsCurrent,

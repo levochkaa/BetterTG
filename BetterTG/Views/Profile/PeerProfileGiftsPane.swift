@@ -26,6 +26,7 @@ import UIKit
     private var nextItemID: Int64 = 1
     private var offset = ""
     private var loadTask: Task<Void, Never>?
+    private var replacesOnNextPage = false
 
     var isLoading: Bool { loadTask != nil }
 
@@ -33,6 +34,18 @@ import UIKit
         self.ownerID = ownerID
         self.client = client
         self.isCurrent = isCurrent
+    }
+
+    private static func showError(_ error: Error, in host: UIViewController) {
+        let message = (error as? TDLibError)?.message ?? error.localizedDescription
+        TelegramUndoToast.show(text: message, in: host.view, bottomInset: 12, undo: nil)
+    }
+
+    private static func formattedNumber(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     func gift(for id: Int64) -> TDNativeReceivedGift? {
@@ -69,19 +82,27 @@ import UIKit
             guard isCurrent() else { return }
             switch result {
             case .success(let page):
+                // A reload replaces the list with its first page; item IDs stay with their gifts.
+                if replacesOnNextPage {
+                    replacesOnNextPage = false
+                    items = []
+                    gifts = [:]
+                }
+                var listed = Set(items)
                 for gift in page.gifts {
                     let key = gift.receivedGiftId.isEmpty ? "\(offset)#\(items.count)" : gift.receivedGiftId
                     let id = itemIDs[key] ?? nextItemID
                     if itemIDs[key] == nil {
                         itemIDs[key] = id
                         nextItemID += 1
-                        items.append(id)
                     }
+                    if listed.insert(id).inserted { items.append(id) }
                     gifts[id] = gift
                 }
                 self.offset = page.nextOffset
                 hasMore = !page.nextOffset.isEmpty && !page.gifts.isEmpty
             case .failure:
+                replacesOnNextPage = false
                 error = L10n.betterTG("Profile.GiftsLoadFailed")
             }
             onChange?()
@@ -91,6 +112,165 @@ import UIKit
     func cancel() {
         loadTask?.cancel()
         loadTask = nil
+    }
+
+    /// Reads the list again from its first page after a change, keeping the shown gifts until it arrives.
+    func reload() {
+        cancel()
+        offset = ""
+        hasMore = true
+        replacesOnNextPage = true
+        loadMore()
+    }
+
+    // MARK: Menu
+
+    /// PeerInfoGiftsPaneNode.contextAction: on the account's own profile Pin or Unpin for an upgraded gift, then for
+    /// an upgraded gift Copy Link and Share (its t.me/nft link), then Hide or Show on the profile. Add to Collection,
+    /// Reorder, Wear and Transfer are not offered.
+    func menuActions(for id: Int64, canManage: Bool, host: UIViewController) -> [TelegramContextMenuAction] {
+        guard let gift = gifts[id] else { return [] }
+        var actions = [TelegramContextMenuAction]()
+        let upgraded: TDNativeUpgradedGift? =
+            if case .sentGiftUpgraded(let value) = gift.gift {
+                value.gift
+            } else {
+                nil
+            }
+        if canManage, let upgraded, !gift.receivedGiftId.isEmpty {
+            let isPinned = gift.isPinned
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isPinned ? "PeerInfo.Gifts.Context.Unpin" : "PeerInfo.Gifts.Context.Pin"),
+                image: UIImage(systemName: isPinned ? "pin.slash" : "pin"),
+            ) { [weak self, weak host] in
+                guard let self, let host else { return }
+                setPinned(gift, upgraded: upgraded, pinned: !isPinned, host: host)
+            })
+        }
+        if let upgraded, !upgraded.name.isEmpty {
+            let link = "https://t.me/nft/\(upgraded.name)"
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.Context.CopyLink"),
+                image: UIImage(systemName: "link"),
+            ) { [weak host] in
+                UIPasteboard.setPlainText(link)
+                guard let host else { return }
+                TelegramUndoToast.show(
+                    text: L10n.telegram("Conversation.LinkCopied"), in: host.view, bottomInset: 12, undo: nil,
+                )
+            })
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("PeerInfo.Gifts.Context.Share"),
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak host] in
+                // Telegram's share screen; BetterTG shares the link through the system sheet.
+                guard let host, let url = URL(string: link) else { return }
+                let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                sheet.popoverPresentationController?.sourceView = host.view
+                host.present(sheet, animated: true)
+            })
+        }
+        if canManage, !gift.receivedGiftId.isEmpty {
+            let isSaved = gift.isSaved
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isSaved ? "PeerInfo.Gifts.Context.Hide" : "PeerInfo.Gifts.Context.Show"),
+                image: UIImage(systemName: isSaved ? "eye.slash" : "eye"),
+            ) { [weak self, weak host] in
+                guard let self, let host else { return }
+                setSaved(gift, saved: !isSaved, host: host)
+            })
+        }
+        return actions
+    }
+
+    /// ProfileGiftsContext.updateStarGiftPinnedToTop: the gift joins the end of the pinned list or leaves it, up to
+    /// TDLib's pinned_gift_count_max.
+    private func setPinned(
+        _ gift: TDNativeReceivedGift,
+        upgraded: TDNativeUpgradedGift,
+        pinned: Bool,
+        host: UIViewController,
+    ) {
+        let client = client
+        let ownerID = ownerID
+        var pinnedIDs = items.compactMap { gifts[$0] }.filter(\.isPinned).map(\.receivedGiftId)
+        if pinned {
+            pinnedIDs.append(gift.receivedGiftId)
+        } else {
+            pinnedIDs.removeAll { $0 == gift.receivedGiftId }
+        }
+        let newIDs = pinnedIDs
+        Task { [weak self, weak host] in
+            if pinned {
+                var limit = 6
+                if case .optionValueInteger(let value) = try? await client.getOption(name: "pinned_gift_count_max") {
+                    limit = Int(value.value)
+                }
+                guard newIDs.count <= limit else {
+                    if let host {
+                        TelegramUndoToast.show(
+                            text: L10n.telegramPlural(
+                                "PeerInfo.Gifts.ToastPinLimit.Text", count: limit, formattedCount: "\(limit)",
+                            ),
+                            in: host.view, bottomInset: 12, undo: nil,
+                        )
+                    }
+                    return
+                }
+            }
+            do {
+                _ = try await client.send(TDNativeRequests.setPinnedGifts(ownerId: ownerID, receivedGiftIds: newIDs))
+            } catch {
+                if let host { Self.showError(error, in: host) }
+                return
+            }
+            guard let self else { return }
+            reload()
+            guard let host else { return }
+            if pinned {
+                let title = upgraded.title + " #" + Self.formattedNumber(upgraded.number)
+                TelegramUndoToast.show(
+                    title: L10n.telegram("PeerInfo.Gifts.ToastPinned.TitleNew", title),
+                    text: L10n.telegram("PeerInfo.Gifts.ToastPinned.Text"),
+                    in: host.view, bottomInset: 12, undo: nil,
+                )
+            } else {
+                TelegramUndoToast.show(
+                    text: L10n.telegram("PeerInfo.Gifts.ToastUnpinned.Text"), in: host.view, bottomInset: 12, undo: nil,
+                )
+            }
+        }
+    }
+
+    /// ProfileGiftsContext.updateStarGiftAddedToProfile through toggleGiftIsSaved, with Telegram's toast.
+    private func setSaved(_ gift: TDNativeReceivedGift, saved: Bool, host: UIViewController) {
+        let client = client
+        let isChannel =
+            if case .messageSenderChat = ownerID {
+                true
+            } else {
+                false
+            }
+        Task { [weak self, weak host] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleGiftIsSaved(
+                    receivedGiftId: gift.receivedGiftId, isSaved: saved,
+                ))
+            } catch {
+                if let host { Self.showError(error, in: host) }
+                return
+            }
+            self?.reload()
+            guard let host else { return }
+            let key =
+                switch (saved, isChannel) {
+                case (true, true): "Gift.Displayed.ChannelText"
+                case (true, false): "Gift.Displayed.NewText"
+                case (false, true): "Gift.Hidden.ChannelText"
+                case (false, false): "Gift.Hidden.NewText"
+                }
+            TelegramUndoToast.show(text: L10n.telegram(key), in: host.view, bottomInset: 12, undo: nil)
+        }
     }
 }
 
