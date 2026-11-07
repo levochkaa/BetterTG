@@ -3650,3 +3650,16 @@
 "AccessDenied.Contacts" = "BetterTG messaging is based on your existing contact list.\n\nPlease go to Settings > Privacy > Contacts and set BetterTG to ON.";
 "Chat.Context.Phone.CreateNewContact" = "Create New Contact";
 "Chat.Context.Phone.AddToExistingContact" = "Add to Existing Contact";
+"DataUsage.MediaDirectionIncoming" = "Incoming";
+"DataUsage.MediaDirectionOutgoing" = "Outgoing";
+"DataUsage.SectionsInfo" = "Tap on each section for detailed view.";
+"DataUsage.SectionUsageTotal" = "TOTAL NETWORK USAGE";
+"DataUsage.SectionUsageMobile" = "MOBILE NETWORK USAGE";
+"DataUsage.SectionUsageWifi" = "WI-FI NETWORK USAGE";
+"StorageManagement.SectionMessages" = "Messages";
+"StorageManagement.SectionCalls" = "Calls";
+"DataUsage.SectionTotalIncoming" = "Data Received";
+"DataUsage.SectionTotalOutgoing" = "Data Sent";
+"DataUsage.HeaderNoDataUsed" = "No data used";
+"DataUsage.Header" = "Data Usage";
+"DataUsage.Reset" = "Reset Statistics";

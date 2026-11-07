@@ -143,26 +143,36 @@ import UIKit
             control.selectedSegmentIndex = index
             control.sendActions(for: .valueChanged)
             let sections = controller.sections
-            try require(sections.count == 8, "categories/total/reset changed")
+            try require(sections.count == 3, "categories/total/reset changed")
             try require(
-                sections[6].rows.map(\.detail) == [
+                sections[1].rows.map(\.detail) == [
                     SettingsFormatting.byteCount(sent),
                     SettingsFormatting.byteCount(received),
                 ],
                 "wrong totals for mode \(index)",
             )
         }
+        let photosTitle = L10n.telegram("StorageManagement.SectionPhotos")
+        // All: calls 1500, photos 600 + 800, voice 700 of 3600; messages on no network stay out.
+        let titles = controller.sections[0].rows.map(\.title)
         try require(
-            controller.sections[1].rows.map(\.detail) == [
-                SettingsFormatting.byteCount(600),
-                SettingsFormatting.byteCount(800),
+            Array(titles.prefix(3)) == [
+                L10n.telegram("StorageManagement.SectionCalls"),
+                photosTitle,
+                L10n.telegram("StorageManagement.SectionVoiceMessages"),
             ],
+            "categories not by size \(titles)",
+        )
+        try require(controller.sections[0].rows[1].titleSuffix == "38.8%", "photos share")
+        controller.sections[0].rows[1].action?()
+        let expandedRows = controller.sections[0].rows
+        try require(
+            expandedRows[2].detail == SettingsFormatting.byteCount(800)
+                && expandedRows[3].detail == SettingsFormatting.byteCount(600),
             "All photos should combine mobile and Wi-Fi",
         )
-        try require(
-            controller.sections[0].rows.allSatisfy { $0.detail == SettingsFormatting.byteCount(0) },
-            "networkTypeNone leaked into messages",
-        )
+        let messages = expandedRows.first { $0.title == L10n.telegram("StorageManagement.SectionMessages") }
+        try require(messages?.detail == SettingsFormatting.byteCount(0), "networkTypeNone leaked into messages")
     }
 }
 #endif

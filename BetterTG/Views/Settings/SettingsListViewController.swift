@@ -33,6 +33,8 @@ struct SettingsRow {
     }
 
     var title: String
+    /// Secondary text right after the title, such as DataCategoryItemComponent's share.
+    var titleSuffix: String?
     var detail: String?
     /// The detail's colour instead of the secondary one, such as Telegram's blue "online" under a contact.
     var detailColor: UIColor?
@@ -280,6 +282,17 @@ class SettingsListViewController: UITableViewController {
                  .stickerSet: .cell()
             }
         configuration.text = row.title
+        if let suffix = row.titleSuffix, !suffix.isEmpty {
+            let font = configuration.textProperties.font
+            let title = NSMutableAttributedString(
+                string: row.title,
+                attributes: [.font: font, .foregroundColor: UIColor.label],
+            )
+            title.append(NSAttributedString(
+                string: " " + suffix, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel],
+            ))
+            configuration.attributedText = title
+        }
         configuration.secondaryText = row.detail
         configuration.secondaryTextProperties.color = row.detailColor ?? .secondaryLabel
         if case .subtitle = row.style {
