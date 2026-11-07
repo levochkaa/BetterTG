@@ -168,9 +168,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         return UITableView.automaticDimension
     }
 
-    override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard !isSearching, Section(rawValue: section) == .media else { return nil }
-        return L10n.betterTG("Settings.AnimatedMediaInfo")
+    override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
+        nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -239,11 +238,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
              .termsOfService,
              .tips:
             cell.accessoryType = .disclosureIndicator
-        case .animatedMedia:
-            let toggle = UISwitch()
-            toggle.isOn = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
-            toggle.addTarget(self, action: #selector(animatedMediaChanged(_:)), for: .valueChanged)
-            cell.accessoryView = toggle
+        case .betterTG:
+            cell.accessoryType = .disclosureIndicator
         case .suggestionInfo(let reminder):
             configuration = .subtitleCell()
             configuration.text = suggestionTitle(reminder)
@@ -408,14 +404,15 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             SuggestedActionsStore.shared.dismiss(reminder, client: TDLib.shared.activeClient, source: source)
         case .suggestionAction:
             openTwoStepVerification()
-        case .animatedMedia,
-             .version:
+        case .betterTG:
+            navigationController?.pushViewController(BetterTGSettingsViewController(), animated: true)
+        case .version:
             break
         }
     }
 
     /// peerInfoNavigationButtonSets' settings bar: QR Code on the left, then search and Edit on the right; an open
-    /// search takes the row.
+    /// search takes the row. Pushed, it keeps Back on the left.
     private func updateBarButtons() {
         guard !isSearching else {
             navigationItem.leftBarButtonItem = nil
@@ -427,7 +424,11 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             primaryAction: UIAction { [weak self] _ in self?.openQRCode() },
         )
         qrCode.accessibilityLabel = L10n.telegram("PeerInfo.QRCode.Title")
-        navigationItem.leftBarButtonItem = qrCode
+        // Swiftgram's Settings pushed over Chats while its tab is hidden: Back takes the left, and QR Code stands
+        // beside
+        // the right items.
+        let isPushed = !(parent is MainTabsViewController)
+        navigationItem.leftBarButtonItem = isPushed ? nil : qrCode
         let edit = UIBarButtonItem(
             title: L10n.telegram("Common.Edit"),
             primaryAction: UIAction { [weak self] _ in
@@ -439,7 +440,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             primaryAction: UIAction { [weak self] _ in self?.openSearch() },
         )
         searchButton.accessibilityLabel = L10n.telegram("Common.Search")
-        navigationItem.rightBarButtonItems = [edit, searchButton]
+        navigationItem.rightBarButtonItems = isPushed ? [edit, searchButton, qrCode] : [edit, searchButton]
     }
 
     /// The search button: the field takes the row with the keyboard up, and the list gives way to the recent items.
@@ -670,7 +671,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         case .support:
             return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
         case .media:
-            return [.animatedMedia]
+            return [.betterTG]
         case .about:
             return [.version, .licenses, .privacyPolicy, .termsOfService]
         case .accountActions:
@@ -853,10 +854,6 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
-
-    @objc private func animatedMediaChanged(_ sender: UISwitch) {
-        UserDefaults.standard.set(sender.isOn, forKey: "animatedMediaEnabled")
-    }
 }
 
 extension SettingsViewController {
@@ -880,11 +877,11 @@ extension SettingsViewController {
         var title: String? {
             switch self {
             case .accounts: L10n.betterTG("Accounts.Section")
-            case .media: L10n.betterTG("Settings.MediaSection")
             case .about: L10n.betterTG("Settings.AboutSection")
             case .accountActions,
                  .appearance,
                  .apps,
+                 .media,
                  .myProfile,
                  .profile,
                  .proxy,
@@ -923,7 +920,8 @@ extension SettingsViewController {
         case support
         case faq
         case tips
-        case animatedMedia
+        /// BetterTG's own options (Swiftgram's Swiftgram row).
+        case betterTG
         case version
         case licenses
         case privacyPolicy
@@ -987,8 +985,8 @@ extension SettingsViewController {
                 L10n.telegram("Settings.FAQ")
             case .tips:
                 L10n.telegram("Settings.Tips")
-            case .animatedMedia:
-                L10n.betterTG("Settings.AnimatedMedia")
+            case .betterTG:
+                "BetterTG"
             case .version:
                 L10n.betterTG("Settings.Version")
             case .licenses:
@@ -1018,13 +1016,12 @@ extension SettingsViewController {
                 AppLocalization.shared.currentLanguage.nativeName
             case .proxy:
                 ProxyStatusStore.shared.state.enabledTypeTitle ?? L10n.telegram("Settings.ProxyDisabled")
-            case .animatedMedia:
-                L10n.betterTG("Settings.AnimatedMediaFormats")
             case .version:
                 Utils.applicationVersion
             case .addAccount,
                  .addTestServerAccount,
                  .app,
+                 .betterTG,
                  .chatFolders,
                  .dataAndStorage,
                  .devices,
@@ -1080,7 +1077,7 @@ extension SettingsViewController {
             case .support: "bubble.left.and.text.bubble.right.fill"
             case .faq: "questionmark.circle.fill"
             case .tips: "lightbulb.fill"
-            case .animatedMedia: "sparkles.tv"
+            case .betterTG: "sparkles"
             case .version: "info.circle.fill"
             case .licenses: "text.book.closed.fill"
             case .privacyPolicy: "hand.raised.fill"
@@ -1113,7 +1110,7 @@ extension SettingsViewController {
                  .termsOfService: .systemGray
             case .privacyPolicy: .systemIndigo
             case .dataAndStorage: .systemGreen
-            case .animatedMedia: .systemPurple
+            case .betterTG: .systemPurple
             case .logOut: .systemRed
             case .powerSaving,
                  .support: .systemOrange
@@ -1124,8 +1121,7 @@ extension SettingsViewController {
 
         var isSelectable: Bool {
             switch self {
-            case .animatedMedia,
-                 .version:
+            case .version:
                 false
             default:
                 true

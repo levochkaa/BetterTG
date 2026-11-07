@@ -62,7 +62,6 @@
 "Folders.Icon.MainFooter" = "Automatic shows the All Chats icon. The icon stays on this device.";
 "Folders.Icon.TabHeader" = "Tab";
 "Folders.Icon.TabFooter" = "The tab style stays on this device.";
-"Folders.TabsSection" = "Folder Tabs";
 "Folders.TabsAtBottom" = "Tabs at the Bottom";
 "Folders.TabsAtBottomFooter" = "At the bottom the tabs stand above the tab bar; at the top they stand under the title.";
 "Folders.Icon.IconAndName" = "Icon and Name";
@@ -716,3 +715,11 @@
 "Accessibility.VideoEditor.Video" = "Video";
 "Attachment.SendInSd" = "Send in Standard Quality";
 "StorageManagement.DescriptionAppUsage" = "BetterTG uses %@%% of your free disk space.";
+
+"BetterTGSettings.Tabs" = "Tabs";
+"BetterTGSettings.HideTabBar" = "Hide Tab Bar";
+"BetterTGSettings.ArchiveTab" = "Archive Tab";
+"BetterTGSettings.SettingsTab" = "Settings Tab";
+"BetterTGSettings.TabNames" = "Tab Names";
+"BetterTGSettings.WideTabBar" = "Wide Tab Bar";
+"BetterTGSettings.WideTabBarInfo" = "A hidden tab opens from its button in the Chats bar. The wide tab bar keeps the full width of the screen.";

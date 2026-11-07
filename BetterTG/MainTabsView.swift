@@ -65,9 +65,22 @@ TelegramEmbeddedNavigationChrome {
         chats.navigationClientSource
     }
 
+    /// The tabs BetterTG's settings keep: Swiftgram's Hide Tab Bar leaves Chats alone, and each of the others can go.
+    /// A hidden one opens from Chats' bar.
     private var tabs: [MainTab] {
-        MainTab.allCases.filter { $0 != .archive || rootVM.archive != nil || archive != nil }
+        let settings = BetterTGSettings.shared
+        return MainTab.allCases.filter { tab in
+            switch tab {
+            case .chats: true
+            case .archive:
+                !settings.hidesTabBar && settings.showsArchiveTab && (rootVM.archive != nil || archive != nil)
+            case .settings: !settings.hidesTabBar && settings.showsSettingsTab
+            }
+        }
     }
+
+    /// Chats alone needs no bar.
+    private var isTabBarDisabled: Bool { tabs.count < 2 }
 
     private var selectedController: UIViewController {
         controller(for: selectedTab) ?? chats
@@ -115,6 +128,10 @@ TelegramEmbeddedNavigationChrome {
         nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
             self?.reloadTabs()
         }
+        BetterTGSettings.shared
+            .changes
+            .sink { [weak self] in self?.reloadTabs() }
+            .store(in: &cancellables)
         show(selectedTab, force: true)
         reloadTabs()
     }
@@ -176,6 +193,11 @@ TelegramEmbeddedNavigationChrome {
             selectedIndex: tabs.firstIndex(of: selectedTab) ?? 0,
         )
         tabBar.holdableIndices = Set(tabs.firstIndex(of: .settings).map { [$0] } ?? [])
+        tabBar.showsTitles = BetterTGSettings.shared.showsTabNames
+        chats.setTabShortcuts(
+            archive: !tabs.contains(.archive) && rootVM.archive != nil,
+            settings: !tabs.contains(.settings),
+        )
         view.setNeedsLayout()
     }
 
@@ -244,6 +266,18 @@ TelegramEmbeddedNavigationChrome {
         let duoLayout = view.iPhoneDuoLayout
         let verticalSize = MainTabBarView.size(axis: .vertical, isCompact: true, count: count, availableLength: 0)
         var reserved: CGFloat = 0
+        tabBar.isHidden = isTabBarDisabled
+        if isTabBarDisabled {
+            // Swiftgram's Hide Tab Bar: the content takes the bottom, less the editing list's toolbar.
+            chats.setStandingTabBar(false)
+            let reserved = isTabBarHidden ? ChatListSelectionToolbar.contentHeight : 0
+            for controller in [chats, archive, settings].compactMap(\.self)
+                where controller.additionalSafeAreaInsets.bottom != reserved
+            {
+                controller.additionalSafeAreaInsets.bottom = reserved
+            }
+            return
+        }
         if let frame = duoLayout?.tabBarFrame(size: verticalSize) {
             tabBar.setAxis(.vertical, isCompact: true)
             tabBar.frame = frame
@@ -258,6 +292,8 @@ TelegramEmbeddedNavigationChrome {
                 isCompact: isCompact,
                 count: count,
                 availableLength: available,
+                showsTitles: BetterTGSettings.shared.showsTabNames,
+                isWide: BetterTGSettings.shared.wideTabBar,
             )
             let bottom = MainTabBarView.Metrics
                 .bottomMargin(safeBottom: view.window?.safeAreaInsets.bottom ?? safe.bottom)

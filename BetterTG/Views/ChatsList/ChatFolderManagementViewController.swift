@@ -38,8 +38,9 @@ final class ChatFoldersViewController: UITableViewController {
         }
     }
 
-    /// Where the folder tabs go, after the folders and the recommended ones (Swiftgram's Folder Tabs at Bottom).
-    private var tabsSection: Int { visibleRecommendedFolders.isEmpty ? 1 : 2 }
+    /// The folders, then the recommended ones while there are any. Where the folder tabs go is in BetterTG's
+    /// settings, as Swiftgram keeps Folder Tabs at Bottom in its own.
+    private var sectionCount: Int { visibleRecommendedFolders.isEmpty ? 1 : 2 }
 
     convenience init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
         self.init(session: .live(rootVM: rootVM, authority: actionAuthority))
@@ -82,25 +83,21 @@ final class ChatFoldersViewController: UITableViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { tabsSection + 1 }
+    override func numberOfSections(in _: UITableView) -> Int { sectionCount }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section == tabsSection { return 1 }
-        return section == 0 ? customFolders.count : visibleRecommendedFolders.count
+        section == 0 ? customFolders.count : visibleRecommendedFolders.count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section == tabsSection { return L10n.betterTG("Folders.TabsSection") }
-        return section == 1 ? L10n.telegram("ChatListFolderSettings.RecommendedFoldersSection") : nil
+        section == 1 ? L10n.telegram("ChatListFolderSettings.RecommendedFoldersSection") : nil
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == tabsSection { return L10n.betterTG("Folders.TabsAtBottomFooter") }
-        return section == 0 && customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
+        section == 0 && customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == tabsSection { return tabsAtBottomCell(tableView) }
         guard indexPath.section == 0 else { return recommendedFolderCell(tableView, at: indexPath) }
         let cell = tableView.dequeueReusableCell(withIdentifier: "FolderCell", for: indexPath)
         let folder = customFolders[indexPath.row]
@@ -185,25 +182,6 @@ final class ChatFoldersViewController: UITableViewController {
             recommendedFolders = folders
             tableView.reloadData()
         }
-    }
-
-    private func tabsAtBottomCell(_ tableView: UITableView) -> UITableViewCell {
-        let identifier = "TabsAtBottomCell"
-        let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
-            ?? UITableViewCell(style: .default, reuseIdentifier: identifier)
-        var configuration = cell.defaultContentConfiguration()
-        configuration.text = L10n.betterTG("Folders.TabsAtBottom")
-        cell.contentConfiguration = configuration
-        cell.selectionStyle = .none
-        let toggle = (cell.accessoryView as? UISwitch) ?? UISwitch()
-        toggle.isOn = FolderTabAppearance.shared.tabsAtBottom
-        toggle.removeTarget(nil, action: nil, for: .valueChanged)
-        toggle.addAction(UIAction { action in
-            guard let toggle = action.sender as? UISwitch else { return }
-            FolderTabAppearance.shared.tabsAtBottom = toggle.isOn
-        }, for: .valueChanged)
-        cell.accessoryView = toggle
-        return cell
     }
 
     /// ChatListFilterPresetListSuggestedItem: the folder's name, TDLib's description and an Add button.

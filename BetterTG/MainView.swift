@@ -60,7 +60,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var liveLocationChatTitles = [Int64: String]()
     private var liveLocationTitleTask: Task<Void, Never>?
     private var liveLocationOpenTask: Task<Void, Never>?
-    /// Telegram's chat list bar: Edit, then search, the tab's title, and compose. The archive and Settings are tabs.
+    /// Telegram's chat list bar: Edit, then search, the tab's title, and compose. The archive and Settings are tabs, or
+    /// buttons before compose while their tabs are hidden.
     private lazy var customNavigationBar = TelegramListNavigationBar(
         title: L10n.telegram("DialogList.Title"),
         placeholder: L10n.telegram("DialogList.SearchLabel"),
@@ -72,6 +73,27 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
         opensSearchFromButton: true,
     )
+    private lazy var archiveShortcutButton: UIButton = {
+        let button = UIButton.telegramGlassIcon(
+            UIImage(systemName: "archivebox"),
+            accessibilityLabel: L10n.telegram("ChatList.ArchivedChatsTitle"),
+        )
+        button.addAction(UIAction { [weak self] _ in self?.openArchive() }, for: .touchUpInside)
+        return button
+    }()
+
+    private lazy var settingsShortcutButton: UIButton = {
+        let button = UIButton.telegramGlassIcon(
+            UIImage(systemName: "gearshape"),
+            accessibilityLabel: L10n.telegram("Settings.Title"),
+        )
+        button.addAction(UIAction { [weak self] _ in self?.openSettings() }, for: .touchUpInside)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(settingsShortcutHeld(_:)))
+        hold.minimumPressDuration = 0.4
+        button.addGestureRecognizer(hold)
+        return button
+    }()
+
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private let currentNavigationContentHeight = TelegramListNavigationBar.rowContentHeight
     private var folderControllers = [FolderViewController]()
@@ -242,6 +264,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if !firstName.isEmpty { return firstName }
         let lastName = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         return lastName.isEmpty ? chat.title : lastName
+    }
+
+    /// The archive and Settings as buttons before compose while BetterTG's settings hide their tabs, as Swiftgram
+    /// puts Settings in the chat list's bar with Hide Tab Bar. Holding Settings opens the account switcher, as its tab.
+    func setTabShortcuts(archive: Bool, settings: Bool) {
+        customNavigationBar.setSecondaryRightItems(
+            (archive ? [archiveShortcutButton] : []) + (settings ? [settingsShortcutButton] : []),
+        )
     }
 
     func setStandingTabBar(_ standing: Bool) {
@@ -1432,6 +1462,22 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     /// ChatListController.composePressed: Telegram's New Message.
+    private func openArchive() {
+        guard actionAuthority.scope(owner: self).isCurrent, isNavigationTop,
+              let archive = rootVM.archive else { return }
+        NavigationStorage.shared.push(.archive(archive))
+    }
+
+    private func openSettings() {
+        guard actionAuthority.scope(owner: self).isCurrent, isNavigationTop else { return }
+        navigationController?.pushViewController(SettingsViewController(), animated: true)
+    }
+
+    @objc private func settingsShortcutHeld(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        showAccountSwitcher(from: settingsShortcutButton, tracking: gesture)
+    }
+
     private func openCompose() {
         guard actionAuthority.scope(owner: self).isCurrent,
               isNavigationTop

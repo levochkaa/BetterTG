@@ -62,7 +62,6 @@
 "Folders.Icon.MainFooter" = "Автоматически показывается иконка «Все чаты». Иконка сохраняется только на этом устройстве.";
 "Folders.Icon.TabHeader" = "Вкладка";
 "Folders.Icon.TabFooter" = "Вид вкладки сохраняется только на этом устройстве.";
-"Folders.TabsSection" = "Вкладки папок";
 "Folders.TabsAtBottom" = "Вкладки внизу";
 "Folders.TabsAtBottomFooter" = "Внизу вкладки стоят над панелью вкладок, вверху — под заголовком.";
 "Folders.Icon.IconAndName" = "Иконка и название";
@@ -715,3 +714,11 @@
 "Accessibility.VideoEditor.Video" = "Видео";
 "Attachment.SendInSd" = "Отправить в обычном качестве";
 "StorageManagement.DescriptionAppUsage" = "BetterTG занимает %@%% свободного места на диске.";
+
+"BetterTGSettings.Tabs" = "Вкладки";
+"BetterTGSettings.HideTabBar" = "Скрыть панель вкладок";
+"BetterTGSettings.ArchiveTab" = "Вкладка «Архив»";
+"BetterTGSettings.SettingsTab" = "Вкладка «Настройки»";
+"BetterTGSettings.TabNames" = "Названия вкладок";
+"BetterTGSettings.WideTabBar" = "Широкая панель вкладок";
+"BetterTGSettings.WideTabBarInfo" = "Скрытая вкладка открывается кнопкой на панели чатов. Широкая панель вкладок занимает всю ширину экрана.";

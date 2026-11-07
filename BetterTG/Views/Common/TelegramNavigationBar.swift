@@ -281,6 +281,13 @@ final class TelegramListNavigationBar: UIView {
         leadingPlatter.refresh()
     }
 
+    /// The second right capsule's buttons in place of the secondary right one, such as Chats' archive and Settings
+    /// while BetterTG's settings hide their tabs (Swiftgram's Settings button with Hide Tab Bar).
+    func setSecondaryRightItems(_ items: [UIButton]) {
+        secondaryTrailingPlatter.setItems(items.isEmpty ? [secondaryRightButton] : items)
+        setNeedsLayout()
+    }
+
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
         leadingPlatter.refresh()

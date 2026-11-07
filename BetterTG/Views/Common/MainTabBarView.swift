@@ -79,6 +79,15 @@ final class MainTabBarView: UIView {
 
     private(set) var axis = Axis.horizontal
     private(set) var isCompact = false
+    /// Swiftgram's Show Tab Names.
+    var showsTitles = true {
+        didSet {
+            guard showsTitles != oldValue else { return }
+            rebuildItems()
+            setNeedsLayout()
+        }
+    }
+
     private(set) var selectedIndex = 0
 
     private var items = [Item]()
@@ -141,16 +150,25 @@ final class MainTabBarView: UIView {
         layoutSelection(animated: false)
     }
 
-    /// The bar's size for `count` tabs with `availableLength` along its axis.
-    static func size(axis: Axis, isCompact: Bool, count: Int, availableLength: CGFloat) -> CGSize {
+    /// The bar's size for `count` tabs with `availableLength` along its axis. `showsTitles` and `isWide` are
+    /// Swiftgram's Show Tab Names and Wide Tab Bar.
+    static func size(
+        axis: Axis,
+        isCompact: Bool,
+        count: Int,
+        availableLength: CGFloat,
+        showsTitles: Bool = true,
+        isWide: Bool = false,
+    ) -> CGSize {
         let inset = Metrics.innerInset
         switch axis {
         case .vertical:
             let length = CGFloat(count) * Metrics.verticalItemLength + (inset + Metrics.verticalExtraEndInset) * 2
             return CGSize(width: Metrics.compactThickness + inset * 2, height: length)
         case .horizontal:
-            let thickness = (isCompact ? Metrics.compactThickness : Metrics.itemLength) + inset * 2
+            let thickness = (isCompact || !showsTitles ? Metrics.compactThickness : Metrics.itemLength) + inset * 2
             guard isCompact else {
+                if isWide { return CGSize(width: min(500, availableLength), height: thickness) }
                 // TabBarComponent's 500-point cap, then Swiftgram's default narrow bar (its Wide Tab Bar setting
                 // off): the room divided by 1.75, 1.5 or 1.25 for one to three tabs, less the 48-point search button's
                 // room and its insets, as the bar carries no search.
@@ -227,7 +245,7 @@ final class MainTabBarView: UIView {
         self.axis = axis
         self.isCompact = isCompact
         for view in normalViews + selectedViews {
-            view.showsTitle = !isCompact
+            view.showsTitle = !isCompact && showsTitles
         }
         setNeedsLayout()
     }
@@ -374,14 +392,14 @@ final class MainTabBarView: UIView {
             selectedLayer.addSubview(view)
         }
         for view in normalViews + selectedViews {
-            view.showsTitle = !isCompact
+            view.showsTitle = !isCompact && showsTitles
         }
         for label in titleLabels + selectedTitleLabels {
             label.removeFromSuperview()
         }
-        titleLabels = items.map { Self.makeTitleLabel($0.title, color: .label, in: normalLayer) }
+        titleLabels = items.map { Self.makeTitleLabel(showsTitles ? $0.title : nil, color: .label, in: normalLayer) }
         selectedTitleLabels = items.map {
-            Self.makeTitleLabel(lens == nil ? nil : $0.title, color: .tintColor, in: selectedLayer)
+            Self.makeTitleLabel(lens == nil || !showsTitles ? nil : $0.title, color: .tintColor, in: selectedLayer)
         }
         // A fallback without the lens shows the selection by colour.
         if lens == nil {
