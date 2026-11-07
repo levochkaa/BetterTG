@@ -5,9 +5,10 @@ import UIKit
 
 // MARK: - ChatAdministratorsViewController
 
-/// Telegram's ChannelAdminsController: a channel's Sign Messages and Show Authors' Profiles
-/// (toggleSupergroupSignMessages), the owner and admins with who promoted them, and Add Admin for those who may
-/// promote. A row opens the admin's rights; the owner and admins the account can't edit stay read-only.
+/// Telegram's ChannelAdminsController: a group's Aggressive Anti-Spam (toggleSupergroupHasAggressiveAntiSpamEnabled),
+/// a channel's Sign Messages and Show Authors' Profiles (toggleSupergroupSignMessages), the owner and admins with who
+/// promoted them, and Add Admin for those who may promote. A row opens the admin's rights; the owner and admins the
+/// account can't edit stay read-only.
 final class ChatAdministratorsViewController: SettingsListViewController {
     private struct Entry {
         let member: ChatManagementMember
@@ -20,8 +21,10 @@ final class ChatAdministratorsViewController: SettingsListViewController {
     private var isLoaded = false
     private var signMessages: Bool
     private var showMessageSender: Bool
+    private var antiSpamEnabled: Bool
     private var loadTask: Task<Void, Never>?
     private var signTask: Task<Void, Never>?
+    private var antiSpamTask: Task<Void, Never>?
 
     private var canPromote: Bool {
         target.rights?.canPromoteMembers == true
@@ -31,6 +34,7 @@ final class ChatAdministratorsViewController: SettingsListViewController {
         self.target = target
         self.signMessages = target.supergroup?.signMessages ?? false
         self.showMessageSender = target.supergroup?.showMessageSender ?? false
+        self.antiSpamEnabled = target.supergroupInfo?.hasAggressiveAntiSpamEnabled ?? false
         super.init()
     }
 
@@ -41,6 +45,7 @@ final class ChatAdministratorsViewController: SettingsListViewController {
     deinit {
         loadTask?.cancel()
         signTask?.cancel()
+        antiSpamTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -55,6 +60,23 @@ final class ChatAdministratorsViewController: SettingsListViewController {
 
     override func makeSections() -> [SettingsSection] {
         var sections = [SettingsSection]()
+        // channelAdminsControllerEntries: a group's admin who may delete messages sees the switch once the group is
+        // big enough for it (TDLib's canToggleAggressiveAntiSpam) or while it is on.
+        let canToggleAntiSpam = target.supergroupInfo?.canToggleAggressiveAntiSpam == true
+        if !target.isChannel, target.rights?.canDeleteMessages == true, canToggleAntiSpam || antiSpamEnabled {
+            sections.append(SettingsSection(
+                footer: L10n.telegram("Group.Management.AntiSpamInfo"),
+                rows: [SettingsRow(
+                    title: L10n.telegram("Group.Management.AntiSpam"),
+                    symbol: "checkmark.shield",
+                    symbolTint: .systemGreen,
+                    accessory: .toggle(isOn: antiSpamEnabled, onChange: { [weak self] isOn in
+                        self?.setAntiSpam(isOn)
+                    }),
+                    isEnabled: antiSpamTask == nil && canToggleAntiSpam,
+                )],
+            ))
+        }
         if target.isChannel, target.rights?.canChangeInfo == true {
             sections.append(SettingsSection(
                 footer: L10n.telegram("Channel.SignMessages.Help"),
@@ -159,10 +181,37 @@ final class ChatAdministratorsViewController: SettingsListViewController {
                 target = refreshed
                 signMessages = refreshed.supergroup?.signMessages ?? false
                 showMessageSender = refreshed.supergroup?.showMessageSender ?? false
+                if antiSpamTask == nil {
+                    antiSpamEnabled = refreshed.supergroupInfo?.hasAggressiveAntiSpamEnabled ?? false
+                }
             }
             self.entries = entries
             isLoaded = true
             reload()
+        }
+    }
+
+    /// ChannelAdminsController's updateAntiSpamEnabled: the switch moves at once and goes back if TDLib refuses.
+    private func setAntiSpam(_ isOn: Bool) {
+        guard let supergroupID = target.supergroupID, antiSpamTask == nil, contextIsCurrent else { return }
+        let previous = antiSpamEnabled
+        antiSpamEnabled = isOn
+        reload()
+        let client = client
+        antiSpamTask = Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.toggleSupergroupHasAggressiveAntiSpamEnabled(
+                    supergroupId: supergroupID, hasAggressiveAntiSpamEnabled: isOn,
+                ))
+                self?.antiSpamTask = nil
+                self?.reload()
+            } catch {
+                guard let self else { return }
+                antiSpamTask = nil
+                antiSpamEnabled = previous
+                reload()
+                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+            }
         }
     }
 
