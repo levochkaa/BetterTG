@@ -35,6 +35,7 @@ public typealias ChatAdministratorRights = TDNativeChatAdministratorRights
 public typealias ChatAvailableReactions = TDNativeChatAvailableReactions
 public typealias ChatBoost = TDNativeChatBoost
 public typealias ChatEventAction = TDNativeChatEventAction
+public typealias ChatEventLogFilters = TDNativeChatEventLogFilters
 public typealias ChatFolder = TDNativeChatFolder
 public typealias ChatFolderIcon = TDNativeChatFolderIcon
 public typealias ChatFolderInfo = TDNativeChatFolderInfo
