@@ -2663,6 +2663,7 @@ ClientRestorableNavigationEntry {
         scrollingArea.scrollView = collectionView
         scrollingArea.currentDate = { [weak self] in self?.topMediaMonth() }
         scrollingArea.onOpenCalendar = { [weak self] in self?.openMediaCalendar() }
+        scrollingArea.onBeginFastScrolling = { [weak self] in self?.showMediaCalendarTooltipIfNeeded() }
         // getSharedMediaScrollingTooltip: the tooltip until it has been shown once.
         let tooltipKey = "SharedMediaScrollingTooltipShown"
         if !UserDefaults.standard.bool(forKey: tooltipKey) {
@@ -4170,9 +4171,8 @@ ClientRestorableNavigationEntry {
     }
 
     /// PeerInfoScreenDisplayMediaGalleryContextMenu for photos and videos: Zoom In and Zoom Out, which step the grid
-    /// between 2 and 12 to a row with the menu open and dim at either end, then, when the chat has both, Show Photos
-    /// and
-    /// Show Videos, each checked while shown; turning one off leaves the other. Show Calendar is not ported.
+    /// between 2 and 12 to a row with the menu open and dim at either end, Show Calendar outside a topic, then, when
+    /// the chat has both, Show Photos and Show Videos, each checked while shown; turning one off leaves the other.
     private func openMediaOptionsMenu() {
         guard contextIsCurrent, currentSharedTab == .media, mediaOptionsTask == nil,
               let source = mediaOptionsItem.telegramChromeView else { return }
@@ -4239,8 +4239,6 @@ ClientRestorableNavigationEntry {
         return actions
     }
 
-    /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
-    /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
     /// The month and year of the first item (a message or a post) at the top of the pane, for the fast scroller.
     private func topMediaMonth() -> (text: String, order: Int)? {
         let top = collectionView.contentOffset.y + collectionView.safeAreaInsets.top
@@ -4264,6 +4262,24 @@ ClientRestorableNavigationEntry {
         return (L10n.telegram("Time.MonthOfYear_m\(month)", String(year)), year * 12 + month)
     }
 
+    /// displaySharedMediaFastScrollingTooltip: the first time the media's scroller is dragged, where the pane has a
+    /// calendar, "Tap on this icon for calendar view" points at the More button that holds Show Calendar.
+    private func showMediaCalendarTooltipIfNeeded() {
+        let key = "SharedMediaCalendarTooltipShown"
+        guard topic == nil, currentSharedTab == .media, !UserDefaults.standard.bool(forKey: key),
+              let source = mediaOptionsItem.telegramChromeView, let window = view.window else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        TelegramTextTooltipView.show(
+            L10n.telegram("SharedMedia.CalendarTooltip"),
+            source: source.convert(source.bounds, to: window).insetBy(dx: 0, dy: 5),
+            in: window,
+            topInset: window.safeAreaInsets.top,
+            duration: 4,
+        )
+    }
+
+    /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
+    /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
     private func openMediaCalendar() {
         guard contextIsCurrent, currentSharedTab == .media, presentedViewController == nil,
               let filter = effectiveSharedFilter else { return }

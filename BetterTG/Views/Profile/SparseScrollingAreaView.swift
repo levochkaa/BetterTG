@@ -16,6 +16,8 @@ final class SparseScrollingAreaView: UIView {
     /// The date at the top of the grid: its text ("October 2026") and a value that orders it.
     var currentDate: (() -> (text: String, order: Int)?)?
     var onOpenCalendar: (() -> Void)?
+    /// SparseItemGrid's onBeginFastScrolling: the capsule starts being dragged.
+    var onBeginFastScrolling: (() -> Void)?
     /// displayTooltip: the text shown once, on the first scroll that shows the scroller; `onTooltipShown` records it.
     var tooltipText: String?
     var onTooltipShown: (() -> Void)?
@@ -223,6 +225,7 @@ final class SparseScrollingAreaView: UIView {
         case .began:
             isDragging = true
             dismissTooltip()
+            onBeginFastScrolling?()
             dragStart = (scrollView.contentOffset.y, y)
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
             grabTimer?.invalidate()

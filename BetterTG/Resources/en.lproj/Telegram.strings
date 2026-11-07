@@ -4004,3 +4004,4 @@
 "PeerInfo.UnofficialSecurityRisk" = "%@ uses an unofficial Telegram client – messages to this user may be less secure.";
 "Settings.CopyPhoneNumber" = "Copy Phone Number";
 "Settings.CopyUsername" = "Copy Username";
+"SharedMedia.CalendarTooltip" = "Tap on this icon for calendar view";
