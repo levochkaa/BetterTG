@@ -2551,13 +2551,21 @@ import UIKit
                     throw ChatSendContextError.topicReadOnly
                 }
             }
+            // The whole chat replies to any of its messages: Saved Messages' topics and a supergroup's reply threads
+            // (`messageTopicThread`, which TDLib gives every message of a thread) are views of it, and the server
+            // files a reply to a thread's message in that thread.
+            let replyTopicIsViewOfChat = location.topic == nil
+                && reply?.message.topicId.map { topic in
+                    switch topic {
+                    case .messageTopicSavedMessages: customChat.isSavedMessages
+                    case .messageTopicThread: true
+                    default: false
+                    }
+                } == true
             if let reply,
                reply.message.chatId == location.chatID,
                reply.message.topicId != location.topic,
-               !(customChat.isSavedMessages && location.topic == nil
-                   && reply.message.topicId.map { if case .messageTopicSavedMessages = $0 { return true }
-                       return false
-                   } == true)
+               !replyTopicIsViewOfChat
             {
                 throw ChatSendContextError.crossTopicReply
             }

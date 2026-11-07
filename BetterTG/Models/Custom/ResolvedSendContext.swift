@@ -45,6 +45,9 @@ struct ResolvedSendContext {
         // from the unscoped self chat. This is an accepted send, not a retry.
         if destinationTopic == nil, allowsSavedMessagesTopic,
            case .messageTopicSavedMessages = message.topicId { return true }
+        // A reply from the whole chat to a message of a supergroup's reply thread lands in that thread, and a
+        // stored reply may point into one. Only a non-forum chat sends with no destination topic.
+        if destinationTopic == nil, case .messageTopicThread = message.topicId { return true }
         return false
     }
 }
