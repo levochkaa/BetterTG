@@ -4122,3 +4122,5 @@
 "Channel.BanUser.PermissionSendMedia" = "Can Send Media";
 "Channel.EditAdmin.SectionMessages" = "Manage Messages";
 "Channel.EditAdmin.SectionStories" = "Manage Stories";
+"Conversation.ContextMenuReportFalsePositive" = "Report False Positive";
+"Group.AdminLog.AntiSpamFalsePositiveReportedText" = "Telegram moderators will review your report. Thank you!";

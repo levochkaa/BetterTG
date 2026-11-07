@@ -276,15 +276,17 @@ import UIKit
 
 // MARK: - ChatRecentActionsViewController
 
-/// Telegram's ChatRecentActionsController, read-only: the admin log of the last 48 hours (getChatEventLog), newest
-/// first and grouped by day, each event with who did it, Telegram's sentence and the time. Older events load while
-/// scrolling.
+/// Telegram's ChatRecentActionsController: the admin log of the last 48 hours (getChatEventLog), newest first and
+/// grouped by day, each event with who did it, Telegram's sentence and the time. Older events load while scrolling.
+/// A message Aggressive Anti-Spam deleted offers Report False Positive.
 final class ChatRecentActionsViewController: SettingsListViewController {
     private struct Event {
         let id: Int64
         let date: Int
         let actor: String
         let text: String
+        /// The message to report when TDLib allows reporting its deletion as a false positive.
+        let falsePositiveMessageID: Int64?
     }
 
     private static let pageLimit = 100
@@ -296,6 +298,8 @@ final class ChatRecentActionsViewController: SettingsListViewController {
     private var hasMore = true
     private var isLoaded = false
     private var loadTask: Task<Void, Never>?
+    private var reportedMessageIDs = Set<Int64>()
+    private var eventIndexPaths = [Int64: IndexPath]()
 
     init(target: ChatManagementTarget) {
         self.target = target
@@ -329,19 +333,28 @@ final class ChatRecentActionsViewController: SettingsListViewController {
             )])]
         }
         var sections = [SettingsSection]()
+        eventIndexPaths = [:]
         for event in events {
             let date = Foundation.Date(timeIntervalSince1970: TimeInterval(event.date))
             let header = date.formatted(date: .long, time: .omitted)
-            let row = SettingsRow(
+            var row = SettingsRow(
                 title: event.actor,
                 detail: event.text + "\n" + date.formatted(date: .omitted, time: .shortened),
                 style: .subtitle,
             )
+            if let messageID = event.falsePositiveMessageID, !reportedMessageIDs.contains(messageID) {
+                let eventID = event.id
+                row.action = { [weak self] in self?.offerFalsePositiveReport(eventID: eventID, messageID: messageID) }
+            }
             if sections.last?.header == header {
                 sections[sections.count - 1].rows.append(row)
             } else {
                 sections.append(SettingsSection(header: header, rows: [row]))
             }
+            eventIndexPaths[event.id] = IndexPath(
+                row: sections[sections.count - 1].rows.count - 1,
+                section: sections.count - 1,
+            )
         }
         sections[sections.count - 1].footer = hasMore ? nil : info
         if hasMore { sections[sections.count - 1].rows.append(ChatManagementRows.loading) }
@@ -378,7 +391,17 @@ final class ChatRecentActionsViewController: SettingsListViewController {
                 guard let text = ChatEventText.text(
                     event.action, actor: actor, isChannel: isChannel, name: { names[$0] ?? "" },
                 ) else { continue }
-                resolved.append(Event(id: event.id, date: event.date, actor: actor, text: text))
+                var falsePositiveMessageID: Int64?
+                if case .chatEventMessageDeleted(let deleted) = event.action, deleted.canReportAntiSpamFalsePositive {
+                    falsePositiveMessageID = deleted.message.id
+                }
+                resolved.append(Event(
+                    id: event.id,
+                    date: event.date,
+                    actor: actor,
+                    text: text,
+                    falsePositiveMessageID: falsePositiveMessageID,
+                ))
             }
             guard let self, !Task.isCancelled else { return }
             loadTask = nil
@@ -389,6 +412,46 @@ final class ChatRecentActionsViewController: SettingsListViewController {
             hasMore = (page?.count ?? 0) >= Self.pageLimit
             isLoaded = true
             reload()
+        }
+    }
+
+    // MARK: Anti-spam false positives
+
+    /// ChatRecentActionsControllerNode's message menu for the anti-spam bot's deletion: Report False Positive.
+    private func offerFalsePositiveReport(eventID: Int64, messageID: Int64) {
+        guard contextIsCurrent, let indexPath = eventIndexPaths[eventID],
+              let cell = tableView.cellForRow(at: indexPath)
+        else { return }
+        presentTelegramContextMenu(
+            sourceView: cell,
+            actions: [TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuReportFalsePositive"),
+                image: UIImage(systemName: "checkmark.shield"),
+            ) { [weak self] in self?.reportFalsePositive(messageID: messageID) }],
+            presentationStyle: .menuOnly,
+        )
+    }
+
+    /// reportSupergroupAntiSpamFalsePositive, then Telegram's AntiSpamFalsePositiveReportedText toast.
+    private func reportFalsePositive(messageID: Int64) {
+        guard let supergroupID = target.supergroupID, contextIsCurrent,
+              reportedMessageIDs.insert(messageID).inserted
+        else { return }
+        reload()
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.reportSupergroupAntiSpamFalsePositive(
+                    supergroupId: supergroupID, messageId: messageID,
+                ))
+                guard let self, contextIsCurrent else { return }
+                showToast(L10n.telegram("Group.AdminLog.AntiSpamFalsePositiveReportedText"))
+            } catch {
+                guard let self else { return }
+                reportedMessageIDs.remove(messageID)
+                reload()
+                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+            }
         }
     }
 }
