@@ -601,3 +601,56 @@ extension TDNativeBirthdate {
         return today.day == day && today.month == month
     }
 }
+
+// MARK: - ProfileWarningCardView
+
+/// PeerInfoScreenInfoItem in ItemListInfoItem's compact style: on the list's block background, a 15 pt red circle with
+/// "!" beside the 15 pt text, as the profile's unofficial client warning.
+final class ProfileWarningCardView: UIView {
+    private let label = UILabel()
+
+    var text: String? {
+        get { label.text }
+        set {
+            label.text = newValue
+            accessibilityLabel = newValue
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .secondarySystemGroupedBackground
+        layer.cornerRadius = 16
+        layer.cornerCurve = .continuous
+        let badge = UILabel()
+        badge.text = "!"
+        badge.font = .systemFont(ofSize: 11, weight: .semibold)
+        badge.textColor = .white
+        badge.textAlignment = .center
+        badge.backgroundColor = .systemRed
+        badge.layer.cornerRadius = 7.5
+        badge.clipsToBounds = true
+        label.font = .systemFont(ofSize: 15)
+        label.textColor = .label
+        label.numberOfLines = 0
+        for view in [badge, label] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            badge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            badge.firstBaselineAnchor.constraint(equalTo: label.firstBaselineAnchor, constant: -1),
+            badge.widthAnchor.constraint(equalToConstant: 15),
+            badge.heightAnchor.constraint(equalToConstant: 15),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            label.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+        ])
+        isAccessibilityElement = true
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}

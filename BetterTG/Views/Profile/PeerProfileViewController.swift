@@ -212,6 +212,8 @@ ClientRestorableNavigationEntry {
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
     private let personalChannelView = PersonalChannelCardView()
+    /// PeerInfoProfileItems' `.unofficial` section, first under the buttons.
+    private let unofficialWarningView = ProfileWarningCardView()
     private let infoCardView = ProfileInfoCardView()
     /// PeerInfoScreenCommentItem under the info block, as Bot.AddToChatInfo.
     private let infoFooterLabel = UILabel()
@@ -2514,9 +2516,13 @@ ClientRestorableNavigationEntry {
         actionStack.addArrangedSubview(moreActionButton)
         updateActionAvailability()
 
+        unofficialWarningView.isHidden = true
+        headerStack.setCustomSpacing(20, after: actionStack)
+        headerStack.addArrangedSubview(unofficialWarningView)
+        unofficialWarningView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
+        headerStack.setCustomSpacing(20, after: unofficialWarningView)
         personalChannelView.isHidden = true
         personalChannelView.onOpen = { [weak self] in self?.openPersonalChannel() }
-        headerStack.setCustomSpacing(20, after: actionStack)
         headerStack.addArrangedSubview(personalChannelView)
         personalChannelView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         infoCardView.isHidden = true
@@ -3462,6 +3468,7 @@ ClientRestorableNavigationEntry {
         )
         applyGiftCount(info.giftCount)
         loadPersonalChannel(info.personalChatId)
+        applyUnofficialWarning(info.usesUnofficialApp)
         applyInfoRows(info)
         if !isSelfProfile, groupsInCommonCount != info.groupInCommonCount {
             groupsInCommonCount = info.groupInCommonCount
@@ -3705,6 +3712,22 @@ ClientRestorableNavigationEntry {
             infoFooterLabel.isHidden = link.isPublic
             view.setNeedsLayout()
         }
+    }
+
+    /// PeerInfoProfileItems' unofficial client warning (`unofficialSecurityRisk`): "… uses an unofficial Telegram
+    /// client – messages to this user may be less secure."
+    private func applyUnofficialWarning(_ usesUnofficialApp: Bool) {
+        var shows = usesUnofficialApp && !isMyProfile
+        #if DEBUG
+            // `-ui-probe-unofficial-app`: My Profile reads as an unofficial client's user.
+            if isSelfProfile, ProcessInfo.processInfo.arguments.contains("-ui-probe-unofficial-app") { shows = true }
+        #endif
+        guard shows != !unofficialWarningView.isHidden else { return }
+        let user = customChat.user
+        let name = user.map { $0.firstName.isEmpty ? $0.lastName : $0.firstName } ?? profileTitle()
+        unofficialWarningView.text = L10n.telegram("PeerInfo.UnofficialSecurityRisk", name)
+        unofficialWarningView.isHidden = !shows
+        view.setNeedsLayout()
     }
 
     /// getSecretChat's keyHash once the secret chat is ready; the rows follow.

@@ -4001,3 +4001,4 @@
 "Conversation.CopyProtectionForwardingDisabledChannel" = "Forwards from this channel are restricted";
 "Conversation.CopyProtectionForwardingDisabledBot" = "Forwards from this bot are restricted";
 "Conversation.CopyProtectionForwardingDisabledSecret" = "Forwarding is restricted";
+"PeerInfo.UnofficialSecurityRisk" = "%@ uses an unofficial Telegram client – messages to this user may be less secure.";
