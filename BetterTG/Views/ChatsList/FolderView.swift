@@ -1050,6 +1050,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             cell.onOpenStories = { [weak self] sourceView in
                 self?.openStories(from: id, sourceView: sourceView)
             }
+            cell.onOpenTopic = { [weak self] topicID in
+                self?.openTopic(topicID, of: id)
+            }
             cell.configure(
                 chat: chat,
                 isMuted: rootVM.isMuted(chat),
@@ -1721,6 +1724,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }.start()
     }
 
+    /// ChatListNode's openForumThread: the unread topic a forum's row names opens straight in its chat.
+    private func openTopic(_ topicID: Int, of chatID: Int64) {
+        guard selectedChatIDs == nil, let chat = chat(for: chatID) else { return }
+        let client = actionAuthority.client
+        guard let topic = ChatListForumTopics.shared.recentTopic(chatID: chatID, topicID: topicID, client: client)
+        else { return }
+        NavigationStorage.shared.push(
+            .customChat(
+                chat,
+                location: ChatLocation.current(chatID: chatID, client: client).withForumTopic(id: topicID),
+                forumTopic: topic,
+            ),
+            fromList: true,
+        )
+    }
+
     @objc private func chatLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         let point = gesture.location(in: tableView)
@@ -1729,9 +1748,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
               let chat = chat(for: chatID),
               let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
         else { return }
-        // Telegram previews a forum with its topic list (ChatListController, previewing: true).
+        // Telegram previews a forum with its topic list (ChatListController, previewing: true), and the unread
+        // topic its highlighted line names as that topic (activateChatPreview with the thread).
+        let client = TDLib.shared.activeClient
+        let previewedTopic = cell.selectableTopicID(at: gesture.location(in: cell)).flatMap { topicID in
+            ChatListForumTopics.shared.recentTopic(chatID: chat.id, topicID: topicID, client: client)
+        }
         let previewController: UIViewController =
-            if chat.chat.viewAsTopics {
+            if let previewedTopic {
+                ChatViewController(
+                    customChat: chat,
+                    location: ChatLocation.current(chatID: chat.id, client: client)
+                        .withForumTopic(id: previewedTopic.info.forumTopicId),
+                    forumTopic: previewedTopic,
+                    presentationMode: .contextPreview,
+                )
+            } else if chat.chat.viewAsTopics {
                 ForumTopicsViewController(
                     customChat: chat,
                     location: ChatLocation.current(chatID: chat.id, client: TDLib.shared.activeClient),

@@ -7,6 +7,41 @@ import UIKit
 // MARK: - ChatListCell
 
 final class ChatListCell: UITableViewCell {
+    #if DEBUG
+        struct ProbeTopicSummary: CustomStringConvertible {
+            let entries: Int
+            let shownTopics: Int
+            let selectable: Bool
+            let highlightBounds: CGRect?
+
+            var description: String {
+                "entries=\(entries) shown=\(shownTopics) selectable=\(selectable) highlight=\(highlightBounds.map { "\($0.integral)" } ?? "none")"
+            }
+        }
+
+        /// Makes a recent first topic selectable as if it were unread, for `-ui-probe-forum-row`.
+        var probeTreatsFirstTopicAsUnread = false
+
+        /// The forum topic line as laid out, for `-ui-probe-forum-row`.
+        var probeTopicSummary: ProbeTopicSummary {
+            ProbeTopicSummary(
+                entries: topicsLineView.isHidden ? 0 : topicsLineView.probeEntryCount,
+                shownTopics: topicsLineView.isHidden ? 0 : topicsLineView.probeShownCount,
+                selectable: selectableTopicID != nil,
+                highlightBounds: topicHighlightLayer.isHidden ? nil : topicHighlightLayer.path?.boundingBox,
+            )
+        }
+
+        func probeTapTopic() {
+            topicButton.sendActions(for: .touchUpInside)
+        }
+
+        /// The custom emoji views laid over the text, for `-ui-probe-row-icons`.
+        var probeShownCustomEmojiCount: Int {
+            customEmojiViews.count { !$0.view.isHidden && $0.view.frame.width > 0 }
+        }
+    #endif
+
     // MARK: Internal
 
     static let reuseIdentifier = "ChatListCell"
@@ -34,6 +69,10 @@ final class ChatListCell: UITableViewCell {
         didSet { updateStoryInteraction() }
     }
 
+    /// Opens a forum's unread topic from its highlighted line (ChatListItem's compoundTextButtonNode,
+    /// `openForumThread`). Without it, as in search, the topic isn't selectable.
+    var onOpenTopic: ((Int) -> Void)?
+
     // MARK: Private
 
     private let rowView = UIView()
@@ -57,10 +96,17 @@ final class ChatListCell: UITableViewCell {
     private let credibilityView = UIImageView()
     private var titleIconsLeading: NSLayoutConstraint!
     private let messageLabel = UILabel()
-    /// ChatListItem's `forumThread`: the topic of a forum's last message, on its own line above the text.
-    private let topicIconView = ChatListTopicIconView()
-    private let topicLabel = UILabel()
+    /// ChatListItem's `forumThread`: the topic of a forum's last message, then its other recent topics, on their own
+    /// line above the text.
+    private let topicsLineView = ChatListForumTopicsLineView()
     private var messageBelowTopicConstraint: NSLayoutConstraint!
+    private var messageTrailingConstraint: NSLayoutConstraint!
+    /// ChatListItem's compound highlight and button over an unread first topic and the text, with the disclosure
+    /// arrow at the text's end (`isFirstForumThreadSelectable`).
+    private let topicHighlightLayer = CAShapeLayer()
+    private let topicButton = ChatListTopicButton()
+    private let topicArrowView = UIImageView()
+    private var selectableTopicID: Int?
     private var topicCancellable: AnyCancellable?
     /// ChatListMediaPreviewNodes before the text, in the gap the text leaves for them.
     private let mediaPreviewViews = (0..<ChatListMediaPreviews.limit).map { _ in ChatListMediaPreviewView() }
@@ -109,13 +155,6 @@ final class ChatListCell: UITableViewCell {
 
     var contextPreviewView: UIView { rowView }
 
-    #if DEBUG
-        /// The custom emoji views laid over the text, for `-ui-probe-row-icons`.
-        var probeShownCustomEmojiCount: Int {
-            customEmojiViews.count { !$0.view.isHidden && $0.view.frame.width > 0 }
-        }
-    #endif
-
     /// ChatListItem: a row selected while the list selects chats shows its check rather than the highlight.
     private var showsHighlight: Bool {
         isHighlighted || (isSelected && !isEditing)
@@ -134,6 +173,8 @@ final class ChatListCell: UITableViewCell {
         configureViews()
         configureConstraints()
         applyStyle()
+        // The topic highlight's fill is resolved for the current appearance.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in self.setNeedsLayout() }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -142,6 +183,7 @@ final class ChatListCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        layoutTopicHighlight()
         layoutMediaPreview()
         layoutSpoilers()
         layoutActivityIndicator()
@@ -157,6 +199,7 @@ final class ChatListCell: UITableViewCell {
         super.prepareForReuse()
         avatarView.prepareForReuse()
         onOpenStories = nil
+        onOpenTopic = nil
         activityCancellable = nil
     }
 
@@ -172,6 +215,8 @@ final class ChatListCell: UITableViewCell {
 
     override func setEditing(_ editing: Bool, animated: Bool) {
         super.setEditing(editing, animated: animated)
+        // While the list selects or reorders, a tap on the topic line selects the row.
+        topicButton.isUserInteractionEnabled = !editing
         updateBackground(highlighted: showsHighlight, animated: animated)
     }
 
@@ -407,6 +452,14 @@ final class ChatListCell: UITableViewCell {
         accessibilityTraits = .button
     }
 
+    /// The topic the highlighted line at a point in the row opens, for a long press to preview it.
+    func selectableTopicID(at point: CGPoint) -> Int? {
+        guard let selectableTopicID, !topicButton.isHidden,
+              topicButton.frame.contains(convert(point, to: rowView))
+        else { return nil }
+        return selectableTopicID
+    }
+
     /// ChatListItem's title icons: none for a SCAM or FAKE peer's emoji status, and the verified badge in the
     /// Premium star's place.
     private func updateTitleIcons(for chat: CustomChat, client: TDLibClient) {
@@ -419,17 +472,37 @@ final class ChatListCell: UITableViewCell {
         titleIconsLeading.constant = status == nil && badge == nil ? 0 : 3
     }
 
-    /// ChatListItem's `forumThread`: a forum's last message names its topic, the icon and title in the author colour
-    /// while unread, on the line above the text, which then keeps one line.
+    /// ChatListItem's `forumThread` and topForumTopicItems: a forum's last message names its topic, then the other
+    /// recent topics follow, each name in the author colour while the topic is unread, on the line above the text,
+    /// which then keeps one line. An unread first topic and the text form one highlighted button with an arrow that
+    /// opens the topic (`isFirstForumThreadSelectable`).
     private func configureTopicLine(for chat: CustomChat, client: TDLibClient) {
         let chatID = chat.id
-        var info: ForumTopicInfo?
-        var isUnread = false
+        var entries = [ChatListForumTopicsLineView.Entry]()
+        var selectableTopicID: Int?
         if chat.supergroup?.isForum == true, chat.draftMessage == nil,
            let message = chat.lastMessage, case .messageTopicForum(let topic) = message.topicId
         {
-            info = ChatListForumTopics.shared.info(chatID: chatID, topicID: topic.forumTopicId, client: client)
-            isUnread = !message.isOutgoing && message.id > chat.chat.lastReadInboxMessageId
+            let topicID = topic.forumTopicId
+            let recent = ChatListForumTopics.shared.recentTopics(
+                chatID: chatID,
+                revision: .init(lastMessageID: message.id, unreadCount: chat.chat.unreadCount),
+                client: client,
+            )
+            let recentFirst = recent.first { $0.id == topicID }
+            let info = recentFirst?.info
+                ?? ChatListForumTopics.shared.info(chatID: chatID, topicID: topicID, client: client)
+            if let info {
+                let isUnread = recentFirst?.isUnread
+                    ?? (!message.isOutgoing && message.id > chat.chat.lastReadInboxMessageId)
+                entries.append(.init(info: info, isUnread: isUnread))
+                entries += recent.filter { $0.id != topicID }.map { .init(info: $0.info, isUnread: $0.isUnread) }
+                var firstIsUnread = recentFirst?.isUnread == true
+                #if DEBUG
+                    firstIsUnread = firstIsUnread || (probeTreatsFirstTopicAsUnread && recentFirst != nil)
+                #endif
+                if firstIsUnread, onOpenTopic != nil { selectableTopicID = topicID }
+            }
             topicCancellable = ChatListForumTopics.shared
                 .changes
                 .filter { $0 == chatID }
@@ -437,15 +510,16 @@ final class ChatListCell: UITableViewCell {
         } else {
             topicCancellable = nil
         }
-        let showsTopic = info != nil
-        topicLabel.isHidden = !showsTopic
-        topicIconView.isHidden = !showsTopic
-        if let info {
-            topicIconView.configure(info: info, client: client)
-            topicLabel.text = info.name
-            topicLabel.textColor = isUnread ? .label : .secondaryLabel
-        }
-        topicLabel.font = messageLabel.font
+        let showsTopic = !entries.isEmpty
+        topicsLineView.isHidden = !showsTopic
+        topicsLineView.configure(entries, font: messageLabel.font, client: client)
+        self.selectableTopicID = selectableTopicID
+        let isSelectable = selectableTopicID != nil
+        topicButton.isHidden = !isSelectable
+        topicArrowView.isHidden = !isSelectable
+        topicHighlightLayer.isHidden = !isSelectable
+        // ChatListItem leaves the arrow 18 pt beside the text; a few more keep it clear of the badges.
+        messageTrailingConstraint.constant = isSelectable ? -28 : -6
         let styleConstraints = usesCardStyle ? cardTextConstraints : plainTextConstraints
         let messageTop = styleConstraints.first { $0.firstItem === messageLabel }
         let cardTitleBottom = cardTextConstraints.first { $0.firstItem === titleLabel }
@@ -458,6 +532,87 @@ final class ChatListCell: UITableViewCell {
             messageBelowTopicConstraint.isActive = false
             messageTop?.isActive = true
         }
+    }
+
+    /// ChatListItem's compound highlight: the first topic's rect, a little wider each side, over the text's rect, wider
+    /// for the arrow, meeting halfway; the outer radius is half the lower rect's height, the inner 4 pt.
+    private func layoutTopicHighlight() {
+        guard selectableTopicID != nil else {
+            topicHighlightLayer.path = nil
+            return
+        }
+        // The row lays its labels out after the cell; the highlight follows their final frames.
+        rowView.layoutIfNeeded()
+        topicsLineView.layoutIfNeeded()
+        guard let first = topicsLineView.firstItemFrame else {
+            topicHighlightLayer.path = nil
+            return
+        }
+        var topRect = topicsLineView.convert(first, to: rowView).insetBy(dx: -3, dy: -1)
+        let messageFrame = messageLabel.frame
+        let textWidth = min(
+            ceil(messageLabel.sizeThatFits(CGSize(width: messageFrame.width, height: messageFrame.height)).width),
+            messageFrame.width,
+        )
+        let textRect = CGRect(
+            x: topRect.minX,
+            y: messageFrame.minY,
+            width: messageFrame.minX - topRect.minX + textWidth + 20,
+            height: messageFrame.height + 1,
+        )
+        let midY = ((topRect.minY + textRect.maxY) / 2).rounded()
+        topRect.size.height = midY - topRect.minY
+        var bottomRect = CGRect(x: textRect.minX, y: midY, width: textRect.width, height: textRect.maxY - midY)
+        if bottomRect.maxX < topRect.maxX, topRect.maxX - bottomRect.maxX < 5 {
+            bottomRect.size.width = topRect.maxX - bottomRect.minX
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topicHighlightLayer.path = ChatListTopicHighlightShape.path(
+            top: topRect,
+            bottom: bottomRect,
+            outerRadius: (bottomRect.height / 2).rounded(.down),
+            innerRadius: 4,
+        )
+        topicHighlightLayer.fillColor = UIColor.quaternarySystemFill.resolvedColor(with: traitCollection).cgColor
+        CATransaction.commit()
+        topicButton.frame = topRect.union(bottomRect)
+        let arrowSize = CGSize(width: 10, height: bottomRect.height)
+        topicArrowView.frame = CGRect(
+            x: bottomRect.maxX - arrowSize.width - 4,
+            y: bottomRect.minY,
+            width: arrowSize.width,
+            height: arrowSize.height,
+        )
+    }
+
+    /// ChatListItem dims the highlight, the text and the first topic to 0.65 under the finger and brings them back
+    /// over 0.2 s.
+    private func setTopicHighlighted(_ highlighted: Bool) {
+        let alpha: CGFloat = highlighted ? 0.65 : 1
+        let changes = {
+            self.messageLabel.alpha = alpha
+            self.topicArrowView.alpha = alpha
+            self.topicsLineView.setFirstItemAlpha(alpha)
+        }
+        topicHighlightLayer.removeAnimation(forKey: "opacity")
+        if highlighted {
+            topicHighlightLayer.opacity = Float(alpha)
+            changes()
+        } else {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = topicHighlightLayer.presentation()?.opacity ?? 0.65
+            fade.toValue = 1
+            fade.duration = 0.2
+            topicHighlightLayer.opacity = 1
+            topicHighlightLayer.add(fade, forKey: "opacity")
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction], animations: changes)
+        }
+    }
+
+    @objc private func topicButtonPressed() {
+        guard let selectableTopicID else { return }
+        onOpenTopic?(selectableTopicID)
     }
 
     /// The avatar opens stories only while the chat has some and the list offers it; otherwise a tap selects the row.
@@ -587,7 +742,7 @@ final class ChatListCell: UITableViewCell {
         for item in [
             avatarView, storyRingView, titleLabel, titleIconsView, headerAccessoryRow, messageLabel, trailingBadges,
             separatorView,
-            topicIconView, topicLabel,
+            topicsLineView,
         ] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
@@ -658,11 +813,21 @@ final class ChatListCell: UITableViewCell {
         )
         messageLabel.lineBreakMode = .byTruncatingTail
         messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        topicLabel.font = messageLabel.font
-        topicLabel.lineBreakMode = .byTruncatingTail
-        topicLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        topicLabel.isHidden = true
-        topicIconView.isHidden = true
+        topicsLineView.isHidden = true
+        topicHighlightLayer.isHidden = true
+        rowView.layer.insertSublayer(topicHighlightLayer, at: 0)
+        topicArrowView.image = UIImage(
+            systemName: "chevron.right",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold),
+        )
+        topicArrowView.tintColor = .tertiaryLabel
+        topicArrowView.contentMode = .center
+        topicArrowView.isHidden = true
+        rowView.addSubview(topicArrowView)
+        topicButton.isHidden = true
+        topicButton.addTarget(self, action: #selector(topicButtonPressed), for: .touchUpInside)
+        topicButton.onHighlightChange = { [weak self] highlighted in self?.setTopicHighlighted(highlighted) }
+        rowView.addSubview(topicButton)
         dateLabel.textColor = .secondaryLabel
         dateLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
             for: .systemFont(ofSize: 13),
@@ -954,6 +1119,10 @@ final class ChatListCell: UITableViewCell {
     }
 
     private func configureConstraints() {
+        messageTrailingConstraint = messageLabel.trailingAnchor.constraint(
+            equalTo: trailingBadges.leadingAnchor,
+            constant: -6,
+        )
         onlineMarkerConstraints = [
             onlineMarker.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
             onlineMarker.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
@@ -987,7 +1156,7 @@ final class ChatListCell: UITableViewCell {
             headerAccessoryRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             headerAccessoryRow.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: trailingBadges.leadingAnchor, constant: -6),
+            messageTrailingConstraint,
             messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: rowView.bottomAnchor, constant: -9),
             trailingBadges.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             trailingBadges.centerYAnchor.constraint(equalTo: messageLabel.centerYAnchor),
@@ -1021,15 +1190,14 @@ final class ChatListCell: UITableViewCell {
         NSLayoutConstraint.activate(rowInsetConstraints)
         // Plain rows follow Telegram's title-then-message stack; a card centres the pair, as BetterTG's did.
         NSLayoutConstraint.activate([
-            topicIconView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            topicIconView.centerYAnchor.constraint(equalTo: topicLabel.centerYAnchor),
-            topicIconView.widthAnchor.constraint(equalToConstant: 16),
-            topicIconView.heightAnchor.constraint(equalToConstant: 16),
-            topicLabel.leadingAnchor.constraint(equalTo: topicIconView.trailingAnchor, constant: 4),
-            topicLabel.trailingAnchor.constraint(lessThanOrEqualTo: messageLabel.trailingAnchor),
-            topicLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            topicsLineView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            topicsLineView.trailingAnchor.constraint(equalTo: trailingBadges.leadingAnchor, constant: -6),
+            topicsLineView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
         ])
-        messageBelowTopicConstraint = messageLabel.topAnchor.constraint(equalTo: topicLabel.bottomAnchor, constant: 1)
+        messageBelowTopicConstraint = messageLabel.topAnchor.constraint(
+            equalTo: topicsLineView.bottomAnchor,
+            constant: 1,
+        )
         plainTextConstraints = [
             titleLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 9),
             messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
@@ -1049,7 +1217,7 @@ final class ChatListCell: UITableViewCell {
         }
         NSLayoutConstraint.deactivate(usesCardStyle ? plainTextConstraints : cardTextConstraints)
         NSLayoutConstraint.activate(usesCardStyle ? cardTextConstraints : plainTextConstraints)
-        if !topicLabel.isHidden {
+        if !topicsLineView.isHidden {
             (usesCardStyle ? cardTextConstraints : plainTextConstraints)
                 .first { $0.firstItem === messageLabel }?
                 .isActive = false
@@ -1383,4 +1551,19 @@ final class ChatListOnlineMarkerView: UIView {
 extension ChatListCell: TelegramContextExpansionSource {
     var contextExpansionTitle: UILabel? { titleLabel }
     var contextExpansionTitleAccessories: [UIView] { [titleIconsView] }
+}
+
+// MARK: - ChatListTopicButton
+
+/// ChatListItem's HighlightTrackingButtonNode over the compound topic line: it reports its highlight and takes the
+/// tap from the row.
+private final class ChatListTopicButton: UIControl {
+    override var isHighlighted: Bool {
+        didSet {
+            guard isHighlighted != oldValue else { return }
+            onHighlightChange?(isHighlighted)
+        }
+    }
+
+    var onHighlightChange: ((Bool) -> Void)?
 }

@@ -69,6 +69,7 @@ import UIKit
             ChatUnreadDividerProbe.runIfRequested()
             MessageTextBlocksProbe.runIfRequested()
             ChatListRowIconsProbe.runIfRequested()
+            ChatListForumRowProbe.runIfRequested()
             ChatTitleIconsProbe.runIfRequested()
             MessageStatusLineProbe.runIfRequested()
             MessageReadReportProbe.runIfRequested()
