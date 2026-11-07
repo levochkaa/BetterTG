@@ -37,6 +37,27 @@ enum WebBrowser: String, CaseIterable {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
 
+    /// AccountWebBrowserSettings' externalExceptions: domains that open in the system's browser while the in-app one is
+    /// chosen, newest last.
+    @MainActor static var externalExceptions: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "WebBrowser.externalExceptions") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "WebBrowser.externalExceptions") }
+    }
+
+    /// inAppExceptions: domains that still open in the in-app browser while another browser is chosen.
+    @MainActor static var inAppExceptions: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "WebBrowser.inAppExceptions") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "WebBrowser.inAppExceptions") }
+    }
+
+    /// The exceptions that apply to the chosen browser.
+    @MainActor static var exceptions: [String] {
+        get { current == .telegram ? externalExceptions : inAppExceptions }
+        set {
+            if current == .telegram { externalExceptions = newValue } else { inAppExceptions = newValue }
+        }
+    }
+
     /// The in-app browser, Safari and the browsers installed now, in OpenInOptions' order.
     @MainActor static var available: [WebBrowser] {
         allCases.filter(\.isAvailable)
@@ -90,6 +111,23 @@ enum WebBrowser: String, CaseIterable {
         return UIApplication.shared.canOpenURL(url)
     }
 
+    /// openUrl's match: the link's host is the domain or one under it.
+    static func matches(_ url: URL, domains: [String]) -> Bool {
+        let host = "." + (url.host ?? "").lowercased()
+        return domains.contains { host.hasSuffix("." + $0.lowercased()) }
+    }
+
+    /// The domain of what was typed into Add Website, `https://` assumed: its host, lowercased; nil for anything else.
+    static func exceptionDomain(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let string = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        guard let url = URL(string: string), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = url.host?.lowercased(), host.contains(".")
+        else { return nil }
+        return host
+    }
+
     /// Opens a web link in the chosen browser: the in-app one over `presenter`, or the browser's app. Links that
     /// aren't http or https go to the system.
     @MainActor static func open(_ url: URL, from presenter: UIViewController?) {
@@ -105,13 +143,17 @@ enum WebBrowser: String, CaseIterable {
             return
         }
         let browser = current
-        if browser == .telegram, let presenter = presenter?.topmostPresented {
+        // A website among the exceptions opens the other way.
+        let isExcepted = matches(url, domains: exceptions)
+        let opensInApp = browser == .telegram ? !isExcepted : isExcepted
+        if opensInApp, let presenter = presenter?.topmostPresented {
             let controller = SFSafariViewController(url: url)
             controller.dismissButtonStyle = .close
             presenter.present(controller, animated: true)
             return
         }
-        UIApplication.shared.open(browser.externalURL(for: url) ?? url)
+        // Out of the in-app browser, the system's own browser takes it.
+        UIApplication.shared.open(browser == .telegram ? url : browser.externalURL(for: url) ?? url)
     }
 
     /// OpenInOptions' URL for the browser.
