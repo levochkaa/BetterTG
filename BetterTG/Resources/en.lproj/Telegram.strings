@@ -3872,3 +3872,5 @@
 "PeerInfo.LeaveGroupText" = "Are you sure you want to leave the group **%@**?";
 "PeerInfo.LeaveChannelTitle" = "Leave Channel";
 "PeerInfo.LeaveChannelText" = "Are you sure you want to leave the channel **%@**?";
+"PeerInfo.ClearConfirmationUser" = "Are you sure you want to delete all messages with %@?";
+"PeerInfo.ClearConfirmationGroup" = "Are you sure you want to delete all messages in %@?";

@@ -584,10 +584,25 @@ import UIKit
         case .user:
             return nil
         }
+        // openClearHistory's question above the choices, by the person's or the group's name.
+        let isPerson =
+            switch customChat.type {
+            case .bot,
+                 .user: true
+            case .group,
+                 .supergroup: false
+            }
+        let compactTitle = customChat.user.map { $0.firstName.isEmpty ? customChat.displayTitle : $0.firstName }
+            ?? customChat.displayTitle
+        var question = TelegramContextMenuAction(title: L10n.telegram(
+            isPerson ? "PeerInfo.ClearConfirmationUser" : "PeerInfo.ClearConfirmationGroup",
+            compactTitle,
+        ))
+        question.isInformational = true
         return TelegramContextMenuAction(
             title: L10n.telegram("PeerInfo.ClearMessages"),
             image: UIImage(systemName: "eraser"),
-            children: children,
+            children: [question] + children,
         )
     }
 
