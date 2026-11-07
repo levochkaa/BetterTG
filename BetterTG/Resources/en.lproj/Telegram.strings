@@ -3857,3 +3857,6 @@
 "UserInfo.BotPrivacy" = "Privacy Policy";
 "UserInfo.BotSettings" = "Settings";
 "UserInfo.BotHelp" = "Help";
+"UserInfo.StartSecretChat" = "Start Secret Chat";
+"UserInfo.StartSecretChatConfirmation" = "Are you sure you want to start a secret chat with %@?";
+"UserInfo.StartSecretChatStart" = "Start";

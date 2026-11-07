@@ -90,6 +90,9 @@ import UIKit
     func actions() -> [TelegramContextMenuAction] {
         var actions = [muteAction()]
         actions += botActions()
+        if let secretChat = startSecretChatAction() {
+            actions.append(secretChat)
+        }
         if canSetAutoDelete {
             actions.append(autoDeleteAction())
         }
@@ -98,6 +101,47 @@ import UIKit
         }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Secret Chat
+
+    /// Start Secret Chat for a person (not the account, Telegram's support or a deleted account, and not one who asks
+    /// for paid messages), behind openStartSecretChat's confirmation; the new chat opens.
+    private func startSecretChatAction() -> TelegramContextMenuAction? {
+        guard case .user(let user) = customChat.type, !customChat.isSavedMessages, !user.isSupport,
+              user.paidMessageStarCount == 0
+        else { return nil }
+        if case .userTypeDeleted = user.type { return nil }
+        let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        return TelegramContextMenuAction(
+            title: L10n.telegram("UserInfo.StartSecretChat"),
+            image: UIImage(systemName: "lock"),
+        ) { [weak host, client, scope] in
+            guard let host else { return }
+            let alert = UIAlertController(
+                title: nil,
+                message: L10n.telegram("UserInfo.StartSecretChatConfirmation", name),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.telegram("UserInfo.StartSecretChatStart"), style: .default) {
+                [weak host] _ in
+                Task { [weak host] in
+                    do {
+                        let chat = try await client.send(TDNativeRequests.createNewSecretChat(userId: user.id))
+                        guard scope.isCurrent,
+                              let customChat = await RootVM.shared.getCustomChatForNavigation(
+                                  from: chat.id, client: client,
+                              )
+                        else { return }
+                        NavigationStorage.shared.push(.customChat(customChat))
+                    } catch {
+                        host?.presentChatListActionFailure()
+                    }
+                }
+            })
+            host.present(alert, animated: true)
+        }
     }
 
     // MARK: Bot
