@@ -3800,3 +3800,6 @@
 "SettingsSearch.Synonyms.Privacy.Passcode" = " ";
 "SettingsSearch.Synonyms.Privacy.PasscodeAndTouchId" = " ";
 "SettingsSearch.Synonyms.Privacy.PasscodeAndFaceId" = " ";
+"PrivacySettings.AutoArchiveTitle" = "NEW CHATS FROM UNKNOWN USERS";
+"PrivacySettings.AutoArchiveInfo" = "Automatically archive and mute new chats, groups and channels from non-contacts.";
+"PrivacySettings.AutoArchive" = "Archive and Mute";

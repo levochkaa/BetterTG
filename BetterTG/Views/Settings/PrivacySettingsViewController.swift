@@ -19,6 +19,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
     private var autoDeleteTime: Int?
     private var accountTtlDays: Int?
     private var phoneNumber = ""
+    /// can_archive_and_mute_new_chats_from_unknown_users, Telegram's autoarchive_setting_available.
+    private var canAutoArchive = false
+    private var archiveSettings: TDNativeArchiveChatListSettings?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -97,7 +100,8 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 ) { [weak self] in self?.openEditor(kind) }
             },
         )
-        let accountSectionIndex = 2
+        let leading = [security] + loginEmailSections() + [privacy] + autoArchiveSections()
+        let accountSectionIndex = leading.count
         let account = SettingsSection(
             header: L10n.telegram("PrivacySettings.DeleteAccountTitle"),
             footer: L10n.telegram("PrivacySettings.DeleteAccountHelp"),
@@ -121,11 +125,48 @@ final class PrivacySettingsViewController: SettingsListViewController {
         ) { [weak self] in
             self?.navigationController?.pushViewController(WebBrowserSettingsViewController(), animated: true)
         }])
-        return [security] + loginEmailSections() + [privacy, account, dataSettings, openLinksIn]
+        return leading + [account, dataSettings, openLinksIn]
     }
 
     private static func monthsText(_ days: Int) -> String {
         L10n.telegramPlural("MessageTimer.Months", count: max(1, days / 30))
+    }
+
+    /// New Chats From Unknown Users with Archive and Mute, where the server offers it to an account without Premium.
+    private func autoArchiveSections() -> [SettingsSection] {
+        guard canAutoArchive else { return [] }
+        return [SettingsSection(
+            header: L10n.telegram("PrivacySettings.AutoArchiveTitle"),
+            footer: L10n.telegram("PrivacySettings.AutoArchiveInfo"),
+            rows: [SettingsRow(
+                title: L10n.telegram("PrivacySettings.AutoArchive"),
+                accessory: .toggle(isOn: archiveSettings?.archiveAndMuteNewChatsFromUnknownUsers ?? false) {
+                    [weak self] isOn in self?.setAutoArchive(isOn)
+                },
+                isEnabled: archiveSettings != nil,
+            )],
+        )]
+    }
+
+    /// updateAccountAutoArchiveChats, shown at once and taken back if TDLib refuses it.
+    private func setAutoArchive(_ isOn: Bool) {
+        guard let current = archiveSettings, contextIsCurrent else { return }
+        let updated = TDNativeArchiveChatListSettings(
+            archiveAndMuteNewChatsFromUnknownUsers: isOn,
+            keepUnmutedChatsArchived: current.keepUnmutedChatsArchived,
+            keepChatsFromFoldersArchived: current.keepChatsFromFoldersArchived,
+        )
+        archiveSettings = updated
+        let client = client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setArchiveChatListSettings(settings: updated))
+            } catch {
+                guard let self, contextIsCurrent else { return }
+                archiveSettings = current
+                reload()
+            }
+        }
     }
 
     /// PrivacyAndSecurityController's Login Email: shown with a login email, for a +7 number or in Russian, as Telegram
@@ -189,7 +230,22 @@ final class PrivacySettingsViewController: SettingsListViewController {
             let ttl = try? await client.send(TDNativeRequests.getAccountTtl())
             let me = try? await client.getMe()
             let websites = try? await client.send(TDNativeRequests.getConnectedWebsites())
+            var canAutoArchive = false
+            if case .optionValueBoolean(let value) = try? await client.getOption(
+                name: "can_archive_and_mute_new_chats_from_unknown_users",
+            ) {
+                canAutoArchive = value.value
+            }
+            #if DEBUG
+                // `-ui-probe-privacy-autoarchive` shows the section the server offers only to some accounts.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-autoarchive") { canAutoArchive = true }
+            #endif
+            let archive = canAutoArchive
+                ? try? await client.send(TDNativeRequests.getArchiveChatListSettings())
+                : nil
             guard let self, contextIsCurrent else { return }
+            self.canAutoArchive = canAutoArchive
+            archiveSettings = archive
             websitesCount = websites?.websites.count ?? 0
             rules = loadedRules
             blockedCount = blocked?.totalCount

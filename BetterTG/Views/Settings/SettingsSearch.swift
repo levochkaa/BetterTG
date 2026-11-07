@@ -372,6 +372,7 @@ struct SettingsSearchSection {
                 "active-websites", "PrivacySettings.WebSessions", "AuthSessions",
                 target: .screen { ActiveWebsitesViewController() },
             ),
+            child("archive-and-mute", "PrivacySettings.AutoArchive"),
             selfDestruct,
             child("data-settings", "PrivacySettings.DataSettings", "Data.Title", target: data),
             item(
