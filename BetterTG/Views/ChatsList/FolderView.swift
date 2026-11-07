@@ -178,7 +178,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         )
     }
 
-    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, Select Chats, and How Does It Work? for an
+    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, then How Does It Work? and Select Chats for an
     /// archive with chats.
     private func openArchiveMoreMenu() {
         let client = TDLib.shared.activeClient
@@ -186,12 +186,6 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             title: L10n.telegram("ChatList.Archive.ContextSettings"),
             image: UIImage(systemName: "slider.horizontal.3"),
         ) { [weak self] in self?.openArchiveSettings() }]
-        if !folderController.isEmpty {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("ChatList.ContextSelectChats"),
-                image: UIImage(systemName: "checkmark.circle"),
-            ) { [weak self] in self?.folderController.beginEditing() })
-        }
         if !folderController.isEmpty {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.Archive.ContextInfo"),
@@ -206,6 +200,12 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
                     present(info, animated: true)
                 }
             })
+        }
+        if !folderController.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.ContextSelectChats"),
+                image: UIImage(systemName: "checkmark.circle"),
+            ) { [weak self] in self?.folderController.beginEditing() })
         }
         presentTelegramContextMenu(
             sourceView: navigationBarView.rightButtonView,
