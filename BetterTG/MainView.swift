@@ -1336,6 +1336,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 self?.setChatSelectionEditing(title: title, done: done)
             }
             controller.selectionToolbarTakesTabBarPlace = true
+            controller.onEditFolder = { [weak self, weak folder] in
+                guard let self, let folder else { return }
+                performFolderAction(.editFolder, for: folder)
+            }
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }
                 return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge

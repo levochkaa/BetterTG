@@ -4021,3 +4021,4 @@
 "ChatList.Search.Messages.Menu.PrivateChats" = "Private Chats";
 "ChatList.Search.Messages.Menu.GroupChats" = "Group Chats";
 "ChatList.Search.Messages.Menu.Channels" = "Channels";
+"ChatList.EmptyChatListEditFilter" = "Edit Folder";

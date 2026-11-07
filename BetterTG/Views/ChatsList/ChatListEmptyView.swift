@@ -1,0 +1,117 @@
+// ChatListEmptyView.swift
+
+import Lottie
+import UIKit
+
+// MARK: - ChatListEmptyView
+
+/// ChatListEmptyNode's `.filter` subject: ChatListFilterEmpty played once at 124 pt, "Folder is empty." in 17 pt
+/// semibold 24 pt under it, "No chats currently match this folder." in 14 pt 8 pt lower, and Edit Folder, a 52 pt glass
+/// capsule up to 270 pt wide, 20 pt above the list's bottom. Where the content doesn't fit, the animation fades and the
+/// text moves up, as Telegram lays it out.
+final class ChatListEmptyView: UIView {
+    private static let animationSide: CGFloat = 124
+
+    var onEdit: (() -> Void)?
+    /// The list's bars, which the content keeps clear of.
+    var insets = UIEdgeInsets.zero {
+        didSet { setNeedsLayout() }
+    }
+
+    private let animationView = LottieAnimationView(configuration: LottieConfiguration(
+        renderingEngine: .automatic, decodingStrategy: .legacyCodable,
+    ))
+    private let titleLabel = UILabel()
+    private let textLabel = UILabel()
+    private let button = UIButton(configuration: .prominentGlass())
+
+    init(showsEdit: Bool) {
+        super.init(frame: .zero)
+        animationView.contentMode = .scaleAspectFit
+        animationView.loopMode = .playOnce
+        animationView.isUserInteractionEnabled = true
+        animationView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(replay)))
+        if let path = Bundle.main.path(forResource: "ChatListFilterEmpty", ofType: "tgs") {
+            Task { [weak self] in
+                guard let animation = await TGSAnimationRepository.animation(at: path), let self else { return }
+                animationView.animation = animation
+                animationView.play()
+            }
+        }
+        titleLabel.text = L10n.telegram("ChatList.EmptyChatListFilterTitle")
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        textLabel.text = L10n.telegram("ChatList.EmptyChatListFilterText")
+        textLabel.font = .systemFont(ofSize: 14)
+        textLabel.textColor = .secondaryLabel
+        textLabel.textAlignment = .center
+        textLabel.numberOfLines = 0
+        button.configuration?.attributedTitle = AttributedString(
+            L10n.telegram("ChatList.EmptyChatListEditFilter"),
+            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]),
+        )
+        button.configuration?.cornerStyle = .capsule
+        button.addTarget(self, action: #selector(editPressed), for: .touchUpInside)
+        button.isHidden = !showsEdit
+        for view in [animationView, titleLabel, textLabel, button] as [UIView] {
+            addSubview(view)
+        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width
+        let available = bounds.height - insets.top - insets.bottom
+        let textWidth = width - 40
+        let titleSize = titleLabel.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude))
+        let textSize = textLabel.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude))
+        let buttonHeight: CGFloat = 52
+        let animationSpacing: CGFloat = 24
+        let contentHeight = Self.animationSide + animationSpacing + titleSize.height + buttonHeight
+        let contentOffset: CGFloat
+        if available < contentHeight {
+            contentOffset = -Self.animationSide - animationSpacing + 44
+            animationView.alpha = 0
+        } else {
+            contentOffset = -40
+            animationView.alpha = 1
+        }
+        let animationFrame = CGRect(
+            x: ((width - Self.animationSide) / 2).rounded(.down),
+            y: insets.top + ((available - contentHeight) / 2).rounded(.down) + contentOffset,
+            width: Self.animationSide,
+            height: Self.animationSide,
+        )
+        animationView.frame = animationFrame
+        titleLabel.frame = CGRect(
+            x: ((width - titleSize.width) / 2).rounded(.down), y: animationFrame.maxY + animationSpacing,
+            width: titleSize.width, height: titleSize.height,
+        )
+        textLabel.frame = CGRect(
+            x: ((width - textSize.width) / 2).rounded(.down), y: titleLabel.frame.maxY + 8,
+            width: textSize.width, height: textSize.height,
+        )
+        let buttonWidth = min(270, width - 64)
+        button.frame = CGRect(
+            x: ((width - buttonWidth) / 2).rounded(.down),
+            y: bounds.height - insets.bottom - buttonHeight - 20,
+            width: buttonWidth,
+            height: buttonHeight,
+        )
+    }
+
+    @objc private func replay() {
+        guard !animationView.isAnimationPlaying else { return }
+        animationView.play()
+    }
+
+    @objc private func editPressed() {
+        onEdit?()
+    }
+}

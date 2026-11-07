@@ -463,6 +463,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// The main screen leaves a pan that starts near a side edge to folder paging, as Telegram's chat list does.
     var allowsRowSwipe: (() -> Bool)?
     var onListInteractionEnded: (() -> Void)?
+    /// ChatListEmptyNode's Edit Folder in an empty folder of the user's.
+    var onEditFolder: (() -> Void)?
     /// The selection's title for the screen's bar and its Done, or nil and nil once selection ends.
     var onSelectionEditingChange: ((String?, (() -> Void)?) -> Void)?
 
@@ -552,6 +554,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         case .archive: .premiumLimitTypePinnedArchivedChatCount
         case .folder: .premiumLimitTypeChatFolderChosenChatCount
         }
+    }
+
+    /// `-ui-probe-empty-folder`: the user's folders show as empty.
+    private var probesEmptyFolder: Bool {
+        #if DEBUG
+            guard case .folder = folder.type else { return false }
+            return ProcessInfo.processInfo.arguments.contains("-ui-probe-empty-folder")
+        #else
+            false
+        #endif
     }
 
     init(
@@ -644,6 +656,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        (tableView.backgroundView as? ChatListEmptyView)?.insets = tableView.adjustedContentInset
         updateIndicatorInsets()
         if snapshotNeedsApply, !isApplyingSnapshot, !isReorderingPinnedChats, view.window != nil {
             DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
@@ -1066,8 +1079,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         rebuildChatIndex()
         // A chat whose removal waits behind the Undo toast is hidden, as Telegram's pendingRemovalItemIds.
         let clientID = actionAuthority.client.id
+        let probesEmpty = probesEmptyFolder
         let displayedChats = orderedChats.filter {
-            !PendingChatRemovals.shared.isHidden(clientID: clientID, chatID: $0.id)
+            !probesEmpty && !PendingChatRemovals.shared.isHidden(clientID: clientID, chatID: $0.id)
         }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.main])
@@ -1220,7 +1234,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let state: EmptyState? =
             if !showsNoRows {
                 nil
-            } else if folder.loadError != nil || !folder.hasMoreChats {
+            } else if probesEmptyFolder || folder.loadError != nil || !folder.hasMoreChats {
                 .empty
             } else {
                 .loading
@@ -1229,7 +1243,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         emptyState = state
         tableView.backgroundView =
             switch state {
-            case .empty: emptyLabel()
+            case .empty: emptyView()
             case .loading: loadingPlaceholder()
             case nil: nil
             }
@@ -1246,6 +1260,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
         return container
+    }
+
+    /// A folder of the user's gets ChatListEmptyNode's `.filter` subject; other lists keep the line of text.
+    private func emptyView() -> UIView {
+        guard case .folder = folder.type else { return emptyLabel() }
+        let view = ChatListEmptyView(showsEdit: true)
+        view.insets = tableView.adjustedContentInset
+        view.onEdit = { [weak self] in self?.onEditFolder?() }
+        return view
     }
 
     private func emptyLabel() -> UIView {
