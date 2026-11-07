@@ -4055,3 +4055,4 @@
 "Chat.PauseVoiceMessageTooltip" = "Pause to trim or replay.";
 "WebBrowser.InAppSafari" = "In-App Safari";
 "Channel.DiscussionMessageUnavailable" = "Sorry, this post has been removed from the discussion group.";
+"Chat.AttachmentMultipleForwardDisabled" = "Slowmode is enabled. You can't forward multiple messages at once.";

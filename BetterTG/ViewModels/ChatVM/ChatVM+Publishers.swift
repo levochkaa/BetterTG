@@ -277,6 +277,7 @@ extension ChatVM {
                   update.supergroupId == customChat.supergroup?.id
             else { return }
             updateSlowMode(expiresIn: update.supergroupFullInfo.slowModeDelayExpiresIn)
+            slowModeDelay = update.supergroupFullInfo.slowModeDelay
             if update.supergroupFullInfo.memberCount > 0 { memberCount = update.supergroupFullInfo.memberCount }
         }
         observeCurrentUpdate(.updateSecretChat) { [weak self] update, _ in

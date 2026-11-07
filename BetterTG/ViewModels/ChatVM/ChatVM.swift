@@ -397,6 +397,9 @@ import UIKit
     private(set) var secretChatState: TDNativeSecretChatState?
     private(set) var secretChatIsOutbound = false
 
+    /// The supergroup's slow mode delay (`slowModeDelay`), 0 without slow mode.
+    var slowModeDelay = 0
+
     private var isAskingSecretLinkPreviews = false
 
     private var timerCountStorage = 0.0
@@ -1315,6 +1318,17 @@ import UIKit
         let text = item.flatMap { MessageContentPresentation.make($0).formattedText } ?? reply.formattedText
         guard let text, !quote.text.text.isEmpty else { return false }
         return !text.text.contains(quote.text.text)
+    }
+
+    /// TelegramChannel.isRestrictedBySlowmode: the supergroup has slow mode and the account isn't its owner or an
+    /// admin.
+    var isRestrictedBySlowMode: Bool {
+        guard slowModeDelay > 0, case .supergroup(let group) = customChat.type else { return false }
+        switch group.status {
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator: return false
+        default: return true
+        }
     }
 
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
@@ -2640,6 +2654,7 @@ import UIKit
                       locationContextIsCurrent
                 else { return }
                 updateSlowMode(expiresIn: info.slowModeDelayExpiresIn)
+                slowModeDelay = info.slowModeDelay
                 if info.memberCount > 0 { memberCount = info.memberCount }
             }
         case .group(let group) where group.memberCount == 0:
@@ -7324,6 +7339,11 @@ import UIKit
 
     private func sendPendingForward(_ forward: PendingMessageForward) async {
         guard locationContextIsCurrent, let accountID else { return }
+        // ChatController's enqueue check: slow mode lets one message through at a time.
+        if isRestrictedBySlowMode, forward.prepared.request.messageIDs.count > 1 {
+            sendErrorMessage = L10n.telegram("Chat.AttachmentMultipleForwardDisabled")
+            return
+        }
         do {
             _ = try await MessageForwardingService.send(
                 forward.prepared,
