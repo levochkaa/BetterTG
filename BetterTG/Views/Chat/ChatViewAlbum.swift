@@ -620,9 +620,9 @@ private enum MediaGalleryActionButton: Equatable {
 // MARK: - MediaGalleryExportAsset
 
 struct MediaGalleryExportAsset {
-    let completedLocalPath: String?
+    private(set) var completedLocalPath: String?
     let creationDate: Foundation.Date
-    let fileID: Int
+    private(set) var fileID: Int
     let isLivePhoto: Bool
     let livePhotoVideo: File?
     let isSecretMedia: Bool
@@ -752,6 +752,15 @@ struct MediaGalleryExportAsset {
             ? file.local.path
             : nil
         self.creationDate = Foundation.Date(timeIntervalSince1970: TimeInterval(message.date))
+    }
+
+    /// The same video saved as one of its qualities (Gallery.SaveToGallery.Quality): that file in place of the main
+    /// one.
+    func replacingFile(_ file: File) -> MediaGalleryExportAsset {
+        var copy = self
+        copy.fileID = file.id
+        copy.completedLocalPath = file.local.isDownloadingCompleted && !file.local.path.isEmpty ? file.local.path : nil
+        return copy
     }
 }
 
@@ -3082,6 +3091,42 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         exportSelectedMedia(.share)
     }
 
+    /// UniversalVideoGalleryItem's Save to Gallery for a video with qualities: Save Original and Save in <quality>p,
+    /// each with its size, "↓" before one still to download and "• cached" after one on the device. Telegram offers the
+    /// original to Premium accounts only; BetterTG, which leaves Premium out, keeps it for everyone.
+    private func saveQualityAction(
+        mainFile: File?,
+        qualities: [GalleryPlayableMessage.Quality],
+    ) -> TelegramContextMenuAction {
+        func sizeText(_ file: File) -> String {
+            let size = DataSize.string(Int64(max(file.size, file.expectedSize)))
+            return file.local.isDownloadingCompleted
+                ? "\(size) • \(L10n.telegram("Gallery.SaveToGallery.cached"))"
+                : "↓ \(size)"
+        }
+        var children = [TelegramContextMenuAction]()
+        if let mainFile {
+            var original = TelegramContextMenuAction(title: L10n.telegram("Gallery.SaveToGallery.Original")) {
+                [weak self] in self?.exportSelectedMedia(.saveToPhotos)
+            }
+            original.secondLine = (sizeText(mainFile), false)
+            children.append(original)
+        }
+        for quality in qualities {
+            let fileID = quality.file.id
+            var action = TelegramContextMenuAction(
+                title: L10n.telegram("Gallery.SaveToGallery.Quality", "\(quality.height)"),
+            ) { [weak self] in self?.exportSelectedMedia(.saveToPhotos, qualityFileID: fileID) }
+            action.secondLine = (sizeText(quality.file), false)
+            children.append(action)
+        }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Gallery.MenuSaveToGallery"),
+            image: UIImage(systemName: "square.and.arrow.down"),
+            children: children,
+        )
+    }
+
     private func updateMoreMenu() {
         let hasActionContext = actionAccountID != nil
             && actionClient != nil
@@ -3132,12 +3177,20 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             })
         }
         if let saveAsset, saveAsset.photosKind != nil, let title = saveAsset.saveActionTitle {
-            actions.append(TelegramContextMenuAction(
-                title: title,
-                image: UIImage(systemName: "square.and.arrow.down"),
-            ) { [weak self] in
-                self?.exportSelectedMedia(.saveToPhotos)
-            })
+            let qualities = selectedMessage.flatMap { GalleryPlayableMessage(message: $0) }?.qualities ?? []
+            if qualities.isEmpty {
+                actions.append(TelegramContextMenuAction(
+                    title: title,
+                    image: UIImage(systemName: "square.and.arrow.down"),
+                ) { [weak self] in
+                    self?.exportSelectedMedia(.saveToPhotos)
+                })
+            } else {
+                actions.append(saveQualityAction(
+                    mainFile: selectedMessage.flatMap { GalleryPlayableMessage(message: $0) }?.file,
+                    qualities: qualities,
+                ))
+            }
         }
         if canReply {
             actions.append(TelegramContextMenuAction(
@@ -4068,7 +4121,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         present(alert, animated: true)
     }
 
-    private func exportSelectedMedia(_ action: MediaGalleryExportAction) {
+    /// `qualityFileID` saves one of the video's qualities instead of its main file.
+    private func exportSelectedMedia(_ action: MediaGalleryExportAction, qualityFileID: Int? = nil) {
         guard exportTask == nil,
               deleteTask == nil,
               openInChatTask == nil,
@@ -4126,9 +4180,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 try MediaGalleryExport.validatePermission(
                     message: resolved,
                     properties: properties,
-                    asset: exportAsset(resolved, pageID: pageID),
+                    asset: exportAsset(resolved, pageID: pageID, qualityFileID: qualityFileID),
                 )
-                guard let asset = exportAsset(resolved, pageID: pageID),
+                guard let asset = exportAsset(resolved, pageID: pageID, qualityFileID: qualityFileID),
                       action == .share || asset.photosKind != nil
                 else {
                     throw MediaGallerySaveError.messageUnavailable
@@ -4170,9 +4224,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 try MediaGalleryExport.validatePermission(
                     message: latestMessage,
                     properties: latestProperties,
-                    asset: exportAsset(latestMessage, pageID: pageID),
+                    asset: exportAsset(latestMessage, pageID: pageID, qualityFileID: qualityFileID),
                 )
-                guard let latestAsset = exportAsset(latestMessage, pageID: pageID),
+                guard let latestAsset = exportAsset(latestMessage, pageID: pageID, qualityFileID: qualityFileID),
                       latestAsset.fileID == asset.fileID, latestAsset.livePhotoVideo?.id == asset.livePhotoVideo?.id
                 else { throw MediaGallerySaveError.messageUnavailable }
                 let liveResources = try await MediaGalleryExport.livePhotoResources(
@@ -4213,9 +4267,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     try MediaGalleryExport.validatePermission(
                         message: commitMessage,
                         properties: commitProperties,
-                        asset: exportAsset(commitMessage, pageID: pageID),
+                        asset: exportAsset(commitMessage, pageID: pageID, qualityFileID: qualityFileID),
                     )
-                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
+                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID, qualityFileID: qualityFileID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
@@ -4260,9 +4314,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     try MediaGalleryExport.validatePermission(
                         message: commitMessage,
                         properties: commitProperties,
-                        asset: exportAsset(commitMessage, pageID: pageID),
+                        asset: exportAsset(commitMessage, pageID: pageID, qualityFileID: qualityFileID),
                     )
-                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
+                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID, qualityFileID: qualityFileID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
@@ -4317,9 +4371,19 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     /// The exported file of a page: the message's own media, or the page's media inside a fresh copy of the message
     /// that holds it.
-    private func exportAsset(_ message: Message, pageID: Int64) -> MediaGalleryExportAsset? {
-        guard let embeddedMediaSource else { return MediaGalleryExportAsset(message) }
-        return embeddedMediaSource.resolvePage(pageID, message).flatMap(MediaGalleryExportAsset.init)
+    private func exportAsset(
+        _ message: Message,
+        pageID: Int64,
+        qualityFileID: Int? = nil,
+    ) -> MediaGalleryExportAsset? {
+        let page = embeddedMediaSource.map { $0.resolvePage(pageID, message) } ?? message
+        guard let page, let asset = MediaGalleryExportAsset(page) else { return nil }
+        guard let qualityFileID else { return asset }
+        // A quality the message no longer has can't be saved.
+        guard let quality = GalleryPlayableMessage(message: page)?.qualities
+            .first(where: { $0.file.id == qualityFileID })
+        else { return nil }
+        return asset.replacingFile(quality.file)
     }
 
     private func preparedShareLease(

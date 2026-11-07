@@ -4079,3 +4079,7 @@
 "Gallery.VideoSettings.QualityHD" = "High";
 "Gallery.VideoSettings.QualityFHD" = "Full HD";
 "Gallery.VideoSettings.QualityQHD" = "Ultra-High";
+"Gallery.SaveToGallery.Quality" = "Save in %@p";
+"Gallery.SaveToGallery.Original" = "Save Original";
+"Gallery.SaveToGallery.cached" = "cached";
+"Gallery.MenuSaveToGallery" = "Save to Gallery";
