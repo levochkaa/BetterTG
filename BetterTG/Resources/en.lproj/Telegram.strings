@@ -4029,3 +4029,7 @@
 "ChatList.MessagePhotos_any" = "%@ Photos";
 "ChatList.MessageVideos_1" = "1 Videos";
 "ChatList.MessageVideos_any" = "%@ Videos";
+"ChatList.MessageFiles_1" = "%@ File";
+"ChatList.MessageFiles_any" = "%@ Files";
+"ChatList.MessageMusic_1" = "%@ Music File";
+"ChatList.MessageMusic_any" = "%@ Music Files";

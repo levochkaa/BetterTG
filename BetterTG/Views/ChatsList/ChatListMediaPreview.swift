@@ -175,29 +175,32 @@ struct ChatListMediaPreviews: Equatable {
         return Self(items: Array(previews.prefix(limit)), text: caption ?? groupText(messages) ?? last.text)
     }
 
-    /// messageGroupType's `.photos` and `.videos`: every message of the album is that kind.
-    private static func groupText(_ messages: [Message]) -> FormattedText? {
+    /// messageGroupType's `.photos`, `.videos`, `.files` and `.music`: every message of the album is that kind and none
+    /// has a caption, as chatListItemStrings names the group ("3 Photos", "2 Files").
+    static func groupText(_ messages: [Message]) -> FormattedText? {
         guard messages.count > 1 else { return nil }
-        let key: String
-        if messages.allSatisfy({
-            if case .messagePhoto = $0.content {
-                true
-            } else {
-                false
+        var keys = Set<String>()
+        for message in messages {
+            let caption: FormattedText
+            switch message.content {
+            case .messagePhoto(let content):
+                keys.insert("ChatList.MessagePhotos")
+                caption = content.caption
+            case .messageVideo(let content):
+                keys.insert("ChatList.MessageVideos")
+                caption = content.caption
+            case .messageDocument(let content):
+                keys.insert("ChatList.MessageFiles")
+                caption = content.caption
+            case .messageAudio(let content):
+                keys.insert("ChatList.MessageMusic")
+                caption = content.caption
+            default:
+                return nil
             }
-        }) {
-            key = "ChatList.MessagePhotos"
-        } else if messages.allSatisfy({
-            if case .messageVideo = $0.content {
-                true
-            } else {
-                false
-            }
-        }) {
-            key = "ChatList.MessageVideos"
-        } else {
-            return nil
+            guard caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         }
+        guard keys.count == 1, let key = keys.first else { return nil }
         return ChatListMediaPreview.plain(L10n.telegramPlural(key, count: messages.count))
     }
 

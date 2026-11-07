@@ -65,6 +65,8 @@ final class ChatListCell: UITableViewCell {
     /// ChatListMediaPreviewNodes before the text, in the gap the text leaves for them.
     private let mediaPreviewViews = (0..<ChatListMediaPreviews.limit).map { _ in ChatListMediaPreviewView() }
     private var mediaPreviews: ChatListMediaPreviews?
+    /// An album with no thumbnails to show, named by its count.
+    private var albumText: FormattedText?
     /// ChatListItem's forwardedIconNode, showing whichever messageTypeIcon the last message has.
     private let messageTypeIconView = UIImageView()
     /// ChatListTypingNode's animated indicator before an activity's text.
@@ -298,6 +300,7 @@ final class ChatListCell: UITableViewCell {
             }
         } ?? []
         mediaPreviews = ChatListMediaPreviews.make(for: album, inSecretChat: chat.secretChatID != nil)
+        albumText = mediaPreviews == nil ? ChatListMediaPreviews.groupText(album) : nil
         messageTypeIcon = shownMessage.flatMap(ChatListMessageTypeIcon.make)
         messageTypeIconView.image = messageTypeIcon?.image
         for (index, view) in mediaPreviewViews.enumerated() {
@@ -516,6 +519,7 @@ final class ChatListCell: UITableViewCell {
             for: chat,
             icon: messageTypeIcon,
             previews: mediaPreviews,
+            albumText: albumText,
             font: messageLabel.font,
         )
         else { return nil }

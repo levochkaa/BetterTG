@@ -148,6 +148,19 @@ import UIKit
             ))
         }
 
+        private static func document(_ text: String) -> MessageContent {
+            .messageDocument(.init(
+                document: .init(
+                    fileName: "a.pdf",
+                    mimeType: "application/pdf",
+                    minithumbnail: nil,
+                    thumbnail: nil,
+                    document: file,
+                ),
+                caption: caption(text),
+            ))
+        }
+
         private static func video(_ text: String) -> MessageContent {
             .messageVideo(.init(
                 video: Video(
@@ -319,6 +332,17 @@ import UIKit
             try require(
                 videos?.text?.text == L10n.telegramPlural("ChatList.MessageVideos", count: 2),
                 "album of videos",
+            )
+            let files = [message(31, document("")), message(32, document(""))]
+            try require(
+                ChatListMediaPreviews.make(for: files, inSecretChat: false) == nil
+                    && ChatListMediaPreviews.groupText(files)?.text
+                    == L10n.telegramPlural("ChatList.MessageFiles", count: 2),
+                "album of files",
+            )
+            try require(
+                ChatListMediaPreviews.groupText([message(33, document("")), message(34, document("notes"))]) == nil,
+                "captioned files",
             )
             try require(previews.map { $0.width == 18 * 3 + 2 * 2 } == true, "album width")
         }

@@ -9,6 +9,7 @@ import UIKit
         for chat: CustomChat,
         icon: ChatListMessageTypeIcon? = nil,
         previews: ChatListMediaPreviews? = nil,
+        albumText: FormattedText? = nil,
         font: UIFont,
     ) -> NSAttributedString? {
         if let draft = chat.draftMessage {
@@ -58,7 +59,9 @@ import UIKit
         if icon != nil || previews != nil {
             result.append(ChatListMessageTypeIcon.gap(icon: icon, previews: previews))
         }
+        // An album without thumbnails (files, music) still reads as its count.
         let text = previews?.text
+            ?? albumText
             ?? ChatListMessageTypeIcon.text(for: message)
             ?? formattedText(of: message)
             ?? ChatListMediaPreview.plain(summary(for: message))
