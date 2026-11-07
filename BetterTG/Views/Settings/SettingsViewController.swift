@@ -77,8 +77,15 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             self?.loadAccountState()
         }
         nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
-            self?.title = L10n.telegram("Settings.Title")
-            self?.tableView.reloadData()
+            guard let self else { return }
+            title = L10n.telegram("Settings.Title")
+            // An open search finds the items in the new language.
+            if isSearching {
+                searchItems = SettingsSearch.items()
+                updateSearchResults()
+            } else {
+                tableView.reloadData()
+            }
         }
         SuggestedActionsStore.shared
             .changes
@@ -475,6 +482,15 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(make(), animated: true)
         case .twoStepVerification:
             openTwoStepVerification()
+        case .language(let language):
+            guard language.id != AppLocalization.shared.selectedLanguagePackID else { return }
+            Task { [weak self] in
+                do {
+                    try await AppLocalization.shared.apply(language)
+                } catch {
+                    self?.showError(error.localizedDescription)
+                }
+            }
         case .deleteAccount:
             // deleteAccountOptionsController, which asks for the password when there is one.
             let client = TDLib.shared.activeClient

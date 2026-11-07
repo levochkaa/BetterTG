@@ -16,6 +16,8 @@ struct SettingsSearchItem {
         case screen(@MainActor () -> UIViewController)
         case twoStepVerification
         case deleteAccount
+        /// applyLocalization: the language at once.
+        case language(AppLanguage)
     }
 
     let id: String
@@ -392,6 +394,13 @@ struct SettingsSearchItem {
                     TranslationLanguagesViewController(mode: .doNotTranslate)
                 },
             ),
+        ] + AppLocalization.shared.availableLanguages.map { language in
+            // The language's own name, found by its English one too.
+            SettingsSearchItem(
+                id: "language/set/\(language.id)", title: language.nativeName, alternate: [language.name],
+                icon: .language, breadcrumbs: [L10n.telegram("Settings.AppLanguage")], target: .language(language),
+            )
+        } + [
             item(
                 "ask-question", "Settings.Support", synonyms: "SettingsSearch.Synonyms.Support", icon: .support,
                 target: .row(.support),
