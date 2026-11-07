@@ -5362,6 +5362,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                 for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
             ),
         )
+        mediaView.videoQualities = source.qualities
+        mediaView.autoQualityFile = source.file
+        mediaView.autoQualityHeight = source.height
         configurePictureInPicture()
         observeMessageDeletion()
         observePlaybackAuthority()
@@ -8127,6 +8130,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     var onPictureInPictureToggle: (() -> Void)?
     var onPictureInPictureEligibilityChanged: (() -> Void)?
     var onPlaybackIntentChanged: (() -> Void)?
+    /// UniversalVideoGalleryItem's video quality: the alternatives, the main file's height that Auto plays, and the
+    /// chosen height (nil for Auto). The settings menu offers them where there are any.
+    var videoQualities = [GalleryPlayableMessage.Quality]()
+    var autoQualityFile: File?
+    var autoQualityHeight = 0
+    private(set) var selectedQualityHeight: Int?
 
     private let preview = TDImageLoadingView()
     private let videoSurface = LocalVideoSurfaceView(frame: .zero)
@@ -8609,6 +8618,19 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         return (target, false)
     }
 
+    /// Low up to 360p, Medium up to 480p, HD up to 720p, Full HD up to 1080p, QHD above.
+    private static func qualityTitle(_ height: Int) -> String {
+        let key =
+            switch height {
+            case ...360: "Gallery.VideoSettings.QualityLow"
+            case ...480: "Gallery.VideoSettings.QualityMedium"
+            case ...720: "Gallery.VideoSettings.QualityHD"
+            case ...1080: "Gallery.VideoSettings.QualityFHD"
+            default: "Gallery.VideoSettings.QualityQHD"
+            }
+        return L10n.telegram(key)
+    }
+
     func makePictureInPictureContentSource(
         playbackDelegate: any AVPictureInPictureSampleBufferPlaybackDelegate,
     ) -> AVPictureInPictureController.ContentSource? {
@@ -9084,6 +9106,37 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             return false
         }
         return true
+    }
+
+    /// setVideoQuality: the chosen height's file, or the main file for Auto, takes over from the current position,
+    /// keeping the pause, the speed and the presentation; the old playback stops first.
+    func selectVideoQuality(_ height: Int?) {
+        let file = height.flatMap { height in videoQualities.first { $0.height == height }?.file } ?? autoQualityFile
+        selectedQualityHeight = height
+        guard let file, let current = sourceFile, current.id != file.id else { return }
+        let time = currentPlaybackTime
+        loadIdentifier = nil
+        usesLegacyDownload = false
+        usesVOD = false
+        usesFFmpegVOD = false
+        player.stop()
+        stopFFmpegPlayback()
+        task?.cancel()
+        task = nil
+        isSurfaceReady = false
+        surfaceItemIdentifier = nil
+        loadedPath = nil
+        retryMode = nil
+        retryStatusText = nil
+        retryButton.isHidden = true
+        currentStreamingStatus = .idle
+        currentFFmpegFailure = nil
+        fileID = file.id
+        sourceFile = file
+        startPlaybackTimestamp = time
+        vodConfiguration?.startTimestamp = time
+        spinner.startAnimating()
+        beginInitialPlayback(file: file)
     }
 
     /// The frame the surface shows now, or nil before the first frame and while the surface is hidden.
@@ -9882,9 +9935,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         sectionTitle.isHeader = true
         sectionTitle.isSectionTitle = true
         sectionTitle.startsNewSection = true
+        // Telegram leaves the speed presets out when the video has qualities to choose.
+        let quality = qualityActions()
         controller.presentTelegramContextMenu(
             sourceView: rateButton,
-            actions: [slider, sectionTitle] + presets,
+            actions: quality.isEmpty ? [slider, sectionTitle] + presets : [slider] + quality,
             presentationStyle: .menuOnly,
             onDismiss: { [weak self] in
                 self?.isPlaybackRateMenuOpen = false
@@ -10205,6 +10260,33 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             return String(format: "%d:%02d:%02d", hours, minutes, remainder)
         }
         return String(format: "%d:%02d", minutes, remainder)
+    }
+
+    /// The settings menu's QUALITY section: Auto with the height it plays, then each height with its name.
+    private func qualityActions() -> [TelegramContextMenuAction] {
+        guard !videoQualities.isEmpty else { return [] }
+        let checkmark = UIImage(systemName: "checkmark")
+        var title = TelegramContextMenuAction(title: L10n.telegram("Gallery.VideoSettings.QualitySectionTitle"))
+        title.isHeader = true
+        title.isSectionTitle = true
+        title.startsNewSection = true
+        var auto = TelegramContextMenuAction(
+            title: L10n.telegram("Gallery.VideoSettings.QualityAuto"),
+            image: selectedQualityHeight == nil ? checkmark : UIImage(),
+        ) { [weak self] in self?.selectVideoQuality(nil) }
+        if autoQualityHeight > 0 { auto.secondLine = ("\(autoQualityHeight)p", false) }
+        var actions = [title, auto]
+        if videoQualities.count > 1 {
+            for quality in videoQualities {
+                var action = TelegramContextMenuAction(
+                    title: Self.qualityTitle(quality.height),
+                    image: selectedQualityHeight == quality.height ? checkmark : UIImage(),
+                ) { [weak self] in self?.selectVideoQuality(quality.height) }
+                action.secondLine = ("\(quality.height)p", false)
+                actions.append(action)
+            }
+        }
+        return actions
     }
 
     @objc private func retryPlayback() {

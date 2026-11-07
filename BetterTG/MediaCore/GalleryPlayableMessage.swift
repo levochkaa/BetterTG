@@ -15,6 +15,11 @@ struct GalleryPlayableMessage {
         let revision: Int
     }
 
+    struct Quality: Equatable {
+        let height: Int
+        let file: File
+    }
+
     let identity: Identity
     let file: File
     let thumbnail: Thumbnail?
@@ -24,6 +29,12 @@ struct GalleryPlayableMessage {
     let supportsStreaming: Bool
     let isSecret: Bool
     let startTimestamp: TimeInterval
+    /// The video's own quality, which Auto plays.
+    var height = 0
+    /// TDLib's alternativeVideos that AVPlayer decodes (H.264 and HEVC), one per quality, highest first, as Telegram's
+    /// HLSQualitySet offers them in the quality menu. A quality is the shorter side, as HLSQualitySet keys them, so a
+    /// portrait 720×1280 video is 720p.
+    var qualities = [Quality]()
 
     var isAnimation: Bool { identity.kind == .animation }
 
@@ -42,6 +53,16 @@ struct GalleryPlayableMessage {
             self.supportsStreaming = value.video.supportsStreaming
             self.isSecret = value.isSecret
             self.startTimestamp = startTimestamp ?? TimeInterval(value.startTimestamp)
+            self.height = min(value.video.width, value.video.height)
+            if !value.isSecret {
+                var seen = Set<Int>()
+                self.qualities = value.alternativeVideos
+                    .filter { ["h264", "avc", "h265", "hevc"].contains($0.codec.lowercased()) }
+                    .map { Quality(height: min($0.width, $0.height), file: $0.video) }
+                    .filter { $0.height > 0 }
+                    .sorted { $0.height > $1.height }
+                    .filter { seen.insert($0.height).inserted }
+            }
         case .messageAnimation(let value):
             guard !telegramAnimationUsesFFmpeg(value.animation) else { return nil }
             kind = .animation

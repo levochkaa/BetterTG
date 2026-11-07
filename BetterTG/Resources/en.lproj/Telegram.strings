@@ -4072,3 +4072,10 @@
 "ArchiveSettings.UnknownChatsHeader" = "NEW CHATS FROM UNKNOWN USERS";
 "ArchiveSettings.UnknownChatsFooter" = "Automatically archive and mute new private chats, groups and channels from non-contacts.";
 "ArchiveSettings.AutomaticallyArchive" = "Automatically Archive";
+"Gallery.VideoSettings.QualitySectionTitle" = "QUALITY";
+"Gallery.VideoSettings.QualityAuto" = "Auto";
+"Gallery.VideoSettings.QualityLow" = "Low";
+"Gallery.VideoSettings.QualityMedium" = "Medium";
+"Gallery.VideoSettings.QualityHD" = "High";
+"Gallery.VideoSettings.QualityFHD" = "Full HD";
+"Gallery.VideoSettings.QualityQHD" = "Ultra-High";
