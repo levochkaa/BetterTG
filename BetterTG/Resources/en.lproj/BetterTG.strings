@@ -528,6 +528,8 @@
 "Profile.SimilarEmpty" = "No recommendations";
 "Profile.PostsLoadFailed" = "Couldn't load posts.";
 "Profile.PostsEmpty" = "No posts";
+"Profile.GiftsLoadFailed" = "Couldn't load gifts.";
+"Profile.GiftsEmpty" = "No gifts";
 "Profile.Title" = "Profile";
 "Profile.ForumStatus" = "forum";
 "Profile.ReloadFailed" = "Couldn't reload profile.";

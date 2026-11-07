@@ -3414,3 +3414,6 @@
 "Stories.AddStories_any" = "Add %@ Stories";
 "BotPreviews.MenuReorder" = "Reorder";
 "Gallery.VideoSettings.SpeedSectionTitle" = "PLAYBACK SPEED";
+"PeerInfo.PaneGifts" = "Gifts";
+"PeerInfo.Gifts.OneOf" = "1 of %@";
+"PeerInfo.Gifts.Sale" = "sale";

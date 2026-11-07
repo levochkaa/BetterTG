@@ -14,6 +14,8 @@ ClientRestorableNavigationEntry {
         case members = 7
         /// PeerInfoStoryPaneNode: the stories saved to the profile, pinned ones first.
         case posts = 10
+        /// PeerInfoGiftsPaneNode: the gifts kept on a user's or a channel's profile.
+        case gifts = 12
         case media = 0
         case files = 1
         case audio = 2
@@ -30,6 +32,7 @@ ClientRestorableNavigationEntry {
             switch self {
             case .posts: L10n.telegram("PeerInfo.PaneStories")
             case .archivedPosts: L10n.telegram("PeerInfo.PaneArchivedStories")
+            case .gifts: L10n.telegram("PeerInfo.PaneGifts")
             case .media: L10n.telegram("PeerInfo.PaneMedia")
             case .files: L10n.telegram("PeerInfo.PaneFiles")
             case .audio: L10n.telegram("PeerInfo.PaneAudio")
@@ -47,6 +50,7 @@ ClientRestorableNavigationEntry {
             switch self {
             case .archivedPosts,
                  .posts: L10n.betterTG("Profile.PostsLoadFailed")
+            case .gifts: L10n.betterTG("Profile.GiftsLoadFailed")
             case .media: L10n.betterTG("Profile.SharedMediaLoadFailed")
             case .files: L10n.betterTG("Profile.SharedFilesLoadFailed")
             case .audio: L10n.betterTG("Profile.SharedAudioLoadFailed")
@@ -64,6 +68,7 @@ ClientRestorableNavigationEntry {
             switch self {
             case .archivedPosts,
                  .posts: L10n.betterTG("Profile.PostsEmpty")
+            case .gifts: L10n.betterTG("Profile.GiftsEmpty")
             case .media: L10n.betterTG("Profile.SharedMediaEmpty")
             case .files: L10n.betterTG("Profile.SharedFilesEmpty")
             case .audio: L10n.betterTG("Profile.SharedAudioEmpty")
@@ -87,6 +92,7 @@ ClientRestorableNavigationEntry {
             case .links: .searchMessagesFilterUrl
             case .gifs: .searchMessagesFilterAnimation
             case .archivedPosts,
+                 .gifts,
                  .groupsInCommon,
                  .members,
                  .posts,
@@ -357,6 +363,9 @@ ClientRestorableNavigationEntry {
     private var albumAddButton: UIButton?
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
     private var membersPane: PeerProfileMembersPane?
+    private var giftsPane: PeerProfileGiftsPane?
+    /// The full info's gift count; the panes wait for it, since Gifts comes second.
+    private var giftCount: Int?
     private var currentSupergroupMemberCount = 0
     /// The group's full info arrived (or failed): the Members pane's place is known.
     private var membersInfoLoaded = false
@@ -572,6 +581,17 @@ ClientRestorableNavigationEntry {
              .user: return true
         case .bot,
              .group: return false
+        }
+    }
+
+    /// PeerInfoData's gifts pane: a user's (My Profile's too) or a channel's gifts, never Saved Messages' or a topic's.
+    private var listsGifts: Bool {
+        if isSavedMessagesProfile || topic != nil { return false }
+        switch customChat.type {
+        case .bot,
+             .supergroup,
+             .user: return true
+        case .group: return false
         }
     }
 
@@ -942,6 +962,29 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    /// GiftsListView's grid: square tiles 10 pt apart, 16 pt in from the sides, three to a row, or five on a wide
+    /// window.
+    private static func giftsSection(width: CGFloat) -> NSCollectionLayoutSection {
+        let sideInset: CGFloat = 16
+        let spacing: CGFloat = 10
+        let columns = width > 480 ? 5 : 3
+        let side = floor((width - sideInset * 2 - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+            widthDimension: .absolute(side),
+            heightDimension: .absolute(side),
+        ))
+        let group = NSCollectionLayoutGroup.horizontal(
+            layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .absolute(side)),
+            repeatingSubitem: item,
+            count: columns,
+        )
+        group.interItemSpacing = .fixed(spacing)
+        let section = NSCollectionLayoutSection(group: group)
+        section.interGroupSpacing = spacing
+        section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: sideInset, bottom: 16, trailing: sideInset)
+        return section
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -1041,6 +1084,10 @@ ClientRestorableNavigationEntry {
             NavigationStorage.shared.push(.customChat(chat))
             return
         }
+        if currentSharedTab == .gifts {
+            collectionView.deselectItem(at: indexPath, animated: true)
+            return
+        }
         if currentSharedTab.isStories {
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
             if var selected = selectedPostIDs {
@@ -1085,6 +1132,7 @@ ClientRestorableNavigationEntry {
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? SharedMediaGridCell)?.resumeLoading()
+        (cell as? ProfileGiftCell)?.setPlaybackVisible(true)
         if currentSharedTab.filter != nil, let id = dataSource.itemIdentifier(for: indexPath) {
             cell.setSharedSelectionMark(
                 isSelecting: selectedMessageIDs != nil,
@@ -1098,6 +1146,7 @@ ClientRestorableNavigationEntry {
             case .archivedPosts,
                  .posts: posts.count
             case .members: membersPane?.items.count ?? 0
+            case .gifts: giftsPane?.items.count ?? 0
             case .similarBots,
                  .similarChannels: similarChats.count
             case .audio,
@@ -1117,6 +1166,7 @@ ClientRestorableNavigationEntry {
         forItemAt _: IndexPath,
     ) {
         (cell as? SharedMediaGridCell)?.pauseLoading()
+        (cell as? ProfileGiftCell)?.setPlaybackVisible(false)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -2177,6 +2227,7 @@ ClientRestorableNavigationEntry {
             ProfileStoryGridCell.self,
             forCellWithReuseIdentifier: ProfileStoryGridCell.reuseIdentifier,
         )
+        collectionView.register(ProfileGiftCell.self, forCellWithReuseIdentifier: ProfileGiftCell.reuseIdentifier)
         collectionView.register(
             StoryAlbumTabsView.self,
             forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
@@ -2237,6 +2288,9 @@ ClientRestorableNavigationEntry {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, environment in
+            if self?.currentSharedTab == .gifts {
+                return Self.giftsSection(width: environment.container.effectiveContentSize.width)
+            }
             if self?.currentSharedTab.isStories == true {
                 // PeerInfoStoryPaneNode: three tiles to a row, 0.81 as wide as they are tall, a point apart.
                 let width = environment.container.effectiveContentSize.width
@@ -2333,6 +2387,15 @@ ClientRestorableNavigationEntry {
                       ) as? SharedGroupRowCell
                 else { return UICollectionViewCell() }
                 cell.configure(chat: chat, subtitle: Self.similarSubtitle(chat), accountID: accountID, client: client)
+                return cell
+            }
+            if currentSharedTab == .gifts {
+                guard let gift = giftsPane?.gift(for: id),
+                      let cell = collectionView.dequeueReusableCell(
+                          withReuseIdentifier: ProfileGiftCell.reuseIdentifier, for: indexPath,
+                      ) as? ProfileGiftCell
+                else { return UICollectionViewCell() }
+                cell.configure(gift: gift, client: client)
                 return cell
             }
             if currentSharedTab.isStories {
@@ -2851,6 +2914,7 @@ ClientRestorableNavigationEntry {
         currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
         currentSupergroupMemberCount = update.supergroupFullInfo.memberCount
         membersInfoLoaded = true
+        applyGiftCount(update.supergroupFullInfo.giftCount)
         updateSharedTabAvailability()
         applyFullInfo(
             bio: update.supergroupFullInfo.description,
@@ -2942,6 +3006,7 @@ ClientRestorableNavigationEntry {
             status: nil,
             photo: selectedPhoto,
         )
+        applyGiftCount(info.giftCount)
         if !isSelfProfile, groupsInCommonCount != info.groupInCommonCount {
             groupsInCommonCount = info.groupInCommonCount
             updateSharedTabAvailability()
@@ -3308,6 +3373,7 @@ ClientRestorableNavigationEntry {
                     currentSupergroupCanGetMembers = info.canGetMembers
                     currentSupergroupMemberCount = info.memberCount
                     membersInfoLoaded = true
+                    applyGiftCount(info.giftCount)
                     updateSharedTabAvailability()
                     applyFullInfo(
                         bio: info.description,
@@ -3336,6 +3402,7 @@ ClientRestorableNavigationEntry {
                     membersInfoLoaded = true
                     updateSharedTabAvailability()
                 }
+                if giftCount == nil { applyGiftCount(0) }
             }
         }
     }
@@ -3353,6 +3420,11 @@ ClientRestorableNavigationEntry {
                 loadSimilar()
             } else if currentSharedTab.isStories {
                 loadMorePosts()
+            } else if currentSharedTab == .gifts {
+                guard restoredViewport == nil, contextIsCurrent, let giftsPane else { return }
+                historyError = nil
+                giftsPane.loadMore()
+                if giftsPane.items.isEmpty { applySnapshot() }
             } else {
                 loadMoreGroupsInCommon()
             }
@@ -3442,6 +3514,17 @@ ClientRestorableNavigationEntry {
         }
         if currentSharedTab.isSimilar {
             applySimilarSnapshot(animated: animated, completion: completion)
+            return
+        }
+        if currentSharedTab == .gifts {
+            let items = giftsPane?.items ?? []
+            let existing = Set(dataSource.snapshot().itemIdentifiers)
+            var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+            snapshot.appendSections([.messages])
+            snapshot.appendItems(items)
+            snapshot.reconfigureItems(items.filter(existing.contains))
+            dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+            updateEmptyBackground(isEmpty: items.isEmpty, isLoading: giftsPane?.isLoading ?? true)
             return
         }
         if currentSharedTab.isStories {
@@ -4649,6 +4732,7 @@ ClientRestorableNavigationEntry {
         // Posts come first, so the panes wait for TDLib's count of them.
         if listsPosts, postsCount == nil { return }
         if isMyProfile, archivedPostsCount == nil { return }
+        if listsGifts, giftCount == nil { return }
         // A group's Members pane comes first, so the panes wait for the member count in its full info.
         if listsMembers, !membersInfoLoaded { return }
         let showsMembers = showsMembersPane
@@ -4661,6 +4745,7 @@ ClientRestorableNavigationEntry {
             // PeerInfoData always lists My Profile's posts and adds the archive once it has stories.
             case .posts: isMyProfile || (postsCount ?? 0) > 0
             case .archivedPosts: isMyProfile && (archivedPostsCount ?? 0) > 0
+            case .gifts: listsGifts && (giftCount ?? 0) > 0
             case .audio,
                  .files,
                  .gifs,
@@ -4670,6 +4755,7 @@ ClientRestorableNavigationEntry {
             }
         }
         if showsMembers { makeMembersPaneIfNeeded() }
+        if tabs.contains(.gifts) { makeGiftsPaneIfNeeded() }
         guard tabs != availableSharedTabs else { return }
         let wasResolved = availableSharedTabs != nil
         availableSharedTabs = tabs
@@ -4730,6 +4816,33 @@ ClientRestorableNavigationEntry {
             }
         }
         if groupsInCommon.isEmpty { applySnapshot() }
+    }
+
+    private func makeGiftsPaneIfNeeded() {
+        guard giftsPane == nil else { return }
+        let ownerID: MessageSender =
+            switch customChat.type {
+            case .bot(let user),
+                 .user(let user): .messageSenderUser(.init(userId: user.id))
+            case .group,
+                 .supergroup: .messageSenderChat(.init(chatId: customChat.id))
+            }
+        let pane = PeerProfileGiftsPane(ownerID: ownerID, client: client) { [weak self] in
+            self?.contextIsCurrent ?? false
+        }
+        pane.onChange = { [weak self] in
+            guard let self, currentSharedTab == .gifts else { return }
+            historyError = giftsPane?.error
+            applySnapshot()
+        }
+        giftsPane = pane
+    }
+
+    /// The full info's gift count, which shows or hides the Gifts pane.
+    private func applyGiftCount(_ count: Int) {
+        guard listsGifts, giftCount != count else { return }
+        giftCount = count
+        updateSharedTabAvailability()
     }
 
     private func makeMembersPaneIfNeeded() {

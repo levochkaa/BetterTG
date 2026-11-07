@@ -306,12 +306,14 @@ private extension PeerProfileViewController.SharedTab {
                 false
             }
         case .archivedPosts,
+             .gifts,
              .groupsInCommon,
              .members,
              .posts,
              .similarBots,
              .similarChannels:
-            // Groups and the recommendations list chats, Members lists people; no message belongs to them.
+            // Groups and the recommendations list chats, Members lists people, Gifts lists gifts; no message belongs to
+            // them.
             false
         case .links:
             switch message.content {
