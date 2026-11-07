@@ -769,8 +769,15 @@ import UserNotifications
                 replyTo: replyTo,
                 topicId: destinationTopic,
             )
+            // A reply to a message of a supergroup's reply thread lands in that thread (`messageTopicThread`).
+            let landsInReplyThread =
+                if destinationTopic == nil, case .messageTopicThread = sentMessage.topicId {
+                    true
+                } else {
+                    false
+                }
             guard sentMessage.chatId == chat.id,
-                  sentMessage.topicId == destinationTopic
+                  sentMessage.topicId == destinationTopic || landsInReplyThread
             else {
                 log("Unable to send quick reply: Telegram returned a different topic")
                 return
