@@ -1274,8 +1274,9 @@ ClientRestorableNavigationEntry {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // PeerInfoVisualMediaPaneNode's and PeerInfoStoryPaneNode's grids have the scroller.
-        if currentSharedTab == .media || currentSharedTab.isStories {
+        // PeerInfoVisualMediaPaneNode's panes (media, files, music, voice) and PeerInfoStoryPaneNode's grids have the
+        // scroller; only Media opens the calendar from it.
+        if [.media, .files, .audio, .voice].contains(currentSharedTab) || currentSharedTab.isStories {
             scrollingArea.update(isScrolling: scrollView.isDragging || scrollView.isDecelerating)
         } else {
             scrollingArea.hide(animated: false)
@@ -3637,7 +3638,7 @@ ClientRestorableNavigationEntry {
 
     /// PeerInfoScreen.openMediaCalendar: CalendarMessageScreen at the top visible item's month, its circles the kinds
     /// the pane shows, and only days with media chosen; a day scrolls the grid to its media.
-    /// The month and year of the first photo, video or post at the top of the grid, for the fast scroller.
+    /// The month and year of the first item (a message or a post) at the top of the pane, for the fast scroller.
     private func topMediaMonth() -> (text: String, order: Int)? {
         let top = collectionView.contentOffset.y + collectionView.safeAreaInsets.top
         let stories = currentSharedTab.isStories
