@@ -65,6 +65,20 @@ import UIKit
     /// The pane's owner, for a screen that lists the same gifts.
     var owner: MessageSender { ownerID }
 
+    // MARK: Reorder
+
+    /// The items a finger may move while reordering: all of a collection's, or the pinned gifts at the top of All
+    /// Gifts.
+    var reorderableCount: Int {
+        if selectedCollectionID != nil { return items.count }
+        return items.prefix { gifts[$0]?.isPinned == true }.count
+    }
+
+    /// GiftsListView.updateIsReordering's start condition: something to move.
+    var canReorder: Bool {
+        reorderableCount > 1 || collections.count > 1
+    }
+
     init(ownerID: MessageSender, client: TDLibClient, isCurrent: @escaping () -> Bool) {
         self.ownerID = ownerID
         self.client = client
@@ -245,6 +259,43 @@ import UIKit
         reload()
         runCollectionChange(host: host) { client, ownerID in
             _ = try await client.send(TDNativeRequests.deleteGiftCollection(ownerId: ownerID, collectionId: id))
+        }
+    }
+
+    /// The grid's order after a move.
+    func setOrder(_ order: [Int64]) {
+        items = order
+    }
+
+    /// The tabs' order after a move.
+    func setCollectionOrder(_ ids: [Int]) {
+        collections = ids.compactMap { id in collections.first { $0.id == id } }
+    }
+
+    /// GiftsListView.updateIsReordering's end: reorderGiftCollectionGifts in a collection, setPinnedGifts in All
+    /// Gifts; and reorderGiftCollections when the tabs moved.
+    func commitOrder(giftsMoved: Bool, collectionsMoved: Bool, host: UIViewController) {
+        let giftIDs = items.compactMap { gifts[$0]?.receivedGiftId }
+        let pinnedIDs = Array(giftIDs.prefix(reorderableCount))
+        let collectionID = selectedCollectionID
+        let collectionIDs = collections.map(\.id)
+        runCollectionChange(host: host) { client, ownerID in
+            if giftsMoved {
+                if let collectionID {
+                    _ = try await client.send(TDNativeRequests.reorderGiftCollectionGifts(
+                        ownerId: ownerID, collectionId: collectionID, receivedGiftIds: giftIDs,
+                    ))
+                } else {
+                    _ = try await client.send(TDNativeRequests.setPinnedGifts(
+                        ownerId: ownerID, receivedGiftIds: pinnedIDs,
+                    ))
+                }
+            }
+            if collectionsMoved {
+                _ = try await client.send(TDNativeRequests.reorderGiftCollections(
+                    ownerId: ownerID, collectionIds: collectionIDs,
+                ))
+            }
         }
     }
 

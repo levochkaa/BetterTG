@@ -376,6 +376,10 @@ ClientRestorableNavigationEntry {
     private var albumOrderChanged = false
     /// A tile moved during this reordering; only then does Done save the stories' order.
     private var postOrderChanged = false
+    /// GiftsListView's reordering: the collection tabs and the movable gifts follow the finger; Done saves.
+    private var isReorderingGifts = false
+    private var giftOrderChanged = false
+    private var giftCollectionOrderChanged = false
     private lazy var reorderGesture: UILongPressGestureRecognizer = {
         let gesture = UILongPressGestureRecognizer(target: self, action: #selector(reorderPanned(_:)))
         gesture.minimumPressDuration = 0.15
@@ -1153,7 +1157,7 @@ ClientRestorableNavigationEntry {
         if currentSharedTab == .gifts {
             collectionView.deselectItem(at: indexPath, animated: true)
             // GiftsListView opens GiftViewScreen for the tapped gift.
-            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath),
+            guard contextIsCurrent, !isReorderingGifts, let id = dataSource.itemIdentifier(for: indexPath),
                   let gift = giftsPane?.gift(for: id) else { return }
             GiftInfoViewController.present(gift, isOwnProfile: isMyProfile, client: client, from: self)
             return
@@ -1324,10 +1328,18 @@ ClientRestorableNavigationEntry {
                     configureGiftCollectionTabs(view as? StoryAlbumTabsView)
                 }
             },
-            onAdd: isMyProfile ? { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) } : nil,
+            onAdd: isMyProfile && !isReorderingGifts
+                ? { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) }
+                : nil,
             onMenu: isMyProfile
                 ? { [weak self] id, source, gesture in
                     self?.openGiftCollectionMenu(id, source: source, gesture: gesture)
+                }
+                : nil,
+            onReorder: isMyProfile && isReorderingGifts
+                ? { [weak self] order in
+                    self?.giftsPane?.setCollectionOrder(order)
+                    self?.giftCollectionOrderChanged = true
                 }
                 : nil,
         )
@@ -1406,7 +1418,7 @@ ClientRestorableNavigationEntry {
                     giftsPane?.renameCollection(id, to: name, host: self)
                 }
             },
-        ] + [shareGiftCollectionAction(id)].compactMap(\.self) + [
+        ] + [shareGiftCollectionAction(id)].compactMap(\.self) + [giftsReorderAction()] + [
             TelegramContextMenuAction(
                 title: L10n.telegram("PeerInfo.Gifts.DeleteCollection"),
                 image: UIImage(systemName: "trash"),
@@ -1873,7 +1885,7 @@ ClientRestorableNavigationEntry {
             return
         }
         if currentSharedTab == .gifts {
-            guard gesture.state == .began, contextIsCurrent,
+            guard gesture.state == .began, contextIsCurrent, !isReorderingGifts,
                   let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
                   let id = dataSource.itemIdentifier(for: path),
                   let actions = giftsPane?.menuActions(for: id, canManage: isMyProfile, host: self), !actions.isEmpty,
@@ -2728,10 +2740,18 @@ ClientRestorableNavigationEntry {
             cell?.setDownloadProgress(sharedItemProgress[message.id])
             return cell ?? UICollectionViewCell()
         }
-        dataSource.reorderingHandlers.canReorderItem = { [weak self] _ in self?.isReorderingPosts == true }
+        dataSource.reorderingHandlers.canReorderItem = { [weak self] _ in
+            self?.isReorderingPosts == true || self?.isReorderingGifts == true
+        }
         dataSource.reorderingHandlers.didReorder = { [weak self] transaction in
-            self?.posts = transaction.finalSnapshot.itemIdentifiers
-            self?.postOrderChanged = true
+            guard let self else { return }
+            if isReorderingGifts {
+                giftsPane?.setOrder(transaction.finalSnapshot.itemIdentifiers)
+                giftOrderChanged = true
+                return
+            }
+            posts = transaction.finalSnapshot.itemIdentifiers
+            postOrderChanged = true
         }
         dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
             let view = collectionView.dequeueReusableSupplementaryView(
@@ -3476,7 +3496,7 @@ ClientRestorableNavigationEntry {
     /// PeerInfoScreenDisplayGiftsContextMenu. Telegram shows it while the pane is expanded; BetterTG's profile
     /// scrolls as one list, so it shows while Gifts is the pane.
     private func updateRightBarItems() {
-        guard selectedMessageIDs == nil, selectedPostIDs == nil, !isReorderingPosts else { return }
+        guard selectedMessageIDs == nil, selectedPostIDs == nil, !isReorderingPosts, !isReorderingGifts else { return }
         var items = [UIBarButtonItem]()
         if canEditProfile {
             items.append(UIBarButtonItem(
@@ -3682,6 +3702,9 @@ ClientRestorableNavigationEntry {
                     image: UIImage(systemName: "folder.badge.plus"),
                 ) { [weak self] in self?.presentCreateGiftCollection(giftIDs: []) })
             }
+        }
+        if isMyProfile, giftsPane.canReorder {
+            management.insert(giftsReorderAction(), at: min(1, management.count))
         }
         if let id = giftsPane.selectedCollectionID, var share = shareGiftCollectionAction(id) {
             share.startsNewSection = !management.isEmpty
@@ -4457,6 +4480,8 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func tabChanged() {
+        // Leaving Gifts ends its reordering, saving what moved.
+        if isReorderingGifts, currentSharedTab != .gifts { setReorderingGifts(false) }
         updateRightBarItems()
         cancelSharedItemDownload(cancelInTDLib: true)
         sharedViewportGeneration &+= 1
@@ -4989,13 +5014,50 @@ ClientRestorableNavigationEntry {
         setReorderingPosts(false)
     }
 
+    /// GiftsListView.beginReordering / endReordering: Done in the bar while it lasts; ending saves what moved.
+    private func setReorderingGifts(_ reordering: Bool) {
+        guard reordering != isReorderingGifts, let giftsPane else { return }
+        isReorderingGifts = reordering
+        reorderGesture.isEnabled = reordering
+        for view in collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader) {
+            configureGiftCollectionTabs(view as? StoryAlbumTabsView)
+        }
+        if reordering {
+            navigationItem.rightBarButtonItems = [UIBarButtonItem(
+                title: L10n.telegram("Common.Done"),
+                style: .prominent,
+                target: self,
+                action: #selector(finishReorderingGifts),
+            )]
+            return
+        }
+        let giftsMoved = giftOrderChanged
+        let collectionsMoved = giftCollectionOrderChanged
+        giftOrderChanged = false
+        giftCollectionOrderChanged = false
+        updateActionAvailability()
+        guard giftsMoved || collectionsMoved else { return }
+        giftsPane.commitOrder(giftsMoved: giftsMoved, collectionsMoved: collectionsMoved, host: self)
+    }
+
+    @objc private func finishReorderingGifts() {
+        setReorderingGifts(false)
+    }
+
+    private func giftsReorderAction() -> TelegramContextMenuAction {
+        TelegramContextMenuAction(
+            title: L10n.telegram("PeerInfo.Gifts.Reorder"),
+            image: UIImage(systemName: "arrow.up.arrow.down"),
+        ) { [weak self] in self?.setReorderingGifts(true) }
+    }
+
     /// SparseItemGrid's reordering: the held tile follows the finger within the movable range.
     @objc private func reorderPanned(_ gesture: UILongPressGestureRecognizer) {
         let point = gesture.location(in: collectionView)
         switch gesture.state {
         case .began:
-            guard let path = collectionView.indexPathForItem(at: point),
-                  reorderableRange().contains(path.item) else { return }
+            let range = isReorderingGifts ? 0..<(giftsPane?.reorderableCount ?? 0) : reorderableRange()
+            guard let path = collectionView.indexPathForItem(at: point), range.contains(path.item) else { return }
             collectionView.beginInteractiveMovementForItem(at: path)
         case .changed:
             collectionView.updateInteractiveMovementTargetPosition(point)

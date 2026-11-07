@@ -3563,3 +3563,4 @@
 "AddGifts.Title" = "Add Gifts";
 "AddGifts.AddGifts_1" = "Add %@ Gift";
 "AddGifts.AddGifts_any" = "Add %@ Gifts";
+"PeerInfo.Gifts.Reorder" = "Reorder";
