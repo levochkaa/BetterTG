@@ -2860,6 +2860,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     private func setPan(_ offset: CGPoint, tracking: Bool) {
+        var offset = offset
+        // A chat's preview lays its header out under the window's top safe area wherever it reaches into it, so the
+        // header would grow as the finger lifts the preview: the preview keeps below the status bar.
+        if presentationStyle == .chatPreview, let previewView {
+            let restingTop = previewPanView.convert(previewView.frame, from: previewView.superview).minY
+            offset.y = max(offset.y, min(0, view.safeAreaInsets.top - restingTop))
+        }
         panOffset = offset
         let center = CGPoint(x: view.bounds.midX + offset.x, y: view.bounds.midY + offset.y)
         ContextMenuNativeAnimation.animate(
