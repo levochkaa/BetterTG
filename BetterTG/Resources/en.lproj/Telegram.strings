@@ -3903,3 +3903,5 @@
 "UserInfo.SetCustomPhoto.SuccessPhotoText" = "You will now always see this photo for **%@**.";
 "UserInfo.ResetToOriginalAlertText" = "Are you sure you want to reset to the original photo from %@?";
 "UserInfo.ResetToOriginalAlertReset" = "Reset";
+"BlockedUsers.BlockUser" = "Block User...";
+"BlockedUsers.SelectUserTitle" = "Block User";

@@ -16,6 +16,11 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
 
     /// The checked user and chat identifiers.
     var onDone: (([Int64], [Int64]) -> Void)?
+    /// Single choice of a person (BlockedPeersController's peer selection, `onlyPrivateChats`): a tap hands them back
+    /// at once, groups aren't listed and there is no Done.
+    var onPickUser: ((Int64) -> Void)?
+    /// The title in place of Add Users.
+    var pickerTitle: String?
 
     private let excludedUserIDs: Set<Int64>
     private let excludedChatIDs: Set<Int64>
@@ -38,7 +43,7 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("PrivacySettings.SearchUsersTitle")
+        title = pickerTitle ?? L10n.telegram("PrivacySettings.SearchUsersTitle")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"), style: .plain, target: self, action: #selector(cancelPressed),
         )
@@ -46,6 +51,7 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
             title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
         )
         navigationItem.rightBarButtonItem?.isEnabled = false
+        if onPickUser != nil { navigationItem.rightBarButtonItem = nil }
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("PrivacySettings.SearchUsersPlaceholder")
@@ -63,9 +69,10 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
             )])]
         }
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = onPickUser == nil ? items : items.filter(\.isUser)
         let visible = normalized.isEmpty
-            ? items
-            : items.filter { $0.peer.title.localizedCaseInsensitiveContains(normalized) }
+            ? candidates
+            : candidates.filter { $0.peer.title.localizedCaseInsensitiveContains(normalized) }
         return [SettingsSection(rows: visible.map { item in
             let selected = item.isUser
                 ? selectedUserIDs.contains(item.peer.id)
@@ -142,6 +149,10 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
 
     private func toggle(_ item: Item) {
         let id = item.peer.id
+        if let onPickUser {
+            if item.isUser { onPickUser(id) }
+            return
+        }
         if item.isUser {
             if let index = selectedUserIDs.firstIndex(of: id) {
                 selectedUserIDs.remove(at: index)

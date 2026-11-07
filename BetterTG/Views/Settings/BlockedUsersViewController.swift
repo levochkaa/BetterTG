@@ -5,8 +5,9 @@ import UIKit
 
 // MARK: - BlockedUsersViewController
 
-/// Telegram's BlockedPeersController: the blocked people and chats, loaded in pages, with swipe to Unblock
-/// (setMessageSenderBlockList with no list). Blocking someone new happens from their chat or profile.
+/// Telegram's BlockedPeersController: Block User..., which picks a person (contacts and private chats) and blocks them
+/// at once, then the blocked people and chats, loaded in pages, with swipe to Unblock (setMessageSenderBlockList with
+/// no list).
 final class BlockedUsersViewController: SettingsListViewController {
     private static let pageSize = 50
 
@@ -43,12 +44,43 @@ final class BlockedUsersViewController: SettingsListViewController {
                 style: .status(.secondaryLabel),
             ))
         }
-        return [SettingsSection(footer: L10n.telegram("BlockedUsers.Info"), rows: rows)]
+        let add = SettingsRow(
+            title: L10n.telegram("BlockedUsers.BlockUser"),
+            style: .action(destructive: false),
+            symbol: "plus",
+        ) { [weak self] in self?.pickUser() }
+        return [SettingsSection(footer: L10n.telegram("BlockedUsers.Info"), rows: [add] + rows)]
     }
 
     override func tableView(_ tableView: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
         guard indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - 5 else { return }
         loadMore()
+    }
+
+    /// addPeer: the person picker titled Block User; the chosen one is blocked and the list starts over.
+    private func pickUser() {
+        var blocked = Set<Int64>()
+        for item in senders {
+            if case .messageSenderUser(let user) = item.sender { blocked.insert(user.userId) }
+        }
+        let picker = SettingsPeerPickerViewController(excludedUserIDs: blocked, excludedChatIDs: [])
+        picker.pickerTitle = L10n.telegram("BlockedUsers.SelectUserTitle")
+        picker.onPickUser = { [weak self, weak picker] userID in
+            guard let self else { return }
+            perform { client in
+                _ = try await client.send(TDNativeRequests.setMessageSenderBlockList(
+                    senderId: .messageSenderUser(.init(userId: userID)), blockList: .blockListMain,
+                ))
+            } completion: { [weak self, weak picker] in
+                picker?.dismiss(animated: true)
+                guard let self else { return }
+                senders = []
+                totalCount = nil
+                reload()
+                loadMore()
+            }
+        }
+        present(TelegramNavigationController(rootViewController: picker), animated: true)
     }
 
     private func loadMore() {
