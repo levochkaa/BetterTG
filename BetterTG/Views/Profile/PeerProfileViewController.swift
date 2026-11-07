@@ -2519,6 +2519,12 @@ ClientRestorableNavigationEntry {
         scrollingArea.scrollView = collectionView
         scrollingArea.currentDate = { [weak self] in self?.topMediaMonth() }
         scrollingArea.onOpenCalendar = { [weak self] in self?.openMediaCalendar() }
+        // getSharedMediaScrollingTooltip: the tooltip until it has been shown once.
+        let tooltipKey = "SharedMediaScrollingTooltipShown"
+        if !UserDefaults.standard.bool(forKey: tooltipKey) {
+            scrollingArea.tooltipText = L10n.telegram("SharedMedia.FastScrollTooltip")
+            scrollingArea.onTooltipShown = { UserDefaults.standard.set(true, forKey: tooltipKey) }
+        }
         view.addSubview(scrollingArea)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),

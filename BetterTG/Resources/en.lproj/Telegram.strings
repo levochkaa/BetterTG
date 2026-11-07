@@ -3686,3 +3686,4 @@
 "Chat.MessageRangeDeleted.ForMe_any" = "Messages for %@ days deleted.";
 "Chat.MessageRangeDeleted.ForBothSides_1" = "Messages for 1 day deleted for both sides.";
 "Chat.MessageRangeDeleted.ForBothSides_any" = "Messages for %@ days deleted for both sides.";
+"SharedMedia.FastScrollTooltip" = "You can hold and move this bar for faster scrolling";
