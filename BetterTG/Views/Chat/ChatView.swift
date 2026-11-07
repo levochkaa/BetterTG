@@ -206,6 +206,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var displayedPinnedSelection: PinnedMessageState.Selection?
     /// Unpin All waiting behind its Undo toast.
     private var pendingUnpinAll: DispatchWorkItem?
+    /// ChatHistoryListNode's ignoreMessagesInTimestampRange: the days a calendar clear takes leave the history while
+    /// its Undo toast shows, and until TDLib has deleted them.
+    private var ignoredMessageDates: Range<Int>? {
+        didSet { updateSnapshot(animated: true) }
+    }
+
     private var chatActionBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
     private let statusPanel = ChatStatusPanelView()
@@ -5273,6 +5279,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 messages: chatVM.messages.filter {
                     !timelineSnapshots.deleting.contains($0.displayedID) && !chatVM.holdsIncompleteOutgoingAlbum($0)
                         && !chatVM.holdsComposerSendMessage($0) && !Self.isUpgradeNotice($0.message.content)
+                        && ignoredMessageDates?.contains($0.message.date) != true
                 },
                 includesTopicHeaders: chatVM.isAllMessagesForum,
                 threadHeadID: threadHead?.id,
@@ -8952,11 +8959,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let minDate = Int(range.lowerBound.timeIntervalSince1970)
         let maxDate = Int((Calendar.current.date(byAdding: .day, value: 1, to: range.upperBound) ?? range.upperBound)
             .timeIntervalSince1970)
-        let commit = DispatchWorkItem {
-            Task {
-                _ = try? await client.send(TDNativeRequests.deleteChatMessagesByDate(
-                    chatId: chatID, minDate: minDate, maxDate: maxDate, revoke: revoke,
-                ))
+        let dates = minDate..<maxDate
+        ignoredMessageDates = dates
+        let commit = DispatchWorkItem { [weak self] in
+            Task { [weak self] in
+                var sends = true
+                #if DEBUG
+                    // `-ui-probe-dry-range-clear` leaves TDLib out, to see the range leave and come back.
+                    sends = !ProcessInfo.processInfo.arguments.contains("-ui-probe-dry-range-clear")
+                #endif
+                if sends {
+                    _ = try? await client.send(TDNativeRequests.deleteChatMessagesByDate(
+                        chatId: chatID, minDate: minDate, maxDate: maxDate, revoke: revoke,
+                    ))
+                }
+                // removeMessagesInRange's completion: the history shows the range again a second later.
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, ignoredMessageDates == dates else { return }
+                ignoredMessageDates = nil
             }
         }
         showChatToast(
@@ -8964,7 +8984,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 revoke ? "Chat.MessageRangeDeleted.ForBothSides" : "Chat.MessageRangeDeleted.ForMe", count: dayCount,
             ),
             actionTitle: L10n.telegram("Undo.Undo"),
-        ) { commit.cancel() }
+        ) { [weak self] in
+            commit.cancel()
+            guard let self, ignoredMessageDates == dates else { return }
+            ignoredMessageDates = nil
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: commit)
     }
 
