@@ -8,8 +8,10 @@ import UIKit
 
 /// Telegram's Settings (PeerInfoScreen in settings mode): the account's profile, its accounts, the side menu bots,
 /// Saved Messages, Devices and Chat Folders, then Notifications, Privacy, Data and Storage, Appearance and Language.
-final class SettingsViewController: UITableViewController {
+final class SettingsViewController: UITableViewController, TelegramConditionalNavigationSearchProvider,
+UISearchResultsUpdating, UISearchControllerDelegate {
     private static let sectionGap: CGFloat = 20
+    private static let blankIcon = UIGraphicsImageRenderer(size: CGSize(width: 25, height: 25)).image { _ in }
 
     // MARK: Private
 
@@ -20,6 +22,26 @@ final class SettingsViewController: UITableViewController {
     private var loadTask: Task<Void, Never>?
     /// The Settings bots' launcher, for the account and client it was made for.
     private var appLauncher: (source: TdUpdateSource, launcher: WebAppLauncher)?
+    /// The settings search, open from the bar's search button until its close button.
+    private lazy var search: UISearchController = {
+        let search = UISearchController(searchResultsController: nil)
+        search.searchResultsUpdater = self
+        search.delegate = self
+        search.searchBar.placeholder = L10n.telegram("Common.Search")
+        return search
+    }()
+
+    private var isSearching = false
+    private var searchQuery = ""
+    private var searchItems = [SettingsSearchItem]()
+    /// The found items, or with an empty query the recent ones.
+    private var searchResults = [SettingsSearchItem]()
+    /// How far the list stood below its top when the search opened, to stand there again once it closes.
+    private var listScroll: CGFloat?
+
+    var shownTelegramNavigationSearch: UISearchController? {
+        isSearching ? search : nil
+    }
 
     init() {
         super.init(style: .insetGrouped)
@@ -49,19 +71,7 @@ final class SettingsViewController: UITableViewController {
         tableView.estimatedSectionFooterHeight = 0
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
         tableView.register(SettingsProfileCell.self, forCellReuseIdentifier: SettingsProfileCell.reuseIdentifier)
-        // peerInfoNavigationButtonSets' settings bar: QR Code on the left, Edit on the right. Telegram's search
-        // between them isn't ported.
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "qrcode"),
-            primaryAction: UIAction { [weak self] _ in self?.openQRCode() },
-        )
-        navigationItem.leftBarButtonItem?.accessibilityLabel = L10n.telegram("PeerInfo.QRCode.Title")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Edit"),
-            primaryAction: UIAction { [weak self] _ in
-                self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
-            },
-        )
+        updateBarButtons()
 
         nc.publisher(&cancellables, for: .telegramAccountsChanged) { [weak self] _ in
             self?.loadAccountState()
@@ -87,6 +97,14 @@ final class SettingsViewController: UITableViewController {
             .store(in: &cancellables)
     }
 
+    /// UITableViewController scrolls a short list past its top as the keyboard comes up; the search results keep to
+    /// the top unless a finger moves them.
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard isSearching, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        let top = -scrollView.adjustedContentInset.top
+        if scrollView.contentOffset.y < top { scrollView.contentOffset.y = top }
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
@@ -94,36 +112,56 @@ final class SettingsViewController: UITableViewController {
         loadAccountState()
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { Section.allCases.count }
+    override func numberOfSections(in _: UITableView) -> Int { isSearching ? 1 : Section.allCases.count }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        rows(in: section).count
+        isSearching ? searchResults.count : rows(in: section).count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section)?.title
+        isSearching ? nil : Section(rawValue: section)?.title
+    }
+
+    /// The recent items' header: Recent with Clear, as ChatListSearchItemHeader's recentPeers.
+    override func tableView(_: UITableView, viewForHeaderInSection _: Int) -> UIView? {
+        guard isSearching, searchQuery.isEmpty, !searchResults.isEmpty else { return nil }
+        let header = SettingsSearchRecentHeaderView()
+        header.onClear = { [weak self] in
+            SettingsSearch.clearRecents()
+            self?.updateSearchResults()
+        }
+        return header
     }
 
     /// The same gap above every section, a title's header taller by its line; an account without side menu bots
     /// shows no gap for their section.
     override func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if isSearching {
+            return searchQuery.isEmpty && !searchResults.isEmpty
+                ? SettingsSearchRecentHeaderView.height
+                : Self
+                    .sectionGap
+        }
         if isEmptyAppsSection(section) { return .leastNormalMagnitude }
         return Section(rawValue: section)?.title == nil ? Self.sectionGap : UITableView.automaticDimension
     }
 
     override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        guard !isEmptyAppsSection(section), self.tableView(tableView, titleForFooterInSection: section) != nil else {
+        guard !isSearching, !isEmptyAppsSection(section),
+              self.tableView(tableView, titleForFooterInSection: section) != nil
+        else {
             return .leastNormalMagnitude
         }
         return UITableView.automaticDimension
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard Section(rawValue: section) == .media else { return nil }
+        guard !isSearching, Section(rawValue: section) == .media else { return nil }
         return L10n.betterTG("Settings.AnimatedMediaInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if isSearching { return searchCell(at: indexPath) }
         if Section(rawValue: indexPath.section) == .profile {
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: SettingsProfileCell.reuseIdentifier,
@@ -215,7 +253,71 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        if isSearching {
+            guard let item = searchResults[safe: indexPath.row] else { return }
+            SettingsSearch.addRecent(item.id)
+            open(item.target)
+            return
+        }
         guard let row = rows(in: indexPath.section)[safe: indexPath.row] else { return }
+        perform(row, from: indexPath)
+    }
+
+    /// A recent item leaves the list with Delete, as SettingsSearchRecentItem's revealed option does.
+    override func tableView(
+        _: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        guard isSearching, searchQuery.isEmpty, let item = searchResults[safe: indexPath.row] else { return nil }
+        let delete = UIContextualAction(style: .destructive, title: L10n.telegram("Common.Delete")) {
+            [weak self] _, _, completion in
+            SettingsSearch.removeRecent(item.id)
+            self?.updateSearchResults()
+            completion(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete])
+    }
+
+    /// The text without its Markdown link brackets.
+    private static func suggestionText(_ reminder: SuggestedActionsStore.Reminder) -> String {
+        let key =
+            switch reminder {
+            case .checkPhoneNumber: "Settings.CheckPhoneNumberText"
+            case .checkPassword: "Settings.CheckPasswordText"
+            case .setPassword: "Settings.SuggestSetupPasswordText"
+            }
+        return L10n.telegram(key).replacingOccurrences(
+            of: #"\[([^\]]*)\]\(\)"#,
+            with: "$1",
+            options: .regularExpression,
+        )
+    }
+
+    func updateSearchResults(for search: UISearchController) {
+        searchQuery = search.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updateSearchResults()
+    }
+
+    /// The close button ends the search, and the bar's buttons come back.
+    func didDismissSearchController(_: UISearchController) {
+        guard isSearching else { return }
+        isSearching = false
+        searchQuery = ""
+        searchResults = []
+        updateBarButtons()
+        tableView.reloadData()
+        // The bar gives up the field's height on its next refresh; the list goes back after it.
+        let listScroll = listScroll
+        self.listScroll = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !isSearching, let listScroll else { return }
+            tableView.layoutIfNeeded()
+            tableView.contentOffset.y = listScroll - tableView.adjustedContentInset.top
+        }
+    }
+
+    /// What a Settings row opens; `indexPath` places Log Out's sheet beside its row.
+    private func perform(_ row: Row, from indexPath: IndexPath?) {
         switch row {
         case .account(let id):
             guard id != TDLib.shared.activeAccountID else { return }
@@ -285,19 +387,103 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
-    /// The text without its Markdown link brackets.
-    private static func suggestionText(_ reminder: SuggestedActionsStore.Reminder) -> String {
-        let key =
-            switch reminder {
-            case .checkPhoneNumber: "Settings.CheckPhoneNumberText"
-            case .checkPassword: "Settings.CheckPasswordText"
-            case .setPassword: "Settings.SuggestSetupPasswordText"
-            }
-        return L10n.telegram(key).replacingOccurrences(
-            of: #"\[([^\]]*)\]\(\)"#,
-            with: "$1",
-            options: .regularExpression,
+    /// peerInfoNavigationButtonSets' settings bar: QR Code on the left, then search and Edit on the right; an open
+    /// search takes the row.
+    private func updateBarButtons() {
+        guard !isSearching else {
+            navigationItem.leftBarButtonItem = nil
+            navigationItem.rightBarButtonItems = nil
+            return
+        }
+        let qrCode = UIBarButtonItem(
+            image: UIImage(systemName: "qrcode"),
+            primaryAction: UIAction { [weak self] _ in self?.openQRCode() },
         )
+        qrCode.accessibilityLabel = L10n.telegram("PeerInfo.QRCode.Title")
+        navigationItem.leftBarButtonItem = qrCode
+        let edit = UIBarButtonItem(
+            title: L10n.telegram("Common.Edit"),
+            primaryAction: UIAction { [weak self] _ in
+                self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
+            },
+        )
+        let searchButton = UIBarButtonItem(
+            image: UIImage(systemName: "magnifyingglass"),
+            primaryAction: UIAction { [weak self] _ in self?.openSearch() },
+        )
+        searchButton.accessibilityLabel = L10n.telegram("Common.Search")
+        navigationItem.rightBarButtonItems = [edit, searchButton]
+    }
+
+    /// The search button: the field takes the row with the keyboard up, and the list gives way to the recent items.
+    private func openSearch() {
+        guard !isSearching else { return }
+        searchItems = SettingsSearch.items()
+        listScroll = tableView.contentOffset.y + tableView.adjustedContentInset.top
+        isSearching = true
+        searchQuery = ""
+        updateSearchResults()
+        updateBarButtons()
+        search.beginTelegramNavigationSearch()
+    }
+
+    private func updateSearchResults() {
+        guard isSearching else { return }
+        if searchQuery.isEmpty {
+            let byID = Dictionary(searchItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            searchResults = SettingsSearch.recentIDs.compactMap { byID[$0] }
+        } else {
+            searchResults = SettingsSearch.search(searchItems, query: searchQuery)
+        }
+        tableView.reloadData()
+        tableView.contentOffset.y = -tableView.adjustedContentInset.top
+    }
+
+    /// SettingsSearchResultItem: the section's icon on the first of a run of items from one section, the title, and
+    /// the screens above it joined by arrows; a recent item has no icon.
+    private func searchCell(at indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsCell", for: indexPath)
+        guard let item = searchResults[safe: indexPath.row] else { return cell }
+        var configuration = UIListContentConfiguration.subtitleCell()
+        configuration.text = item.title
+        configuration.secondaryText = item.breadcrumbs.isEmpty ? nil : item.breadcrumbs.joined(separator: " → ")
+        configuration.secondaryTextProperties.color = .secondaryLabel
+        if !searchQuery.isEmpty {
+            let previous = indexPath.row > 0 ? searchResults[safe: indexPath.row - 1] : nil
+            // A clear image keeps the run's titles in line under the icon.
+            configuration.image = previous?.icon == item.icon
+                ? Self.blankIcon
+                : UIImage(systemName: item.icon.symbolName)
+            configuration.imageProperties.tintColor = item.icon.tintColor
+            configuration.imageProperties.maximumSize = CGSize(width: 25, height: 25)
+            configuration.imageProperties.reservedLayoutSize = CGSize(width: 25, height: 25)
+        }
+        cell.contentConfiguration = configuration
+        cell.backgroundColor = .secondarySystemGroupedBackground
+        cell.accessoryView = nil
+        cell.accessoryType = .none
+        cell.accessibilityValue = nil
+        cell.selectionStyle = .default
+        return cell
+    }
+
+    private func open(_ target: SettingsSearchItem.Target) {
+        switch target {
+        case .row(let row):
+            perform(row, from: nil)
+        case .screen(let make):
+            navigationController?.pushViewController(make(), animated: true)
+        case .twoStepVerification:
+            openTwoStepVerification()
+        case .deleteAccount:
+            // deleteAccountOptionsController, which asks for the password when there is one.
+            let client = TDLib.shared.activeClient
+            Task { [weak self] in
+                let password = try? await client.send(TDNativeRequests.getPasswordState())
+                guard let self else { return }
+                DeleteAccountOptionsViewController.present(hasPassword: password?.hasPassword ?? false, from: self)
+            }
+        }
     }
 
     /// openQrCode from the settings bar: the account's own code, by its first active username or, with none, by the
@@ -564,7 +750,7 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
-    private func confirmLogout(from indexPath: IndexPath) {
+    private func confirmLogout(from indexPath: IndexPath?) {
         let accountName = TDLib.shared.activeAccount?.localizedTitle ?? L10n.betterTG("Accounts.ThisAccount")
         let alert = UIAlertController(
             title: L10n.telegram("Settings.LogoutConfirmationTitle"),
@@ -576,8 +762,9 @@ final class SettingsViewController: UITableViewController {
             self?.performAccountOperation { try TDLib.shared.logOutActiveAccount() }
         })
         if let popover = alert.popoverPresentationController {
-            popover.sourceView = tableView.cellForRow(at: indexPath)
-            popover.sourceRect = tableView.cellForRow(at: indexPath)?.bounds ?? .zero
+            let cell = indexPath.flatMap { tableView.cellForRow(at: $0) }
+            popover.sourceView = cell ?? view
+            popover.sourceRect = cell?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
         }
         present(alert, animated: true)
     }
@@ -597,8 +784,8 @@ final class SettingsViewController: UITableViewController {
     }
 }
 
-private extension SettingsViewController {
-    enum Section: Int, CaseIterable {
+extension SettingsViewController {
+    fileprivate enum Section: Int, CaseIterable {
         case profile
         /// PeerInfoSettingsItems' `.phone` section: the server's phone number or password reminder.
         case suggestion

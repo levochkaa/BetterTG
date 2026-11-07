@@ -33,10 +33,20 @@ extension UISearchController {
         searchBar.text = nil
         NotificationCenter.default.post(name: .telegramNavigationSearchEnd, object: self)
     }
+
+    /// Focuses the classic chrome's field for this controller, for a screen whose search opens from a button: the
+    /// field shows once the screen's conditional search returns it, so this asks on the next turn of the main queue.
+    /// The field's close button then tells the delegate `didDismissSearchController`.
+    func beginTelegramNavigationSearch() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .telegramNavigationSearchBegin, object: self)
+        }
+    }
 }
 
 private extension Notification.Name {
     static let telegramNavigationSearchEnd = Self("telegramNavigationSearchEnd")
+    static let telegramNavigationSearchBegin = Self("telegramNavigationSearchBegin")
 }
 
 // MARK: - TelegramNavigationAttemptHandling
@@ -232,6 +242,7 @@ final class TelegramSideColumnView: UIView {
     private weak var searchController: UISearchController?
     private var searchView: ChatListNavigationSearchView?
     private var searchEndSubscription: AnyCancellable?
+    private var searchBeginSubscription: AnyCancellable?
     private var searchActive = false
 
     var contentHeight: CGFloat {
@@ -454,6 +465,7 @@ final class TelegramSideColumnView: UIView {
         if searchController !== newSearch {
             searchView?.removeFromSuperview()
             searchEndSubscription = nil
+            searchBeginSubscription = nil
             searchController = newSearch
             searchActive = false
             if let search = newSearch {
@@ -472,8 +484,27 @@ final class TelegramSideColumnView: UIView {
                 searchEndSubscription = NotificationCenter.default
                     .publisher(for: .telegramNavigationSearchEnd, object: search)
                     .sink { [weak field] _ in field?.endSearch() }
+                searchBeginSubscription = NotificationCenter.default
+                    .publisher(for: .telegramNavigationSearchBegin, object: search)
+                    .sink { [weak field] _ in field?.focus() }
                 addSubview(field)
                 searchView = field
+                // A search that opens from a button takes the row at once and stays open with the keyboard down,
+                // as a chat's does, until its close button: the field clears as it would, then the screen hears
+                // it's done.
+                if search.delegate?.responds(to: #selector(UISearchControllerDelegate.didDismissSearchController(_:)))
+                    == true
+                {
+                    field.followsFocus = false
+                    field.onClose = { [weak field, weak search] in
+                        guard let field, let search else { return }
+                        field.restoreQuery("")
+                        field.onQueryChange?("")
+                        field.unfocus()
+                        search.delegate?.didDismissSearchController?(search)
+                    }
+                    field.setPresented(true)
+                }
             } else { searchView = nil }
         }
         if let search = newSearch {
