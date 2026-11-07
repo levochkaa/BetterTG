@@ -35,6 +35,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         Self.filter(allSections(), by: query)
     }
 
+    /// UITableViewController scrolls a short list past its top as the keyboard comes up; the found rows keep to the top
+    /// unless a finger moves them.
+    override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard isSearching, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        let top = -scrollView.adjustedContentInset.top
+        if scrollView.contentOffset.y < top { scrollView.contentOffset.y = top }
+    }
+
     /// filterSGItemListUIEntrires: a section whose header or footer matches keeps every row; otherwise it keeps the
     /// rows whose title matches, and a section with none goes.
     private static func filter(_ sections: [SettingsSection], by query: String) -> [SettingsSection] {
