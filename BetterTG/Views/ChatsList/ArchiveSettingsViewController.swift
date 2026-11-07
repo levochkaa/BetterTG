@@ -80,9 +80,7 @@ final class ArchiveSettingsViewController: SettingsListViewController {
 
 // MARK: - ArchiveInfoViewController
 
-/// ArchiveInfoScreen: the archive's 90 pt gradient circle, "This is Your Archive", how new messages move archived chats
-/// with a link to Archive Settings, Telegram's three notes on archived chats, hiding the archive and stories, and Got
-/// it.
+/// ArchiveInfoScreen: ArchiveInfoContentComponent's explanation, then Got it.
 final class ArchiveInfoViewController: UIViewController {
     private let keepsUnmutedArchived: Bool
     private let openSettings: () -> Void
@@ -101,6 +99,62 @@ final class ArchiveInfoViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
 
+        // The text's link opens Archive Settings once the sheet is gone.
+        let content = ArchiveInfoContentView(keepsUnmutedArchived: keepsUnmutedArchived) { [weak self] in
+            guard let self else { return }
+            let openSettings = openSettings
+            dismiss(animated: true) { openSettings() }
+        }
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = L10n.telegram("ArchiveInfo.CloseAction")
+        configuration.cornerStyle = .large
+        configuration.buttonSize = .large
+        let close = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
+            self?.dismiss(animated: true)
+        })
+
+        let stack = UIStackView(arrangedSubviews: [content, close])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 32
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+        ])
+        if let sheet = sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+        }
+    }
+}
+
+// MARK: - ArchiveInfoContentView
+
+/// ArchiveInfoContentComponent: the archive's 90 pt gradient circle, "This is Your Archive" 15 pt under it, how new
+/// messages move archived chats with a link to Archive Settings 16 pt lower, and 24 pt on Telegram's three notes on
+/// archived chats, hiding the archive and stories. ArchiveInfoScreen shows it, and so does an empty archive
+/// (ChatListEmptyNode's `.archive`).
+final class ArchiveInfoContentView: UIView {
+    var keepsUnmutedArchived: Bool {
+        didSet {
+            guard keepsUnmutedArchived != oldValue else { return }
+            text.attributedText = Self.mainText(keepsUnmutedArchived)
+        }
+    }
+
+    private let openSettings: () -> Void
+    private let text = UILabel()
+
+    init(keepsUnmutedArchived: Bool, openSettings: @escaping () -> Void) {
+        self.keepsUnmutedArchived = keepsUnmutedArchived
+        self.openSettings = openSettings
+        super.init(frame: .zero)
+
         let icon = ArchiveInfoIconView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         let title = UILabel()
@@ -109,11 +163,7 @@ final class ArchiveInfoViewController: UIViewController {
         title.textAlignment = .center
         title.numberOfLines = 0
 
-        let text = UILabel()
-        let raw = L10n.telegram(keepsUnmutedArchived
-            ? "ArchiveInfo.TextKeepArchivedUnmuted"
-            : "ArchiveInfo.TextKeepArchivedDefault")
-        text.attributedText = Self.mainText(raw)
+        text.attributedText = Self.mainText(keepsUnmutedArchived)
         text.numberOfLines = 0
         text.isUserInteractionEnabled = true
         text.accessibilityTraits = .link
@@ -131,38 +181,32 @@ final class ArchiveInfoViewController: UIViewController {
         items.axis = .vertical
         items.spacing = 24
 
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = L10n.telegram("ArchiveInfo.CloseAction")
-        configuration.cornerStyle = .large
-        configuration.buttonSize = .large
-        let close = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
-            self?.dismiss(animated: true)
-        })
-
-        let stack = UIStackView(arrangedSubviews: [icon, title, text, items, close])
+        let stack = UIStackView(arrangedSubviews: [icon, title, text, items])
         stack.axis = .vertical
         stack.alignment = .fill
         stack.spacing = 16
         stack.setCustomSpacing(15, after: icon)
         stack.setCustomSpacing(24, after: text)
-        stack.setCustomSpacing(32, after: items)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        addSubview(stack)
         NSLayoutConstraint.activate([
             icon.heightAnchor.constraint(equalToConstant: 90),
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        if let sheet = sheetPresentationController {
-            sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
-        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     /// The text in 15 pt, its "[Tap to change >]()" link semibold in the accent colour.
-    private static func mainText(_ raw: String) -> NSAttributedString {
+    private static func mainText(_ keepsUnmutedArchived: Bool) -> NSAttributedString {
+        let raw = L10n.telegram(keepsUnmutedArchived
+            ? "ArchiveInfo.TextKeepArchivedUnmuted"
+            : "ArchiveInfo.TextKeepArchivedDefault")
         let result = NSMutableAttributedString()
         let pattern = /\[(.*?)\]\(\)/
         var rest = Substring(raw)
@@ -218,10 +262,8 @@ final class ArchiveInfoViewController: UIViewController {
         return row
     }
 
-    /// The text's link opens Archive Settings once the sheet is gone.
     @objc private func textTapped() {
-        let openSettings = openSettings
-        dismiss(animated: true) { openSettings() }
+        openSettings()
     }
 }
 

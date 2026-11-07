@@ -558,11 +558,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    /// `-ui-probe-empty-folder`: All Chats and the user's folders show as empty.
+    /// `-ui-probe-empty-folder`: every chat list shows as empty.
     private var probesEmptyFolder: Bool {
         #if DEBUG
-            if case .archive = folder.type { return false }
-            return ProcessInfo.processInfo.arguments.contains("-ui-probe-empty-folder")
+            ProcessInfo.processInfo.arguments.contains("-ui-probe-empty-folder")
         #else
             false
         #endif
@@ -659,6 +658,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         (tableView.backgroundView as? ChatListEmptyView)?.insets = tableView.adjustedContentInset
+        (tableView.backgroundView as? ChatListArchiveEmptyView)?.insets = tableView.adjustedContentInset
         updateIndicatorInsets()
         if snapshotNeedsApply, !isApplyingSnapshot, !isReorderingPinnedChats, view.window != nil {
             DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
@@ -1265,7 +1265,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     /// ChatListContainerItemNode's subject: a folder of the user's gets `.filter` (no Edit for one that only drops
-    /// read chats and names none), All Chats `.chats`; the archive keeps the line of text.
+    /// read chats and names none), All Chats `.chats`, and the archive ArchiveInfoContentComponent.
     private func emptyView() -> UIView {
         let view: ChatListEmptyView
         switch folder.type {
@@ -1277,19 +1277,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             view = ChatListEmptyView(subject: .chats(hasArchive: !(rootVM.archive?.chats.isEmpty ?? true)))
             view.onAction = { [weak self] in self?.onNewMessage?() }
         case .archive:
-            return emptyLabel()
+            let view = ChatListArchiveEmptyView(keepsUnmutedArchived: false) { [weak self] in
+                self?.navigationController?.pushViewController(ArchiveSettingsViewController(), animated: true)
+            }
+            view.insets = tableView.adjustedContentInset
+            let client = actionAuthority.client
+            Task { [weak view] in
+                let settings = try? await client.send(TDNativeRequests.getArchiveChatListSettings())
+                view?.content.keepsUnmutedArchived = settings?.keepUnmutedChatsArchived ?? false
+            }
+            return view
         }
         view.insets = tableView.adjustedContentInset
         return view
-    }
-
-    private func emptyLabel() -> UIView {
-        let label = UILabel()
-        label.text = L10n.telegram("ChatList.EmptyChatListFilterTitle")
-        label.textAlignment = .center
-        label.textColor = .secondaryLabel
-        label.font = .preferredFont(forTextStyle: .body)
-        return label
     }
 
     private func chat(for id: Int64) -> CustomChat? {

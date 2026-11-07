@@ -138,3 +138,40 @@ final class ChatListEmptyView: UIView {
         onAction?()
     }
 }
+
+// MARK: - ChatListArchiveEmptyView
+
+/// ChatListEmptyNode's `.archive`: ArchiveInfoContentComponent 16 pt in from the sides, centred 50 pt above the middle
+/// of the space under the bars and at least 20 pt below them.
+final class ChatListArchiveEmptyView: UIView {
+    /// The list's bars, which the content keeps clear of.
+    var insets = UIEdgeInsets.zero {
+        didSet { setNeedsLayout() }
+    }
+
+    let content: ArchiveInfoContentView
+
+    init(keepsUnmutedArchived: Bool, openSettings: @escaping () -> Void) {
+        self.content = ArchiveInfoContentView(keepsUnmutedArchived: keepsUnmutedArchived, openSettings: openSettings)
+        super.init(frame: .zero)
+        addSubview(content)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width - 32
+        let height = content.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel,
+        )
+        .height
+        let available = bounds.height - insets.top - insets.bottom
+        let y = insets.top + max(20, ((available - height - 50) / 2).rounded(.down))
+        content.frame = CGRect(x: 16, y: y, width: width, height: height)
+    }
+}
