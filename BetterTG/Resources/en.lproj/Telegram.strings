@@ -3465,3 +3465,4 @@
 "PeerInfo.Gifts.Unique" = "Unique";
 "PeerInfo.Gifts.Displayed" = "Displayed";
 "PeerInfo.Gifts.Hidden" = "Hidden";
+"PeerInfo.Gifts.Collections.All" = "All Gifts";

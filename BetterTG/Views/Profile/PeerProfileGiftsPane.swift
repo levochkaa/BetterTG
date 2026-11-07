@@ -34,6 +34,10 @@ import UIKit
     private(set) var hasMore = true
     private(set) var error: String?
 
+    /// ProfileGiftsCollectionsContext: the profile's gift collections, and the one the grid shows (nil for All Gifts).
+    private(set) var collections = [(id: Int, name: String, giftCount: Int)]()
+    private(set) var selectedCollectionID: Int?
+
     private let ownerID: MessageSender
     private let client: TDLibClient
     private let isCurrent: () -> Bool
@@ -45,6 +49,7 @@ import UIKit
     private var loadTask: Task<Void, Never>?
     private var replacesOnNextPage = false
     private let filter = CurrentValueSubject<Filter, Never>(.all)
+    private var collectionsTask: Task<Void, Never>?
     private let sortsByValue = CurrentValueSubject<Bool, Never>(false)
 
     var isLoading: Bool { loadTask != nil }
@@ -79,12 +84,13 @@ import UIKit
         let offset = offset
         let filter = filter.value
         let sortByPrice = sortsByValue.value
+        let collectionID = selectedCollectionID ?? 0
         loadTask = Task { [weak self] in
             let result = await Result {
                 try await client.send(TDNativeRequests.getReceivedGifts(
                     businessConnectionId: "",
                     ownerId: ownerID,
-                    collectionId: 0,
+                    collectionId: collectionID,
                     excludeUnsaved: !filter.contains(.hidden),
                     excludeSaved: !filter.contains(.displayed),
                     excludeUnlimited: !filter.contains(.unlimited),
@@ -123,7 +129,12 @@ import UIKit
                 self.offset = page.nextOffset
                 hasMore = !page.nextOffset.isEmpty && !page.gifts.isEmpty
             case .failure:
-                replacesOnNextPage = false
+                // A reload for another collection or filter must not leave the previous list standing.
+                if replacesOnNextPage {
+                    replacesOnNextPage = false
+                    items = []
+                    gifts = [:]
+                }
                 error = L10n.betterTG("Profile.GiftsLoadFailed")
             }
             onChange?()
@@ -142,6 +153,43 @@ import UIKit
         hasMore = true
         replacesOnNextPage = true
         loadMore()
+    }
+
+    // MARK: Collections
+
+    /// getGiftCollections, read once the pane is made; PeerInfoGiftsPaneNode shows their tabs when one has gifts, or
+    /// to whoever manages them.
+    func loadCollections() {
+        guard collectionsTask == nil else { return }
+        let client = client
+        let ownerID = ownerID
+        collectionsTask = Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.getGiftCollections(ownerId: ownerID))
+            guard let self, !Task.isCancelled, isCurrent() else { return }
+            collections = (result?.collections ?? []).map { (id: $0.id, name: $0.name, giftCount: $0.giftCount) }
+            #if DEBUG
+                // `-ui-probe-gift-collections` names two made-up collections so the tabs show on any profile; a
+                // made-up collection fails to load in TDLib.
+                if collections.isEmpty, ProcessInfo.processInfo.arguments.contains("-ui-probe-gift-collections") {
+                    collections = [
+                        (id: 9_000_001, name: "Favorites", giftCount: 3),
+                        (id: 9_000_002, name: "Rare", giftCount: 1),
+                    ]
+                }
+            #endif
+            onChange?()
+        }
+    }
+
+    func showsCollectionTabs(canManage: Bool) -> Bool {
+        !collections.isEmpty && (canManage || collections.contains { $0.giftCount > 0 })
+    }
+
+    /// The tab's collection, or All Gifts; the grid reads it from its first page.
+    func selectCollection(_ id: Int?) {
+        guard id != selectedCollectionID else { return }
+        selectedCollectionID = id
+        reload()
     }
 
     // MARK: Filter

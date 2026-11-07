@@ -47,10 +47,12 @@ final class StoryAlbumTabsView: UICollectionReusableView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The albums by identifier and name, nil standing for All Stories.
+    /// The albums by identifier and name, nil standing for All Stories (or `allTitle`, such as the gift collections'
+    /// All Gifts).
     func configure(
         albums: [(id: Int, name: String)],
         selectedID: Int?,
+        allTitle: String = L10n.telegram("Stories.AlbumAll"),
         onSelect: @escaping (Int?) -> Void,
         onAdd: (() -> Void)? = nil,
         onMenu: ((Int, UIView, ContextMenuPressGestureRecognizer) -> Void)? = nil,
@@ -62,7 +64,7 @@ final class StoryAlbumTabsView: UICollectionReusableView {
         self.onMenu = onMenu
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         ids = [nil] + albums.map(\.id)
-        let titles = [L10n.telegram("Stories.AlbumAll")] + albums.map(\.name)
+        let titles = [allTitle] + albums.map(\.name)
         for (index, title) in titles.enumerated() {
             let isSelected = ids[index] == selectedID
             var configuration = UIButton.Configuration.plain()

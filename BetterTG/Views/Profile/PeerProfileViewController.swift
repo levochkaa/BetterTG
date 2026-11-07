@@ -1234,6 +1234,25 @@ ClientRestorableNavigationEntry {
     }
 
     /// The folder tab's view with its handlers.
+    /// PeerInfoGiftsPaneNode's TabSelectorComponent: All Gifts, then the profile's collections.
+    private func configureGiftCollectionTabs(_ view: StoryAlbumTabsView?) {
+        guard let giftsPane else { return }
+        view?.configure(
+            albums: giftsPane.collections.map { (id: $0.id, name: $0.name) },
+            selectedID: giftsPane.selectedCollectionID,
+            allTitle: L10n.telegram("PeerInfo.Gifts.Collections.All"),
+            onSelect: { [weak self] id in
+                guard let self, let giftsPane = self.giftsPane else { return }
+                giftsPane.selectCollection(id)
+                for view in collectionView
+                    .visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader)
+                {
+                    configureGiftCollectionTabs(view as? StoryAlbumTabsView)
+                }
+            },
+        )
+    }
+
     private func configureAlbumTabs(_ view: StoryAlbumTabsView?) {
         view?.configure(
             albums: storyAlbums,
@@ -2311,7 +2330,20 @@ ClientRestorableNavigationEntry {
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, environment in
             if self?.currentSharedTab == .gifts {
-                return Self.giftsSection(width: environment.container.effectiveContentSize.width)
+                let section = Self.giftsSection(width: environment.container.effectiveContentSize.width)
+                if self?.giftsPane?.showsCollectionTabs(canManage: self?.isMyProfile == true) == true {
+                    section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+                        layoutSize: NSCollectionLayoutSize(
+                            widthDimension: .fractionalWidth(1),
+                            heightDimension: .absolute(StoryAlbumTabsView.height + 8),
+                        ),
+                        elementKind: UICollectionView.elementKindSectionHeader,
+                        alignment: .top,
+                    )]
+                    // The tabs run the full width, as the albums' do; the tiles keep their 16 pt sides.
+                    section.supplementaryContentInsetsReference = .none
+                }
+                return section
             }
             if self?.currentSharedTab.isStories == true {
                 // PeerInfoStoryPaneNode: three tiles to a row, 0.81 as wide as they are tall, a point apart.
@@ -2519,7 +2551,11 @@ ClientRestorableNavigationEntry {
             let view = collectionView.dequeueReusableSupplementaryView(
                 ofKind: kind, withReuseIdentifier: StoryAlbumTabsView.reuseIdentifier, for: indexPath,
             ) as? StoryAlbumTabsView
-            self?.configureAlbumTabs(view)
+            if self?.currentSharedTab == .gifts {
+                self?.configureGiftCollectionTabs(view)
+            } else {
+                self?.configureAlbumTabs(view)
+            }
             return view
         }
     }
@@ -3569,7 +3605,16 @@ ClientRestorableNavigationEntry {
             snapshot.appendSections([.messages])
             snapshot.appendItems(items)
             snapshot.reconfigureItems(items.filter(existing.contains))
-            dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+            dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+                // A header kept from Posts still shows the albums until it is told the collections.
+                guard let self else { return }
+                for view in collectionView
+                    .visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader)
+                {
+                    configureGiftCollectionTabs(view as? StoryAlbumTabsView)
+                }
+                completion?()
+            }
             updateEmptyBackground(isEmpty: items.isEmpty, isLoading: giftsPane?.isLoading ?? true)
             return
         }
@@ -3580,7 +3625,11 @@ ClientRestorableNavigationEntry {
             // A pin that changes redraws its tile.
             let shown = Set(dataSource.snapshot().itemIdentifiers)
             snapshot.reconfigureItems(posts.filter(shown.contains))
-            dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+            dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+                // A header kept from Gifts still shows the collections until it is told the albums.
+                if let self, showsAlbumTabs { configureAlbumTabs(albumTabsView) }
+                completion?()
+            }
             updateEmptyBackground(isEmpty: posts.isEmpty, isLoading: postsTask != nil)
             return
         }
@@ -3656,8 +3705,10 @@ ClientRestorableNavigationEntry {
             label.textColor = .secondaryLabel
             collectionView.backgroundView = label
         }
-        // Over Posts with albums the text keeps below the folder tab, which sits where it would be centred.
-        if showsAlbumTabs, let content = collectionView.backgroundView {
+        // Over Posts with albums, or Gifts with collections, the text keeps below the folder tab, which sits where it
+        // would be centred.
+        let showsGiftTabs = currentSharedTab == .gifts && giftsPane?.showsCollectionTabs(canManage: isMyProfile) == true
+        if showsAlbumTabs || showsGiftTabs, let content = collectionView.backgroundView {
             // The collection takes its old background off its superview when replaced, so it lets go first.
             collectionView.backgroundView = nil
             collectionView.backgroundView = TopInsetBackgroundView(
@@ -4883,6 +4934,7 @@ ClientRestorableNavigationEntry {
             applySnapshot()
         }
         giftsPane = pane
+        pane.loadCollections()
     }
 
     /// The full info's gift count, which shows or hides the Gifts pane.
