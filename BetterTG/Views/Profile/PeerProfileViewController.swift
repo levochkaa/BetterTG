@@ -224,6 +224,7 @@ ClientRestorableNavigationEntry {
     /// The secret chat's keyHash once it's ready, for Encryption Key.
     private var secretKeyHash: Data?
     private var secretKeyTask: Task<Void, Never>?
+    private var topicLinkTask: Task<Void, Never>?
     private var personalChannelID: Int64 = 0
     private var personalChannelTask: Task<Void, Never>?
     private let detailsLabel = UILabel()
@@ -3564,6 +3565,15 @@ ClientRestorableNavigationEntry {
         }
         infoFooterLabel.text = footer
         infoFooterLabel.isHidden = footer == nil
+        #if DEBUG
+            // `-ui-probe-topic-link`: My Profile shows a private topic's share link and its note.
+            if isSelfProfile, ProcessInfo.processInfo.arguments.contains("-ui-probe-topic-link") {
+                rows.append(.link(label: L10n.telegram("Channel.LinkItem"), text: "https://t.me/c/1234567890/42"))
+                footer = L10n.telegram("PeerInfo.PrivateShareLinkInfo")
+                infoFooterLabel.text = footer
+                infoFooterLabel.isHidden = false
+            }
+        #endif
         // PeerInfoProfileItems' Encryption Key in a secret chat whose key is set.
         if let keyHash = secretKeyHash {
             rows.append(.disclosure(
@@ -3645,6 +3655,22 @@ ClientRestorableNavigationEntry {
         case .action,
              .disclosure:
             break
+        case .link(_, let link):
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuCopyLink"), image: UIImage(systemName: "doc.on.doc"),
+            ) { [weak self] in
+                UIPasteboard.general.string = link
+                self?.showInfoToast(L10n.telegram("Conversation.LinkCopied"))
+            })
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuShare"),
+                image: UIImage(systemName: "square.and.arrow.up"),
+            ) { [weak self] in
+                guard let self, let url = URL(string: link) else { return }
+                let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                share.popoverPresentationController?.sourceView = sourceView
+                present(share, animated: true)
+            })
         case .hours(let hours):
             actions.append(copy(
                 BusinessHoursRowView.copyText(hours),
@@ -3662,6 +3688,23 @@ ClientRestorableNavigationEntry {
         }
         guard !actions.isEmpty else { return }
         presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// PeerInfoProfileItems' share link in a forum topic's profile (getForumTopicLink), with "This link will work only
+    /// for group members." under a private one.
+    private func loadTopicLink() {
+        guard case .messageTopicForum(let forum) = topic, topicLinkTask == nil else { return }
+        let client = client
+        let chatID = customChat.id
+        topicLinkTask = Task { [weak self] in
+            guard let link = try? await client.send(TDNativeRequests.getForumTopicLink(
+                chatId: chatID, forumTopicId: forum.forumTopicId,
+            )), let self, contextIsCurrent else { return }
+            infoCardView.configure(rows: [.link(label: L10n.telegram("Channel.LinkItem"), text: link.link)])
+            infoFooterLabel.text = link.isPublic ? nil : L10n.telegram("PeerInfo.PrivateShareLinkInfo")
+            infoFooterLabel.isHidden = link.isPublic
+            view.setNeedsLayout()
+        }
     }
 
     /// getSecretChat's keyHash once the secret chat is ready; the rows follow.
@@ -4474,6 +4517,7 @@ ClientRestorableNavigationEntry {
                     membersInfoLoaded = true
                     applyGiftCount(info.giftCount)
                     updateSharedTabAvailability()
+                    loadTopicLink()
                     applyFullInfo(
                         bio: info.description,
                         details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],

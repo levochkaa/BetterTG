@@ -15,6 +15,8 @@ final class ProfileInfoCardView: UIView {
         case address(label: String, text: String, opens: Bool)
         /// PeerInfoScreenActionItem: an accent title that acts on a tap, as Add to Contacts.
         case action(id: String, title: String, isDestructive: Bool = false)
+        /// A labeled link in the accent colour whose tap opens its menu, as a topic's share link.
+        case link(label: String, text: String)
         /// PeerInfoScreenDisclosureEncryptionKeyItem: a title with the key's picture and a chevron on the right.
         case disclosure(title: String, image: UIImage?)
     }
@@ -76,6 +78,10 @@ final class ProfileInfoCardView: UIView {
                     )
                 case .hours(let hours):
                     BusinessHoursRowView(hours: hours) { [weak self] in self?.relayout() }
+                case .link(let label, let text):
+                    ProfileInfoValueRowView(label: label, rightLabel: nil, text: text, textColor: .tintColor) {
+                        [weak self] in self?.openMenu(for: index)
+                    }
                 case .address(let label, let text, let opens):
                     ProfileInfoValueRowView(
                         label: label,
@@ -162,7 +168,13 @@ private final class ProfileInfoValueRowView: UIControl {
 
     private let action: (() -> Void)?
 
-    init(label: String, rightLabel: String?, text: String, action: (() -> Void)? = nil) {
+    init(
+        label: String,
+        rightLabel: String?,
+        text: String,
+        textColor: UIColor = .label,
+        action: (() -> Void)? = nil,
+    ) {
         self.action = action
         super.init(frame: .zero)
         let labelView = UILabel()
@@ -177,7 +189,7 @@ private final class ProfileInfoValueRowView: UIControl {
         let textView = UILabel()
         textView.text = text
         textView.font = .systemFont(ofSize: 17)
-        textView.textColor = .label
+        textView.textColor = textColor
         textView.numberOfLines = 0
         for view in [labelView, rightLabelView, textView] {
             view.isUserInteractionEnabled = false

@@ -3991,3 +3991,5 @@
 "UserInfo.FakeBotWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
 "GroupInfo.FakeGroupWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
 "ChannelInfo.FakeChannelWarning" = "⚠️ Warning: Many users reported that this account impersonates a famous person or organization.";
+"Channel.LinkItem" = "share link";
+"PeerInfo.PrivateShareLinkInfo" = "This link will work only for group members.";
