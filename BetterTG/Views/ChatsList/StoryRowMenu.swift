@@ -39,10 +39,9 @@ import UIKit
                 sourceView: source,
                 actions: actions(poster, canPost: canPost, host: host, client: client, isCurrent: isCurrent),
                 tracking: gesture,
-                presentationStyle: .menuOnly,
-                // Under the item, which stays in sight, as Telegram's extracted item does.
-                menuAnchorView: source,
-                menuSpacing: 8,
+                // ChatListHeaderBarContextExtractedContentSource: the item lifts over the dimmed list in its place, the
+                // menu under it.
+                presentationStyle: .message,
             )
         }
     }

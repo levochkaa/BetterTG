@@ -383,10 +383,10 @@ final class StoryPeerListExpandedView: UIView {
                 guard let view else { return }
                 self?.onSelect?(item.chatID, view.ringView)
             }, for: .touchUpInside)
-            view.addGestureRecognizer(ContextMenuPressGestureRecognizer(
-                target: self,
-                action: #selector(itemLongPressed(_:)),
-            ))
+            let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(itemLongPressed(_:)))
+            // The avatar and its name lift as they are, with no platter behind them.
+            press.castsShadow = false
+            view.addGestureRecognizer(press)
             scrollView.addSubview(view)
             return view
         }
