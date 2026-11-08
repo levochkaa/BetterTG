@@ -349,7 +349,7 @@ private final class MessageReactionButton: UIControl {
 
     /// MessageTagBackground.svg (23 × 30) stretched after its 8 pt left cap: rounded on the left, a point on the
     /// right.
-    private static func tagPath(width: CGFloat, height _: CGFloat) -> CGPath {
+    static func tagPath(width: CGFloat, height _: CGFloat) -> CGPath {
         let dx = max(0, width - 23)
         let path = UIBezierPath()
         path.move(to: CGPoint(x: 0, y: 6))
@@ -510,9 +510,17 @@ private final class MessageReactionButton: UIControl {
 
     let changes = PassthroughSubject<Void, Never>()
 
+    /// The tags in Telegram's order with their labels and how many messages carry each.
+    private(set) var tags = [(type: ReactionType, label: String, count: Int)]()
+
     private var clientID: Int32?
     private var labels = [ReactionType: String]()
     private var isLoading = false
+
+    func tags(for client: TDLibClient) -> [(type: ReactionType, label: String, count: Int)] {
+        loadIfNeeded(client: client)
+        return clientID == client.id ? tags : []
+    }
 
     func receive(_ update: TDNativeUpdateSavedMessagesTags, clientID: Int32) {
         guard update.savedMessagesTopicId == 0 else { return }
@@ -521,24 +529,170 @@ private final class MessageReactionButton: UIControl {
 
     /// The tag's label, loading the labels the first time the client asks.
     func label(for type: ReactionType, client: TDLibClient) -> String? {
-        if clientID != client.id, !isLoading {
-            isLoading = true
-            Task { [weak self] in
-                let tags = try? await client.send(TDNativeRequests.getSavedMessagesTags(savedMessagesTopicId: 0))
-                guard let self else { return }
-                isLoading = false
-                if let tags { apply(tags.tags, clientID: client.id) }
-            }
-        }
+        loadIfNeeded(client: client)
         guard clientID == client.id, let label = labels[type], !label.isEmpty else { return nil }
         return label
     }
 
+    private func loadIfNeeded(client: TDLibClient) {
+        guard clientID != client.id, !isLoading else { return }
+        isLoading = true
+        Task { [weak self] in
+            let tags = try? await client.send(TDNativeRequests.getSavedMessagesTags(savedMessagesTopicId: 0))
+            guard let self else { return }
+            isLoading = false
+            if let tags { apply(tags.tags, clientID: client.id) }
+        }
+    }
+
     private func apply(_ tags: [TDNativeSavedMessagesTag], clientID: Int32) {
         let updated = Dictionary(tags.map { ($0.tag, $0.label) }, uniquingKeysWith: { first, _ in first })
-        guard updated != labels || self.clientID != clientID else { return }
+        let list = tags.map { (type: $0.tag, label: $0.label, count: $0.count) }
+        let listChanged = list.map(\.type) != self.tags.map(\.type) || list.map(\.count) != self.tags.map(\.count)
+        guard updated != labels || self.clientID != clientID || listChanged else { return }
         self.clientID = clientID
         labels = updated
+        self.tags = list
         changes.send()
+    }
+}
+
+// MARK: - SavedMessagesTagsBar
+
+/// ChatSearchTitleAccessoryPanelNode: Saved Messages' tags in a 40 pt row while its search shows, 24 pt apart, each
+/// the reaction in 20 pt, its name and how many messages carry it in 11 pt over a tag in the search field's fill, the
+/// chosen one in the accent with white text. A tap filters by the tag, or clears the filter for the chosen one.
+final class SavedMessagesTagsBar: UIView {
+    static let height = CGFloat(40)
+
+    var onSelect: ((ReactionType?) -> Void)?
+
+    private let scrollView = UIScrollView()
+    private let stack = UIStackView()
+    private var renderedSignature = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
+        stack.axis = .horizontal
+        stack.spacing = 24 - 15
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.heightAnchor.constraint(equalToConstant: Self.height),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        tags: [(type: ReactionType, label: String, count: Int)],
+        selected: ReactionType?,
+        client: TDLibClient,
+    ) {
+        let signature = tags.lazy.map { "\($0.type)|\($0.label)|\($0.count)" }.joined(separator: ";")
+            + "#\(String(describing: selected))"
+        guard signature != renderedSignature else { return }
+        renderedSignature = signature
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for tag in tags {
+            let chip = SavedMessagesTagChip()
+            chip.configure(
+                type: tag.type,
+                label: tag.label,
+                count: tag.count,
+                isSelected: tag.type == selected,
+                client: client,
+            )
+            chip.addAction(UIAction { [weak self] _ in
+                self?.onSelect?(tag.type == selected ? nil : tag.type)
+            }, for: .touchUpInside)
+            stack.addArrangedSubview(chip)
+        }
+    }
+}
+
+// MARK: - SavedMessagesTagChip
+
+private final class SavedMessagesTagChip: UIControl {
+    private let shape = CAShapeLayer()
+    private let emojiLabel = UILabel()
+    private let textLabel = UILabel()
+    private var customEmojiView: CustomEmojiInlineView?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(shape)
+        emojiLabel.font = .systemFont(ofSize: 17)
+        textLabel.font = .systemFont(ofSize: 11)
+        for view in [emojiLabel, textLabel] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.isUserInteractionEnabled = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 30),
+            emojiLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            emojiLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emojiLabel.widthAnchor.constraint(equalToConstant: 20),
+            textLabel.leadingAnchor.constraint(equalTo: emojiLabel.trailingAnchor, constant: 3),
+            textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // The tag reaches 9 pt past the text, its point included (the background's 6 + 9 pt).
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -15),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        shape.frame = bounds
+        shape.path = MessageReactionButton.tagPath(width: bounds.width, height: bounds.height)
+    }
+
+    func configure(type: ReactionType, label: String, count: Int, isSelected: Bool, client: TDLibClient) {
+        emojiLabel.text = type.standardEmoji
+        textLabel.text = label.isEmpty ? "\(count)" : "\(label) \(count)"
+        textLabel.textColor = isSelected ? .white : UIColor.label.withAlphaComponent(0.6)
+        shape.fillColor = (isSelected ? UIColor.tintColor : UIColor.tertiarySystemFill).cgColor
+        accessibilityLabel = textLabel.text
+        accessibilityTraits = isSelected ? [.button, .selected] : .button
+        if let customEmojiID = type.customEmojiID {
+            Task { [weak self] in
+                let stickers = await CustomEmojiStickerRepository.shared.stickers(for: [customEmojiID], client: client)
+                guard let self, let sticker = stickers[customEmojiID] else { return }
+                let view = CustomEmojiInlineView()
+                view.translatesAutoresizingMaskIntoConstraints = false
+                view.isUserInteractionEnabled = false
+                addSubview(view)
+                NSLayoutConstraint.activate([
+                    view.centerXAnchor.constraint(equalTo: emojiLabel.centerXAnchor),
+                    view.centerYAnchor.constraint(equalTo: centerYAnchor),
+                    view.widthAnchor.constraint(equalToConstant: 20),
+                    view.heightAnchor.constraint(equalToConstant: 20),
+                ])
+                view.configure(sticker: sticker, client: client)
+                view.setPlaybackVisible(true)
+                customEmojiView = view
+            }
+        }
     }
 }

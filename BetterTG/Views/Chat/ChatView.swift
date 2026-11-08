@@ -205,6 +205,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let chatActionBarView = ChatActionBarView()
     private let translationPanel = ChatTranslationPanelView()
     private var translationPanelHeightConstraint: NSLayoutConstraint!
+    /// Saved Messages' tags under the search field (ChatSearchTitleAccessoryPanelNode).
+    private let savedTagsBar = SavedMessagesTagsBar()
+    private var savedTagsBarHeightConstraint: NSLayoutConstraint!
     /// The translation the panel last showed, to translate what is visible when it turns on.
     private var shownTranslationState: ChatTranslationState?
     private var cachedEmptyStateView: ChatEmptyStateView?
@@ -662,8 +665,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
             || (chatActionBarHeightConstraint?.constant ?? 0) > 0
             || (translationPanelHeightConstraint?.constant ?? 0) > 0
+            || (savedTagsBarHeightConstraint?.constant ?? 0) > 0
         {
-            translationPanel.frame.maxY
+            savedTagsBar.frame.maxY
         } else {
             customNavigationBar.frame.maxY
         }
@@ -3104,6 +3108,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         translationPanel.onMore = { [weak self] source in self?.presentTranslationMenu(from: source) }
         view.addSubview(translationPanel)
         translationPanelHeightConstraint = translationPanel.heightAnchor.constraint(equalToConstant: 0)
+        savedTagsBar.translatesAutoresizingMaskIntoConstraints = false
+        savedTagsBar.isHidden = true
+        savedTagsBar.onSelect = { [weak self] type in self?.selectSavedTag(type) }
+        view.addSubview(savedTagsBar)
+        savedTagsBarHeightConstraint = savedTagsBar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             topicReopenBar.topAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
             topicReopenBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -3117,10 +3126,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             translationPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             translationPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             translationPanelHeightConstraint,
+            savedTagsBar.topAnchor.constraint(equalTo: translationPanel.bottomAnchor),
+            savedTagsBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            savedTagsBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            savedTagsBarHeightConstraint,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            navigationBackground.bottomAnchor.constraint(equalTo: translationPanel.bottomAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: savedTagsBar.bottomAnchor),
         ])
         if let cover = restoredPinnedBannerCover {
             cover.isUserInteractionEnabled = false
@@ -4873,6 +4886,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .sink { [weak self] in
                 guard let self, chatVM.customChat.isSavedMessages else { return }
                 reconfigureMessages(ids: chatVM.messages.map(\.displayedID))
+                updateSavedTagsBar()
             }
             .store(in: &cancellables)
         chatVM.objectWillChange
@@ -6953,7 +6967,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
             || (chatActionBarHeightConstraint?.constant ?? 0) > 0
             || (translationPanelHeightConstraint?.constant ?? 0) > 0
-            ? translationPanel.frame.maxY + 8
+            || (savedTagsBarHeightConstraint?.constant ?? 0) > 0
+            ? savedTagsBar.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
         if composerBottomConstraint != nil { composerView.topContentLimit = visualTopInset }
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
@@ -9408,7 +9423,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return search
     }
 
+    /// The tags show while Saved Messages' search does, the filtering one chosen.
+    private func updateSavedTagsBar() {
+        guard savedTagsBarHeightConstraint != nil else { return }
+        let tags = messageSearchActive && chatVM.customChat.isSavedMessages
+            ? SavedMessagesTagsStore.shared.tags(for: chatVM.client)
+            : []
+        savedTagsBar.update(tags: tags, selected: messageSearchTag, client: chatVM.client)
+        let height: CGFloat = tags.isEmpty ? 0 : SavedMessagesTagsBar.height
+        guard abs(savedTagsBarHeightConstraint.constant - height) > 0.5 else { return }
+        savedTagsBar.isHidden = height == 0
+        savedTagsBarHeightConstraint.constant = height
+        view.layoutIfNeeded()
+        updateHistoryInsets()
+    }
+
+    /// A tag from the bar filters by it; the chosen one's tap clears the filter.
+    private func selectSavedTag(_ type: ReactionType?) {
+        guard let type else {
+            messageSearchTag = nil
+            customNavigationBar.setSearchMemberScope(.none)
+            messageSearch.update(query: messageSearchQuery, sender: nil)
+            updateMessageSearchPanel()
+            return
+        }
+        filterMessages(byTag: type)
+    }
+
     private func updateMessageSearchPanel() {
+        updateSavedTagsBar()
         updateMessageSearchHighlights()
         let status: ChatSearchPanel.Status = messageSearchChoosesMember ? .idle : messageSearch.status
         let queryIsEmpty = messageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
