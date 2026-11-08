@@ -61,6 +61,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// The main story list's posters for the title's collapsed stories.
     private let storySubscriptions = StorySubscriptions()
     private var storyPeers = [Int64: SettingsPeer]()
+    /// The expanded row's names: a person's first name, a chat's title.
+    private var storyTitles = [Int64: String]()
+    /// StoryPeerListComponent unlocked: the row the list's pull shows under the bar.
+    private let storyRowView = StoryPeerListExpandedView()
     private var storyPeerTask: Task<Void, Never>?
     private var liveLocationTitleTask: Task<Void, Never>?
     private var liveLocationOpenTask: Task<Void, Never>?
@@ -183,6 +187,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var collapsedStoryEntries: [StorySubscriptions.Entry] {
         let ownID = TDLib.shared.activeAccount?.userID
         return storySubscriptions.entries.filter { $0.chatID != ownID || $0.ringStyle != .seen }
+    }
+
+    /// The expanded row's posters: the account's own stories first as My Story, then the list's order.
+    private var expandedStoryEntries: [StorySubscriptions.Entry] {
+        let ownID = TDLib.shared.activeAccount?.userID
+        let entries = storySubscriptions.entries
+        return entries.filter { $0.chatID == ownID } + entries.filter { $0.chatID != ownID }
     }
 
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
@@ -563,30 +574,48 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             guard let self, event.source == source, actionAuthority.isCurrent else { return }
             storySubscriptions.apply(event.value.activeStories)
         }
-        customNavigationBar.onStoriesTap = { [weak self] in self?.openCollapsedStories() }
+        customNavigationBar.onStoriesTap = { [weak self] in self?.currentFolderController?.expandStories() }
+        storyRowView.clipsToBounds = true
+        storyRowView.isHidden = true
+        storyRowView.onSelect = { [weak self] chatID, source in self?.openStories(from: chatID, sourceView: source) }
+        view.insertSubview(storyRowView, belowSubview: customNavigationBar)
         storySubscriptions.load(client: client)
     }
 
+    /// ChatListNavigationBar.applyScroll: the pull reveals the row under the bar and fades the title's posters.
+    private func applyStoriesPull(_ pull: CGFloat, from controller: FolderViewController) {
+        guard currentFolderController === controller, controller.isViewLoaded else { return }
+        let bottom = controller.view.convert(CGPoint(x: 0, y: controller.storiesRegionBottom), to: view).y
+        storyRowView.isHidden = pull <= 0
+        storyRowView.frame = CGRect(x: 0, y: bottom - pull, width: view.bounds.width, height: pull)
+        let fraction = min(1, pull / StoryPeerListExpandedView.height)
+        storyRowView.alpha = fraction
+        customNavigationBar.storiesView.alpha = 1 - fraction
+    }
+
     private func updateStoryPeers() {
-        let entries = collapsedStoryEntries.prefix(3)
-        let missing = entries.map(\.chatID).filter { storyPeers[$0] == nil }
+        let missing = storySubscriptions.entries.map(\.chatID).filter { storyPeers[$0] == nil }
         applyStoryPeers()
         guard !missing.isEmpty else { return }
         let client = actionAuthority.client
         storyPeerTask?.cancel()
         storyPeerTask = Task { [weak self] in
             var found = [Int64: SettingsPeer]()
+            var titles = [Int64: String]()
             for chatID in missing {
                 guard let chat = try? await client.getChat(chatId: chatID) else { continue }
-                found[chatID] =
-                    if case .chatTypePrivate(let user) = chat.type {
-                        await SettingsPeer.user(user.userId, client: client)
-                    } else {
-                        SettingsPeer(chat: chat)
-                    }
+                if case .chatTypePrivate(let user) = chat.type {
+                    found[chatID] = await SettingsPeer.user(user.userId, client: client)
+                    let person = try? await client.getUser(userId: user.userId)
+                    titles[chatID] = person.map { $0.firstName.isEmpty ? $0.lastName : $0.firstName }
+                } else {
+                    found[chatID] = SettingsPeer(chat: chat)
+                    titles[chatID] = chat.title
+                }
             }
             guard let self, !Task.isCancelled, actionAuthority.isCurrent else { return }
             storyPeers.merge(found) { $1 }
+            storyTitles.merge(titles) { $1 }
             applyStoryPeers()
         }
     }
@@ -601,20 +630,32 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             accountID: TDLib.shared.activeAccountID,
         )
         customNavigationBar.updateStories()
+        let ownID = TDLib.shared.activeAccount?.userID
+        storyRowView.update(
+            items: expandedStoryEntries.compactMap { entry in
+                storyPeers[entry.chatID].map {
+                    StoryPeerListExpandedView.Item(
+                        chatID: entry.chatID,
+                        peer: $0,
+                        title: entry.chatID == ownID
+                            ? L10n.telegram("StoryFeed.MyStory")
+                            : storyTitles[entry.chatID] ?? $0.title,
+                        ringStyle: entry.ringStyle,
+                    )
+                }
+            },
+            client: actionAuthority.client,
+            accountID: TDLib.shared.activeAccountID,
+        )
     }
 
-    /// The collapsed posters' tap opens their stories in the list's order, unseen first.
-    private func openCollapsedStories() {
-        let entries = storySubscriptions.entries
-        let unseen = entries.filter { $0.ringStyle != .seen }.map(\.chatID)
-        let seen = entries.filter { $0.ringStyle == .seen }.map(\.chatID)
-        let ordered = unseen + seen
-        guard let first = collapsedStoryEntries.first?.chatID ?? ordered.first else { return }
+    /// ChatListController.openStories: a poster's stories, then the row's others in its order.
+    private func openStories(from chatID: Int64, sourceView: UIView) {
         StoryViewerController.present(
-            .activeStories(chatIDs: ordered, initialChatID: first),
+            .activeStories(chatIDs: expandedStoryEntries.map(\.chatID), initialChatID: chatID),
             client: actionAuthority.client,
             from: self,
-            sourceView: customNavigationBar.storiesView,
+            sourceView: sourceView,
             sourceIsAvatar: true,
         )
     }
@@ -1580,6 +1621,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 actionAuthority: actionAuthority,
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
+            controller.storiesEnabled = { [weak self] in self?.storyRowView.items.isEmpty == false }
+            controller.onStoriesPull = { [weak self, weak controller] pull in
+                guard let self, let controller else { return }
+                applyStoriesPull(pull, from: controller)
+            }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
                 guard let self, currentFolderController === controller, !isShowingSearchResults else { return }
                 customNavigationBar.applyScroll(offset: offset)

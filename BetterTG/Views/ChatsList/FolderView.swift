@@ -498,6 +498,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// BetterTG's Search Bar at Top: Telegram's search field under the bar, which the list scrolls away and back.
     var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
 
+    // MARK: Stories
+
+    /// ChatListControllerNode's stories: a pull past the list's top that starts there shows them under the bar
+    /// (`onStoriesPull`, the pull in points); past 65 pt they unlock (back under 61 pt they lock again, with
+    /// Telegram's haptics) and a release while unlocked keeps them open on a 96 pt top inset (tempTopInset), which
+    /// goes once the list scrolls 4 pt into its rows.
+    var storiesEnabled: (() -> Bool)?
+    var onStoriesPull: ((CGFloat) -> Void)?
+    private(set) var storiesInset: CGFloat = 0
+    private(set) var storiesUnlocked = false
+
     private let showsStandaloneSearch: Bool
     private let usesSearchField: Bool
     /// How far the field is scrolled away before the list is first laid out: all of it, as Telegram's list opens.
@@ -539,6 +550,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var selectedChatIDs: Set<Int64>?
     private var selectionToolbar: ChatListSelectionToolbar?
 
+    private var storiesDragStartedAtTop = false
+
     /// Whether the list shows no chats, as Telegram's `archiveChatList.items.isEmpty`.
     var isEmpty: Bool {
         dataSource?.snapshot().numberOfItems ?? 0 == 0
@@ -564,6 +577,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             ChatListNavigationSearchView.scrollHeight,
             tableView.contentOffset.y + tableView.adjustedContentInset.top,
         )
+    }
+
+    /// How far the list stands below its top without the stories.
+    var storiesPull: CGFloat {
+        guard isViewLoaded else { return 0 }
+        return -(tableView.contentOffset.y + tableView.adjustedContentInset.top - storiesInset)
+    }
+
+    /// Where the rows start, in the view's coordinates; the stories show in the pull above it.
+    var storiesRegionBottom: CGFloat {
+        tableView.convert(CGPoint.zero, to: view).y
     }
 
     private var orderedChats: [CustomChat] {
@@ -613,6 +637,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         return searchActive
             ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight
+    }
+
+    private var allowsStories: Bool {
+        !usesSearchField && searchActive != true && storiesEnabled?() == true
     }
 
     init(
@@ -740,6 +768,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         guard scrollView === tableView else { return }
         if usesSearchField { onSearchScrollOffsetChange?(searchScrollOffset) }
         updateIndicatorInsets()
+        updateStoriesPull()
     }
 
     /// A drag that ends with the field half shown settles it shown or hidden, as Telegram's list does.
@@ -748,6 +777,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         withVelocity _: CGPoint,
         targetContentOffset: UnsafeMutablePointer<CGPoint>,
     ) {
+        if scrollView === tableView, allowsStories, storiesDragStartedAtTop || storiesInset > 0 {
+            settleStories(targetContentOffset)
+            return
+        }
         guard usesSearchField, scrollView === tableView, isSearchActive?() != true else { return }
         let top = -scrollView.adjustedContentInset.top
         let distance = targetContentOffset.pointee.y - top
@@ -760,6 +793,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
+        // startedScrollingAtUpperBound: only a drag from the top can open the stories.
+        storiesDragStartedAtTop = storiesPull >= -1
         clientViewportRestoration.cancel()
         didPlaceInitialViewport = true
     }
@@ -849,6 +884,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             .count
         guard pinnedCount > 0 else { return sourceIndexPath }
         return IndexPath(row: min(proposedDestinationIndexPath.row, pinnedCount - 1), section: sourceIndexPath.section)
+    }
+
+    /// scrollToStories: the collapsed posters' tap opens the stories.
+    func expandStories() {
+        guard isViewLoaded, allowsStories else { return }
+        setStoriesInset(StoryPeerListExpandedView.height)
+        storiesUnlocked = true
+        storiesDragStartedAtTop = true
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
     }
 
     func clientRestorationViewport() -> ChatListViewportSnapshot {
@@ -999,6 +1043,64 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Telegram's donePressed.
     func endEditing() {
         endChatSelection()
+    }
+
+    private func updateStoriesPull() {
+        guard allowsStories else {
+            if storiesInset > 0 { setStoriesInset(0) }
+            onStoriesPull?(0)
+            return
+        }
+        let pull = storiesPull
+        if storiesInset > 0, pull < -4 {
+            setStoriesInset(0)
+            setStoriesUnlocked(false)
+        }
+        guard storiesDragStartedAtTop || storiesInset > 0 else {
+            onStoriesPull?(0)
+            return
+        }
+        if tableView.isTracking {
+            if pull >= 65 {
+                setStoriesUnlocked(true)
+            } else if pull <= 61 {
+                setStoriesUnlocked(false)
+            }
+        }
+        onStoriesPull?(max(0, pull))
+    }
+
+    private func setStoriesUnlocked(_ unlocked: Bool) {
+        guard unlocked != storiesUnlocked else { return }
+        storiesUnlocked = unlocked
+        if unlocked {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } else {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+        }
+    }
+
+    private func setStoriesInset(_ inset: CGFloat) {
+        let delta = inset - storiesInset
+        guard abs(delta) > 0.5 else { return }
+        storiesInset = inset
+        let offset = tableView.contentOffset
+        tableView.contentInset.top += delta
+        tableView.contentOffset = offset
+        updateIndicatorInsets()
+    }
+
+    /// contentScrollingEnded: a release between the stories' closed and open positions settles open while they're
+    /// unlocked and closed otherwise.
+    private func settleStories(_ target: UnsafeMutablePointer<CGPoint>) {
+        if storiesUnlocked {
+            setStoriesInset(StoryPeerListExpandedView.height)
+            let open = -tableView.adjustedContentInset.top
+            if target.pointee.y < open + StoryPeerListExpandedView.height { target.pointee.y = open }
+        } else if storiesInset > 0 {
+            let closed = -tableView.adjustedContentInset.top + storiesInset
+            if target.pointee.y < closed { target.pointee.y = closed }
+        }
     }
 
     /// The scroll indicator runs beside the rows, under the navigation bar, which grows with a pull past the top of

@@ -157,3 +157,122 @@ final class StoryPeerListCollapsedView: UIView {
         onChange?()
     }
 }
+
+// MARK: - StoryPeerListExpandedView
+
+/// StoryPeerListComponent unlocked: a row of 60 by 77 pt items 14 pt apart, 16 pt under the bar, each a 52 pt avatar
+/// in its story ring with the poster's name under it in 11 pt, dimmed once everything is seen; the account's own
+/// stories lead as My Story.
+final class StoryPeerListExpandedView: UIView {
+    struct Item: Equatable {
+        let chatID: Int64
+        let peer: SettingsPeer
+        let title: String
+        let ringStyle: StoryAvatarRingView.Style
+
+        static func == (lhs: Item, rhs: Item) -> Bool {
+            lhs.chatID == rhs.chatID && lhs.title == rhs.title && lhs.ringStyle == rhs.ringStyle
+                && lhs.peer.file?.id == rhs.peer.file?.id
+        }
+    }
+
+    private final class ItemView: UIControl {
+        override var isHighlighted: Bool {
+            didSet { alpha = isHighlighted ? 0.6 : 1 }
+        }
+
+        let ringView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
+
+        private let avatar = ProfileAvatarView()
+        private let titleLabel = UILabel()
+
+        init(item: Item, client: TDLibClient, accountID: UUID?) {
+            super.init(frame: .zero)
+            ringView.isUserInteractionEnabled = false
+            ringView.style = item.ringStyle
+            avatar.isUserInteractionEnabled = false
+            avatar.configure(
+                file: item.peer.file,
+                minithumbnail: item.peer.minithumbnail,
+                placeholder: item.peer.placeholder,
+                accountID: accountID,
+                client: client,
+            )
+            ringView.addSubview(avatar)
+            addSubview(ringView)
+            titleLabel.text = item.title
+            titleLabel.font = .systemFont(ofSize: 11)
+            titleLabel.textAlignment = .center
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.textColor = item.ringStyle == .seen ? .label.withAlphaComponent(0.5) : .label
+            addSubview(titleLabel)
+            isAccessibilityElement = true
+            accessibilityLabel = item.title
+            accessibilityTraits = .button
+        }
+
+        @available(*, unavailable) required init?(coder _: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        /// StoryPeerListItemComponent: the 52 pt avatar 4 pt down, its ring around it, the name 2 pt under the ring.
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            ringView.frame = CGRect(x: (bounds.width - 60) / 2, y: 0, width: 60, height: 60)
+            avatar.frame = CGRect(x: 4, y: 4, width: 52, height: 52)
+            let height = ceil(titleLabel.font.lineHeight)
+            titleLabel.frame = CGRect(x: -4, y: ringView.frame.maxY + 2, width: bounds.width + 8, height: height)
+        }
+    }
+
+    static let height: CGFloat = 96
+
+    var onSelect: ((Int64, UIView) -> Void)?
+    private(set) var items = [Item]()
+
+    private let scrollView = UIScrollView()
+    private var itemViews = [ItemView]()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        addSubview(scrollView)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The row's frame within the view, so its items rest 16 pt under the bar's bottom however much shows.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let rowFrame = CGRect(x: 0, y: bounds.height - Self.height, width: bounds.width, height: Self.height)
+        scrollView.frame = rowFrame
+        // StoryPeerListComponent.ItemLayout: 16 pt down and 4 pt short of the side inset.
+        let leading = safeAreaInsets.left + 12
+        for (index, view) in itemViews.enumerated() {
+            view.frame = CGRect(x: leading + CGFloat(index) * (60 + 14), y: 16, width: 60, height: 77)
+        }
+        scrollView.contentSize = CGSize(
+            width: leading + CGFloat(itemViews.count) * 74 - 14 + 12 + safeAreaInsets.right,
+            height: Self.height,
+        )
+    }
+
+    func update(items: [Item], client: TDLibClient, accountID: UUID?) {
+        guard items != self.items else { return }
+        self.items = items
+        itemViews.forEach { $0.removeFromSuperview() }
+        itemViews = items.map { item in
+            let view = ItemView(item: item, client: client, accountID: accountID)
+            view.addAction(UIAction { [weak self, weak view] _ in
+                guard let view else { return }
+                self?.onSelect?(item.chatID, view.ringView)
+            }, for: .touchUpInside)
+            scrollView.addSubview(view)
+            return view
+        }
+        setNeedsLayout()
+    }
+}
