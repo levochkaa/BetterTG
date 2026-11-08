@@ -59,7 +59,8 @@ final class ChatListSelectionToolbar: UIView {
         let height = Self.capsuleHeight
         let y = bounds.height - bottomInset - height
         let minX = safeAreaInsets.left + sideInset
-        let maxX = bounds.width - safeAreaInsets.right - sideInset
+        // The tab bar gives way to the panel, so on iPhone Duo it spans the strip, as the folder tabs do.
+        let maxX = bounds.width - safeAreaInsets.right + iPhoneDuoBottomEdgeRightOutset - sideInset
         let width = maxX - minX
 
         let leftWidth = capsuleWidth(for: leftButton, limit: width)
