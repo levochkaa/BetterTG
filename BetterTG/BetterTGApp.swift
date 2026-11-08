@@ -73,6 +73,7 @@ import UIKit
             ThreadReplyProbe.runIfRequested()
             ThreadReplyProbe.listEmojiSoundsIfRequested()
             ThreadReplyProbe.sendMessageEffectIfRequested()
+            ServiceNotificationPresenter.presentProbeIfRequested()
             ThreadReplyProbe.setUpCommunityIfRequested()
             ChatTitleIconsProbe.runIfRequested()
             MessageStatusLineProbe.runIfRequested()

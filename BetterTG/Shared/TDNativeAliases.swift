@@ -265,6 +265,7 @@ public typealias UpdateMessageEdited = TDNativeUpdateMessageEdited
 public typealias UpdateMessageSendFailed = TDNativeUpdateMessageSendFailed
 public typealias UpdateMessageSendSucceeded = TDNativeUpdateMessageSendSucceeded
 public typealias UpdateNewMessage = TDNativeUpdateNewMessage
+public typealias UpdateServiceNotification = TDNativeUpdateServiceNotification
 public typealias UpdateSupergroup = TDNativeUpdateSupergroup
 public typealias UpdateSupergroupFullInfo = TDNativeUpdateSupergroupFullInfo
 public typealias UpdateUnreadChatCount = TDNativeUpdateUnreadChatCount
