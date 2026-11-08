@@ -587,6 +587,14 @@ private final class StoryShareViewController: SettingsListViewController {
     private var allowsScreenshots = true
     private var keepsOnPage = true
     private var isPosting = false
+    /// ShareWithPeersScreen's sendAsPeers: the account, then the chats it can post stories to.
+    private var postAsPeers = [StoryPostAsPeer]()
+    /// The chat the story goes to, nil for the account's own.
+    private var postAsChatID: Int64?
+
+    private var postAs: StoryPostAsPeer? {
+        postAsPeers.first { $0.chatID == postAsChatID }
+    }
 
     private var privacy: TDNativeStoryPrivacySettings {
         switch audience {
@@ -621,6 +629,12 @@ private final class StoryShareViewController: SettingsListViewController {
             closeFriendIDs = users.userIds
             reload()
         }
+        Task { [weak self] in
+            let peers = await StoryPostAsPeer.load(client: client)
+            guard let self, contextIsCurrent else { return }
+            postAsPeers = peers
+            reload()
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -639,8 +653,38 @@ private final class StoryShareViewController: SettingsListViewController {
                 selectedUserIDs.isEmpty ? L10n.telegram("Story.Privacy.Choose") : names(selectedUserIDs),
             ),
         ]
-        return [
-            SettingsSection(
+        var sections = [SettingsSection]()
+        // POST STORY AS, once the account can post somewhere else: the chosen peer, opening the list.
+        if postAsPeers.count > 1, let postAs {
+            sections.append(SettingsSection(
+                header: L10n.telegram("Story.Privacy.PostStoryAsHeader"),
+                rows: [SettingsRow(
+                    title: postAs.peer.title,
+                    detail: postAs.subtitle,
+                    style: .peer(postAs.peer),
+                    accessory: .disclosure,
+                    isEnabled: !isPosting,
+                ) { [weak self] in self?.choosePostAs() }],
+            ))
+        }
+        let pinTitle: String
+        let pinFooter: String
+        let hoursText = L10n.telegramPlural("Story.Privacy.KeepOnMyPageHours", count: hours)
+        if let postAs, postAs.chatID != nil {
+            pinTitle = L10n.telegram(postAs.isGroup
+                ? "Story.Privacy.KeepOnGroupPage"
+                : "Story.Privacy.KeepOnChannelPage")
+            pinFooter = L10n.telegram(
+                postAs.isGroup ? "Story.Privacy.KeepOnGroupPageInfo" : "Story.Privacy.KeepOnChannelPageInfo",
+                hoursText,
+            )
+        } else {
+            pinTitle = L10n.telegram("Story.Privacy.KeepOnMyPage")
+            pinFooter = L10n.telegram("Story.Privacy.KeepOnMyPageInfo", hoursText)
+        }
+        // A chat's story is public to it: no categories.
+        if postAsChatID == nil {
+            sections.append(SettingsSection(
                 header: L10n.telegram("Story.Privacy.WhoCanViewHeader"),
                 rows: audiences.map { audience, key, detail in
                     SettingsRow(
@@ -651,12 +695,11 @@ private final class StoryShareViewController: SettingsListViewController {
                         isEnabled: !isPosting,
                     ) { [weak self] in self?.choose(audience) }
                 },
-            ),
+            ))
+        }
+        sections += [
             SettingsSection(
-                footer: L10n.telegram(
-                    "Story.Privacy.KeepOnMyPageInfo",
-                    L10n.telegramPlural("Story.Privacy.KeepOnMyPageHours", count: hours),
-                ),
+                footer: pinFooter,
                 rows: [
                     SettingsRow(
                         title: L10n.telegram("Story.Privacy.AllowScreenshots"),
@@ -665,7 +708,7 @@ private final class StoryShareViewController: SettingsListViewController {
                         },
                     ),
                     SettingsRow(
-                        title: L10n.telegram("Story.Privacy.KeepOnMyPage"),
+                        title: pinTitle,
                         accessory: .toggle(isOn: keepsOnPage) { [weak self] value in self?.keepsOnPage = value },
                     ),
                 ],
@@ -677,6 +720,17 @@ private final class StoryShareViewController: SettingsListViewController {
                 isEnabled: !isPosting,
             ) { [weak self] in self?.post() }]),
         ]
+        return sections
+    }
+
+    /// presentSendAsPeer: Post Story As, the account and its chats with a check on the chosen one.
+    private func choosePostAs() {
+        let list = StoryPostAsViewController(peers: postAsPeers, chosenChatID: postAsChatID) { [weak self] chatID in
+            guard let self else { return }
+            postAsChatID = chatID
+            reload()
+        }
+        navigationController?.pushViewController(list, animated: true)
     }
 
     /// ShareWithPeersScreen's category subtitles: exclude people or except the names, edit list, choose or the names.
@@ -751,6 +805,7 @@ private final class StoryShareViewController: SettingsListViewController {
     /// The story for postStory from the account's Saved Messages, active for the chosen hours.
     private func post() {
         guard !isPosting, contextIsCurrent, let ownID = TDLib.shared.activeAccount?.userID else { return }
+        let chatID = postAsChatID ?? ownID
         isPosting = true
         reload()
         let client = client
@@ -764,7 +819,7 @@ private final class StoryShareViewController: SettingsListViewController {
             do {
                 let content = try await media.content()
                 _ = try await client.send(TDNativeRequests.postStory(
-                    chatId: ownID,
+                    chatId: chatID,
                     content: content,
                     areas: nil,
                     caption: caption.isEmpty ? nil : FormattedText(entities: [], text: caption),
@@ -784,5 +839,127 @@ private final class StoryShareViewController: SettingsListViewController {
                 if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
             }
         }
+    }
+}
+
+// MARK: - StoryPostAsPeer
+
+/// One of ShareWithPeersScreen's sendAsPeers: the account (personal account) or a chat it can post stories to, with
+/// its subscribers or members.
+private struct StoryPostAsPeer {
+    let chatID: Int64?
+    let peer: SettingsPeer
+    let subtitle: String
+    let isGroup: Bool
+
+    /// The account, then getChatsToPostStories' chats.
+    @MainActor static func load(client: TDLibClient) async -> [StoryPostAsPeer] {
+        guard let ownID = TDLib.shared.activeAccount?.userID,
+              let me = await SettingsPeer.user(ownID, client: client)
+        else { return [] }
+        var peers = [StoryPostAsPeer(
+            chatID: nil,
+            peer: me,
+            subtitle: L10n.telegram("VoiceChat.PersonalAccount"),
+            isGroup: false,
+        )]
+        let chats = try? await client.send(TDNativeRequests.getChatsToPostStories())
+        for id in chats?.chatIds ?? [] {
+            guard let chat = try? await client.getChat(chatId: id) else { continue }
+            var isGroup = true
+            var count = 0
+            if case .chatTypeSupergroup(let type) = chat.type {
+                isGroup = !type.isChannel
+                count = await (try? client.getSupergroup(supergroupId: type.supergroupId))?.memberCount ?? 0
+            }
+            let subtitle = count > 0
+                ? L10n.telegramPlural(
+                    isGroup ? "Conversation.StatusMembers" : "Conversation.StatusSubscribers",
+                    count: count,
+                )
+                : L10n.telegram(isGroup ? "Group.Status" : "Channel.Status")
+            peers.append(StoryPostAsPeer(
+                chatID: id,
+                peer: SettingsPeer(chat: chat),
+                subtitle: subtitle,
+                isGroup: isGroup,
+            ))
+        }
+        return peers
+    }
+}
+
+// MARK: - StoryPostAsViewController
+
+/// ShareWithPeersScreen's peers subject, Post Story As: the account first, a check on the chosen one. The account is
+/// chosen at once; a chat after checkStoriesUploadAvailability (canPostStory) allows it, and a chat that needs boosts
+/// opens its boost levels instead.
+private final class StoryPostAsViewController: SettingsListViewController {
+    private let peers: [StoryPostAsPeer]
+    private let chosenChatID: Int64?
+    private let onChoose: (Int64?) -> Void
+    private var checkingChatID: Int64?
+
+    init(peers: [StoryPostAsPeer], chosenChatID: Int64?, onChoose: @escaping (Int64?) -> Void) {
+        self.peers = peers
+        self.chosenChatID = chosenChatID
+        self.onChoose = onChoose
+        super.init()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.telegram("Story.Privacy.PostStoryAs")
+    }
+
+    override func makeSections() -> [SettingsSection] {
+        [SettingsSection(rows: peers.map { peer in
+            SettingsRow(
+                title: peer.peer.title,
+                detail: peer.subtitle,
+                style: .peer(peer.peer),
+                accessory: checkingChatID != nil && checkingChatID == peer.chatID
+                    ? .activity
+                    : peer.chatID == chosenChatID ? .checkmark : .none,
+                isEnabled: checkingChatID == nil,
+            ) { [weak self] in self?.choose(peer) }
+        })]
+    }
+
+    private func choose(_ peer: StoryPostAsPeer) {
+        guard let chatID = peer.chatID else {
+            finish(nil)
+            return
+        }
+        checkingChatID = chatID
+        reload()
+        let client = client
+        Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.canPostStory(chatId: chatID))
+            guard let self, contextIsCurrent else { return }
+            checkingChatID = nil
+            reload()
+            switch result {
+            case .canPostStoryResultOk:
+                finish(chatID)
+            case .canPostStoryResultBoostNeeded:
+                guard let chat = try? await client.getChat(chatId: chatID), contextIsCurrent else { return }
+                navigationController?.pushViewController(
+                    BoostLevelsViewController(chat: chat, isAdmin: true, client: client),
+                    animated: true,
+                )
+            default:
+                break
+            }
+        }
+    }
+
+    private func finish(_ chatID: Int64?) {
+        onChoose(chatID)
+        navigationController?.popViewController(animated: true)
     }
 }
