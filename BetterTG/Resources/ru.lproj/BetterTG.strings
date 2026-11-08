@@ -724,3 +724,4 @@
 "BetterTGSettings.ChatList" = "Список чатов";
 "BetterTGSettings.SearchBarAtTop" = "Поле поиска сверху";
 "BetterTGSettings.SearchBarAtTopInfo" = "В чатах и архиве поле поиска стоит под панелью вместо кнопки поиска.";
+"BetterTGSettings.HideStories" = "Скрыть истории";

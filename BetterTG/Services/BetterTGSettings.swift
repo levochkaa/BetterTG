@@ -46,6 +46,12 @@ import Foundation
         set { set(newValue, "searchBarAtTop") }
     }
 
+    /// Swiftgram's Hide Stories: Chats and the archive show no stories by the title or under the bar.
+    var hidesStories: Bool {
+        get { bool("hideStories", default: false) }
+        set { set(newValue, "hideStories") }
+    }
+
     private init() {}
 
     private func bool(_ key: String, default value: Bool) -> Bool {

@@ -1486,6 +1486,7 @@
 "AutoDownloadSettings.OffForAll" = "Off for all chats";
 "AutoDownloadSettings.Delimeter" = ", ";
 "AutoDownloadSettings.LastDelimeter" = " and ";
+"AutoDownloadSettings.Stories" = "Stories";
 "PowerSavingScreen.OptionAutoplayVideoTitle" = "Autoplay Videos";
 "PowerSavingScreen.OptionAutoplayVideoText" = "Autoplay and loop videos and video messages in chats.";
 "PowerSavingScreen.OptionAutoplayGifTitle" = "Autoplay GIFs";

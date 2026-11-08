@@ -190,12 +190,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// StoryPeerListComponent's collapseStartIndex: the account's own stories lead only while some are unseen.
     private var collapsedStoryEntries: [StorySubscriptions.Entry] {
+        guard !BetterTGSettings.shared.hidesStories else { return [] }
         let ownID = TDLib.shared.activeAccount?.userID
         return storySubscriptions.entries.filter { $0.chatID != ownID || $0.ringStyle != .seen }
     }
 
     /// The expanded row's posters: the account's own stories first as My Story, then the list's order.
     private var expandedStoryEntries: [StorySubscriptions.Entry] {
+        guard !BetterTGSettings.shared.hidesStories else { return [] }
         let ownID = TDLib.shared.activeAccount?.userID
         let entries = storySubscriptions.entries
         return entries.filter { $0.chatID == ownID } + entries.filter { $0.chatID != ownID }
@@ -627,6 +629,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             guard let self, event.source == source else { return }
             stopStoryUploading(event.value.story.id)
         }
+        BetterTGSettings.shared
+            .changes
+            .sink { [weak self] in self?.applyStoryPeers() }
+            .store(in: &cancellables)
         StoryPosting.shared
             .$preparingChatIDs
             .sink { [weak self] value in

@@ -53,6 +53,11 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
 
     var navigationClientSource: TdUpdateSource? { actionAuthority.scope(owner: self).source }
 
+    /// The archive's posters, none under BetterTG's Hide Stories.
+    private var shownStoryEntries: [StorySubscriptions.Entry] {
+        BetterTGSettings.shared.hidesStories ? [] : storySubscriptions.entries
+    }
+
     init(folder: CustomFolder, rootVM: RootVM, isTabRoot: Bool = false, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isTabRoot = isTabRoot
@@ -313,6 +318,10 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             guard let self, event.source == source, actionAuthority.isCurrent else { return }
             storySubscriptions.apply(event.value.activeStories)
         }
+        BetterTGSettings.shared
+            .changes
+            .sink { [weak self] in self?.applyStoryPeers() }
+            .store(in: &cancellables)
         navigationBarView.onStoriesTap = { [weak self] in self?.folderController.expandStories() }
         storyRowView.clipsToBounds = true
         storyRowView.isHidden = true
@@ -381,7 +390,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     }
 
     private func applyStoryPeers() {
-        let entries = storySubscriptions.entries
+        let entries = shownStoryEntries
         navigationBarView.storiesView.update(
             items: entries.prefix(3).compactMap { entry in
                 storyPeers[entry.chatID].map { StoryPeerListCollapsedView.Item(peer: $0, ringStyle: entry.ringStyle) }
@@ -409,7 +418,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     /// ChatListController.openStories in the archive: a poster's stories, then the row's others.
     private func openStories(from chatID: Int64, sourceView: UIView) {
         StoryViewerController.present(
-            .activeStories(chatIDs: storySubscriptions.entries.map(\.chatID), initialChatID: chatID),
+            .activeStories(chatIDs: shownStoryEntries.map(\.chatID), initialChatID: chatID),
             client: actionAuthority.client,
             from: self,
             sourceView: sourceView,

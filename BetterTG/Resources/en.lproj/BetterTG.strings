@@ -725,3 +725,4 @@
 "BetterTGSettings.ChatList" = "Chat List";
 "BetterTGSettings.SearchBarAtTop" = "Search Bar at Top";
 "BetterTGSettings.SearchBarAtTopInfo" = "Chats and the archive show the search field under the bar instead of the search button.";
+"BetterTGSettings.HideStories" = "Hide Stories";

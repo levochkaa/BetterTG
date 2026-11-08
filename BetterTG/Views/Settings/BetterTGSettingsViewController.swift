@@ -5,7 +5,8 @@ import UIKit
 // MARK: - BetterTGSettingsViewController
 
 /// BetterTG's own options in one place, as Swiftgram's SGSettingsController keeps its: the tabs, and the chat list's
-/// search and folder tabs. Each change applies at once; the switch keeps its own animation, and only rows whose
+/// search, stories and folder tabs. Each change applies at once; the switch keeps its own animation, and only rows
+/// whose
 /// availability changes redraw. The bar's search button filters the rows as Swiftgram's search field does.
 final class BetterTGSettingsViewController: SettingsListViewController, TelegramConditionalNavigationSearchProvider,
 UISearchResultsUpdating, UISearchControllerDelegate {
@@ -128,6 +129,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 rows: [
                     toggle("BetterTGSettings.SearchBarAtTop", isOn: settings.searchBarAtTop) {
                         settings.searchBarAtTop = $0
+                    },
+                ],
+            ),
+            SettingsSection(
+                header: L10n.telegram("AutoDownloadSettings.Stories"),
+                rows: [
+                    toggle("BetterTGSettings.HideStories", isOn: settings.hidesStories) {
+                        settings.hidesStories = $0
                     },
                 ],
             ),
