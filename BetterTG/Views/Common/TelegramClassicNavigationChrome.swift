@@ -243,6 +243,15 @@ final class TelegramSideColumnView: UIView {
     /// iPhone Duo's status island beside the row.
     var trailingButtonsInset: CGFloat = 0
 
+    /// White bar buttons over a profile's colour cover (PeerInfoHeaderNode's navigation contents primary colour); nil
+    /// gives the buttons back their own tints.
+    var buttonTintOverride: UIColor? {
+        didSet {
+            guard buttonTintOverride != oldValue else { return }
+            applyButtonTintOverride()
+        }
+    }
+
     /// White title and subtitle over a profile's colour cover (PeerInfoHeaderNode's navigation contents colours); nil
     /// keeps the label colours.
     var titleColorOverride: UIColor? {
@@ -536,6 +545,7 @@ final class TelegramSideColumnView: UIView {
         items = left + right
         leftViews = left.map(makeButton)
         rightViews = right.map(makeButton)
+        applyButtonTintOverride()
         // The left sections run from the edge inward; the first shares the back button's pill.
         let leftSections = Self.sections(of: Array(zip(left, leftViews)))
         leadingPlatter.setItems([backButton] + (leftSections.first?.map(\.1) ?? []))
@@ -567,6 +577,16 @@ final class TelegramSideColumnView: UIView {
             runOpenSearchMorph(from: rowBefore, field: field)
         } else if let closingField {
             runCloseSearchMorph(field: closingField)
+        }
+    }
+
+    /// The override on Back and every item's button; without it, Back in the label colour and each item in its own
+    /// tint, as `makeButton` gives them.
+    private func applyButtonTintOverride() {
+        backButton.tintColor = buttonTintOverride ?? .label
+        for (item, view) in zip(items, leftViews + rightViews) {
+            guard let button = view as? UIButton, item.style != .prominent else { continue }
+            button.tintColor = buttonTintOverride ?? item.tintColor ?? .label
         }
     }
 

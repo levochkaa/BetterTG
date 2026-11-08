@@ -2828,6 +2828,7 @@ ClientRestorableNavigationEntry {
             profileCoverTopFill.isHidden = true
             chrome?.backgroundAlpha = 1
             chrome?.titleColorOverride = nil
+            chrome?.buttonTintOverride = nil
             return
         }
         let remaining = profileCoverView.frame.maxY - collectionView.contentOffset.y
@@ -2836,6 +2837,7 @@ ClientRestorableNavigationEntry {
         profileCoverTopFill.alpha = fill
         chrome?.backgroundAlpha = 1 - fill
         chrome?.titleColorOverride = fill > 0.5 ? .white : nil
+        chrome?.buttonTintOverride = fill > 0.5 ? .white : nil
     }
 
     /// PeerInfoHeaderNode over a profile colour: white title and secondary text, and the buttons on translucent white
