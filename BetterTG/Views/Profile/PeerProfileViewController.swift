@@ -1239,6 +1239,18 @@ ClientRestorableNavigationEntry {
         return looper
     }
 
+    // getChatPostedToChatPageStories a page at a time, from the pinned and newest stories on.
+
+    /// `-ui-probe-story-albums`' made-up albums, numbered from 9 000 001. Read at run time: a constant `false` in
+    /// release builds would leave the probe's branch as dead code the compiler warns about.
+    private static func isProbeStoryAlbum(_ albumID: Int?) -> Bool {
+        #if DEBUG
+            (albumID ?? 0) >= 9_000_001
+        #else
+            false
+        #endif
+    }
+
     /// Whether this is the account's own Saved Messages profile, which View as Chats goes back to.
     func showsSavedMessages(chatID: Int64) -> Bool {
         isSavedMessagesProfile && topic == nil && customChat.id == chatID
@@ -6062,7 +6074,6 @@ ClientRestorableNavigationEntry {
         }
     }
 
-    /// getChatPostedToChatPageStories a page at a time, from the pinned and newest stories on.
     private func loadMorePosts() {
         guard restoredViewport == nil, postsTask == nil, postsHasMore, contextIsCurrent else { return }
         let client = client
@@ -6075,11 +6086,8 @@ ClientRestorableNavigationEntry {
         historyError = nil
         postsTask = Task { [weak self] in
             do {
-                var probeAlbum = false
-                #if DEBUG
-                    // A made-up album of `-ui-probe-story-albums` shows the first six posts.
-                    probeAlbum = (albumID ?? 0) >= 9_000_001
-                #endif
+                // A made-up album of `-ui-probe-story-albums` shows the first six posts; release builds have none.
+                let probeAlbum = Self.isProbeStoryAlbum(albumID)
                 let page: TDNativeStories =
                     if probeAlbum {
                         offset > 0
