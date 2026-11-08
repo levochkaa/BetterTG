@@ -161,6 +161,12 @@ ClientRestorableNavigationEntry {
     #if DEBUG
         /// `-ui-probe-main-web-app`: Open App shows on every other profile and opens the probe page after the terms.
         static var probeShowsOpenApp = false
+        /// `-ui-probe-expanded-photo-paging`: the expanded photo lists the peer's photos three times over, so paging
+        /// and
+        /// its strip show on a profile with a single photo.
+        static let probeRepeatsExpandedPhotos = ProcessInfo.processInfo
+.arguments
+            .contains("-ui-probe-expanded-photo-paging")
     #endif
 
     private static let giftCollectionsLimit = 6
@@ -1489,9 +1495,13 @@ ClientRestorableNavigationEntry {
             guard let payload = try? await self?.loadAvatarGalleryPayload(client: client),
                   let self, !Task.isCancelled, isAvatarExpanded
             else { return }
-            expandedPhotos = payload.items
+            var items = payload.items
+            #if DEBUG
+                if Self.probeRepeatsExpandedPhotos { items = items + items + items }
+            #endif
+            expandedPhotos = items
             expandedPhotoIndex = 0
-            expandedPhotoIndicator.configure(count: payload.items.count, current: 0)
+            expandedPhotoIndicator.configure(count: items.count, current: 0)
             playExpandedVideo(payload.items.first)
         }
     }
