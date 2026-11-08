@@ -3720,14 +3720,15 @@ ClientRestorableNavigationEntry {
                 opens: location.location != nil,
             ))
         }
-        // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet.
-        if !isMyProfile, !addedToContacts, let user = customChat.user, !user.isContact,
+        // PeerInfoProfileItems' Add to Contacts: a person, not a bot, who isn't a contact yet; never the account
+        // itself, here or as Saved Messages.
+        if !isSelfProfile, !addedToContacts, let user = customChat.user, !user.isContact,
            case .userTypeRegular = user.type
         {
             rows.append(.action(id: "addContact", title: L10n.telegram("PeerInfo.AddToContacts")))
         }
         // Unblock for one who is blocked; Block User for a person who isn't a contact or Telegram's support.
-        if !isMyProfile, let user = customChat.user {
+        if !isSelfProfile, let user = customChat.user {
             let isBlocked = blockedOverride ?? (info.blockList != nil)
             let isBot =
                 if case .userTypeBot = user.type {
