@@ -4835,3 +4835,7 @@
 "Story.Privacy.EditList" = "edit list";
 "Story.Privacy.ExcludedPeople" = "Excluded People";
 "StoryFeed.MyUploading" = "Uploading...";
+"Story.Editor.ExpirationText" = "Choose how long the story will be visible.";
+"Story.Editor.ExpirationValue_1" = "1 Hour";
+"Story.Editor.ExpirationValue_any" = "%d Hours";
+"Story.Editor.TooltipPremiumExpiration" = "Subscribe to [Telegram Premium]() to make your stories disappear after 6, 12 or 48 hours.";

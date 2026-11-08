@@ -148,6 +148,10 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
     private let imageView = UIImageView()
     private let captionView = UITextView()
     private let placeholder = UILabel()
+    /// MediaEditorScreen's timeout button: the hours the story stays, 24 unless Premium picks 6, 12 or 48.
+    private let timerButton = UIButton(type: .system)
+    private var hours = 24
+    private var isPremium = false
 
     init(image: UIImage, client: TDLibClient, accountID: UUID?) {
         self.image = image
@@ -190,6 +194,20 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         placeholder.textColor = UIColor.white.withAlphaComponent(0.6)
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         captionView.addSubview(placeholder)
+        timerButton.tintColor = .white
+        timerButton.showsMenuAsPrimaryAction = true
+        // Telegram's order from top to bottom, wherever the menu opens.
+        timerButton.preferredMenuElementOrder = .fixed
+        timerButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(timerButton)
+        updateTimer()
+        let client = client
+        Task { [weak self] in
+            let me = try? await client.send(TDNativeRequests.getMe())
+            guard let self else { return }
+            isPremium = me?.isPremium ?? false
+            updateTimer()
+        }
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Story.Editor.Next"),
@@ -208,7 +226,11 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
             imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: 9 / 16),
             imageHeight,
             captionView.leadingAnchor.constraint(equalTo: imageView.leadingAnchor, constant: 10),
-            captionView.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -10),
+            captionView.trailingAnchor.constraint(equalTo: timerButton.leadingAnchor, constant: -6),
+            timerButton.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -8),
+            timerButton.centerYAnchor.constraint(equalTo: captionView.centerYAnchor),
+            timerButton.widthAnchor.constraint(equalToConstant: 44),
+            timerButton.heightAnchor.constraint(equalToConstant: 36),
             captionView.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -10),
             captionView.bottomAnchor.constraint(
                 lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor,
@@ -224,9 +246,54 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         placeholder.isHidden = !textView.text.isEmpty
     }
 
+    /// presentTimeoutSetup: Choose how long the story will be visible, then 6, 12, 24 and 48 Hours with a check on
+    /// the chosen one; without Premium all but 24 carry a lock and explain Premium instead.
+    private func updateTimer() {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(
+            systemName: "timer",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .medium),
+        )
+        configuration.imagePadding = 2
+        configuration.title = "\(hours)"
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = .systemFont(ofSize: 12, weight: .semibold)
+            return attributes
+        }
+        configuration.contentInsets = .zero
+        timerButton.configuration = configuration
+        timerButton.accessibilityLabel = L10n.telegramPlural("Story.Editor.ExpirationValue", count: hours)
+        let options = [6, 12, 24, 48].map { value in
+            let locked = value != 24 && !isPremium
+            return UIAction(
+                title: L10n.telegramPlural("Story.Editor.ExpirationValue", count: value),
+                image: locked ? UIImage(systemName: "lock.fill") : nil,
+                state: value == hours ? .on : .off,
+            ) { [weak self] _ in
+                guard let self else { return }
+                if locked {
+                    let alert = UIAlertController(
+                        title: nil,
+                        message: L10n.telegram("Story.Editor.TooltipPremiumExpiration")
+                            .replacing("[", with: "")
+                            .replacing("]()", with: ""),
+                        preferredStyle: .alert,
+                    )
+                    alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                    present(alert, animated: true)
+                } else {
+                    hours = value
+                    updateTimer()
+                }
+            }
+        }
+        timerButton.menu = UIMenu(title: L10n.telegram("Story.Editor.ExpirationText"), children: options)
+    }
+
     private func next() {
         captionView.resignFirstResponder()
-        let share = StoryShareViewController(image: image, caption: captionView.text ?? "")
+        let share = StoryShareViewController(image: image, caption: captionView.text ?? "", hours: hours)
         navigationController?.pushViewController(share, animated: true)
     }
 }
@@ -246,6 +313,7 @@ private final class StoryShareViewController: SettingsListViewController {
 
     private let image: UIImage
     private let caption: String
+    private let hours: Int
     private var audience = Audience.everyone
     private var selectedUserIDs = [Int64]()
     /// The people left out under Everyone and Contacts (exceptUserIds).
@@ -270,9 +338,10 @@ private final class StoryShareViewController: SettingsListViewController {
         }
     }
 
-    init(image: UIImage, caption: String) {
+    init(image: UIImage, caption: String, hours: Int) {
         self.image = image
         self.caption = caption
+        self.hours = hours
         super.init()
     }
 
@@ -324,7 +393,7 @@ private final class StoryShareViewController: SettingsListViewController {
             SettingsSection(
                 footer: L10n.telegram(
                     "Story.Privacy.KeepOnMyPageInfo",
-                    L10n.telegramPlural("Story.Privacy.KeepOnMyPageHours", count: 24),
+                    L10n.telegramPlural("Story.Privacy.KeepOnMyPageHours", count: hours),
                 ),
                 rows: [
                     SettingsRow(
@@ -433,6 +502,7 @@ private final class StoryShareViewController: SettingsListViewController {
         let caption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let keepsOnPage = keepsOnPage
         let allowsScreenshots = allowsScreenshots
+        let activePeriod = hours * 3600
         Task { [weak self] in
             do {
                 _ = try await client.send(TDNativeRequests.postStory(
@@ -445,7 +515,7 @@ private final class StoryShareViewController: SettingsListViewController {
                     caption: caption.isEmpty ? nil : FormattedText(entities: [], text: caption),
                     privacySettings: privacy,
                     albumIds: [],
-                    activePeriod: 86400,
+                    activePeriod: activePeriod,
                     fromStoryFullId: nil,
                     isPostedToChatPage: keepsOnPage,
                     protectContent: !allowsScreenshots,
