@@ -182,6 +182,8 @@ ClientRestorableNavigationEntry {
     /// The peer's profile colour (updateChatAccentColors), which colours the header as PeerInfoCoverComponent does.
     private var profileAccentColorID: Int
     private let profileCoverView = ProfileCoverView()
+    /// PeerInfoHeaderNode's photo scale as the header collapses under the bar.
+    private var headerCollapseScale: CGFloat = 1
     /// The cover's colour over the bar, above the list, while the cover is at the list's top edge.
     private let profileCoverTopFill = UIView()
     private let isSelfProfile: Bool
@@ -828,6 +830,8 @@ ClientRestorableNavigationEntry {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.betterTG("Profile.Title")
+        // PeerInfoHeaderNode: the bar has no title until the name scrolls under it.
+        navigationItem.title = ""
         view.backgroundColor = .systemBackground
         configureHeader()
         configureCollectionView()
@@ -1377,6 +1381,7 @@ ClientRestorableNavigationEntry {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         updateProfileCoverTopFill()
+        updateHeaderCollapse()
         // PeerInfoVisualMediaPaneNode's panes (media, files, music, voice) and PeerInfoStoryPaneNode's grids have the
         // scroller; only Media opens the calendar from it.
         if [.media, .files, .audio, .voice].contains(currentSharedTab) || currentSharedTab.isStories {
@@ -2777,6 +2782,29 @@ ClientRestorableNavigationEntry {
 
     /// Telegram 13's PeerInfoHeaderButtonNode without a profile colour: the list's block background, 16 pt corners, the
     /// accent icon and an 11 pt lowercased title.
+    /// PeerInfoHeaderNode's collapse: the photo shrinks to half and fades as it goes under the bar, and once the name
+    /// has gone under it the bar shows the name and the status.
+    private func updateHeaderCollapse() {
+        guard isViewLoaded, collectionView.window != nil else { return }
+        let barBottom = collectionView.frame.minY
+        let avatarFrame = avatarView.convert(avatarView.bounds, to: view)
+        let progress = avatarFrame.height > 0
+            ? min(1, max(0, (barBottom - avatarFrame.minY) / avatarFrame.height))
+            : 0
+        let scale = 1 - progress * 0.5
+        if headerCollapseScale != scale {
+            headerCollapseScale = scale
+            applyAvatarTransform()
+        }
+        avatarView.alpha = 1 - progress
+        storyRingView.alpha = 1 - progress
+        let collapsed = titleRow.convert(titleRow.bounds, to: view).maxY < barBottom
+        let title = collapsed ? profileTitle() : ""
+        let subtitle = collapsed && !statusLabel.isHidden ? statusLabel.text : nil
+        if navigationItem.title != title { navigationItem.title = title }
+        if navigationItem.subtitle != subtitle { navigationItem.subtitle = subtitle }
+    }
+
     /// PeerInfoCoverComponent behind the header down to the buttons, from 1000 pt above it so a pull keeps it.
     private func layoutProfileCover() {
         guard !profileCoverView.isHidden else { return }
@@ -2799,6 +2827,7 @@ ClientRestorableNavigationEntry {
         guard !profileCoverView.isHidden else {
             profileCoverTopFill.isHidden = true
             chrome?.backgroundAlpha = 1
+            chrome?.titleColorOverride = nil
             return
         }
         let remaining = profileCoverView.frame.maxY - collectionView.contentOffset.y
@@ -2806,6 +2835,7 @@ ClientRestorableNavigationEntry {
         profileCoverTopFill.isHidden = fill == 0
         profileCoverTopFill.alpha = fill
         chrome?.backgroundAlpha = 1 - fill
+        chrome?.titleColorOverride = fill > 0.5 ? .white : nil
     }
 
     /// PeerInfoHeaderNode over a profile colour: white title and secondary text, and the buttons on translucent white
@@ -4364,6 +4394,7 @@ ClientRestorableNavigationEntry {
         detailsLabel.text = currentDetailTexts.joined(separator: " · ")
         detailsLabel.isHidden = currentDetailTexts.isEmpty
         applyProfileColor()
+        updateHeaderCollapse()
         avatarView.configure(
             file: displayedAvatarFile,
             minithumbnail: displayedAvatarMinithumbnail,
@@ -4381,11 +4412,18 @@ ClientRestorableNavigationEntry {
         view.setNeedsLayout()
     }
 
+    /// The photo inside a story ring, times the header's collapse; the ring follows the collapse.
+    private func applyAvatarTransform() {
+        let ringScale = storyRingView.style == nil ? 1 : StoryAvatarRingView.avatarScale(diameter: 96, lineWidth: 3)
+        let scale = ringScale * headerCollapseScale
+        avatarView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        storyRingView.transform = CGAffineTransform(scaleX: headerCollapseScale, y: headerCollapseScale)
+    }
+
     private func updateStoryRing() {
         let style = storyRingStyle
         storyRingView.style = style
-        let scale = StoryAvatarRingView.avatarScale(diameter: 96, lineWidth: 3)
-        avatarView.transform = style == nil ? .identity : CGAffineTransform(scaleX: scale, y: scale)
+        applyAvatarTransform()
         avatarTapGesture.isEnabled = avatarGalleryIsAvailable || style != nil
         avatarView.accessibilityHint =
             if style != nil {

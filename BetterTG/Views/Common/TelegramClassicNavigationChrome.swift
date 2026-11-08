@@ -243,6 +243,15 @@ final class TelegramSideColumnView: UIView {
     /// iPhone Duo's status island beside the row.
     var trailingButtonsInset: CGFloat = 0
 
+    /// White title and subtitle over a profile's colour cover (PeerInfoHeaderNode's navigation contents colours); nil
+    /// keeps the label colours.
+    var titleColorOverride: UIColor? {
+        didSet {
+            titleLabel.textColor = titleColorOverride ?? .label
+            subtitleLabel.textColor = titleColorOverride?.withAlphaComponent(0.75) ?? .secondaryLabel
+        }
+    }
+
     /// How far the row stands from the top safe area beside the island, where the search under it starts below it.
     private var rowTopOffset: CGFloat = 0
 
