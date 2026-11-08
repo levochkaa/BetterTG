@@ -1,5 +1,6 @@
 // PeerProfileViewController.swift
 
+import AVFoundation
 import Combine
 import TDLibKit
 import UIKit
@@ -191,6 +192,10 @@ ClientRestorableNavigationEntry {
     private let expandedAvatarView = ProfileAvatarView()
     /// Holds the expanded photo under its name and strip, so only the photo slides as it pages.
     private let expandedPhotoContainer = UIView()
+    /// PeerInfoAvatarListItemNode's video: an animated photo plays muted and looping over its still.
+    private let expandedVideoLayer = AVPlayerLayer()
+    private var expandedVideoLooper: AVPlayerLooper?
+    private var expandedVideoTask: Task<Void, Never>?
     /// The name and status over the expanded photo's bottom edge, on a darkening gradient.
     private let expandedNameView = ProfileExpandedNameView()
     /// PeerInfoAvatarListContainerNode's photos and its strip of segments, paged in place by tapping the sides.
@@ -1478,6 +1483,47 @@ ClientRestorableNavigationEntry {
             expandedPhotos = payload.items
             expandedPhotoIndex = 0
             expandedPhotoIndicator.configure(count: payload.items.count, current: 0)
+            playExpandedVideo(payload.items.first)
+        }
+    }
+
+    /// Downloads the item's video and plays it muted and looping from its main frame; a still photo stops it.
+    private func playExpandedVideo(_ item: ProfileAvatarGalleryItem?) {
+        expandedVideoTask?.cancel()
+        expandedVideoLooper?.disableLooping()
+        expandedVideoLooper = nil
+        expandedVideoLayer.player = nil
+        expandedVideoLayer.isHidden = true
+        guard let animation = item?.animation else { return }
+        let client = client
+        let fileID = animation.file.id
+        expandedVideoTask = Task { [weak self] in
+            guard let file = try? await client.downloadFile(
+                fileId: fileID,
+                priority: 16,
+                offset: 0,
+                limit: 0,
+                synchronous: true,
+            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty,
+                  let self, !Task.isCancelled, isAvatarExpanded
+            else { return }
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            expandedVideoLooper = AVPlayerLooper(
+                player: player,
+                templateItem: AVPlayerItem(url: URL(filePath: file.local.path)),
+            )
+            if animation.mainFrameTimestamp > 0 {
+                await player.seek(to: CMTime(seconds: animation.mainFrameTimestamp, preferredTimescale: 600))
+            }
+            guard !Task.isCancelled else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            expandedVideoLayer.frame = expandedAvatarView.bounds
+            CATransaction.commit()
+            expandedVideoLayer.player = player
+            expandedVideoLayer.isHidden = false
+            player.play()
         }
     }
 
@@ -1520,6 +1566,7 @@ ClientRestorableNavigationEntry {
             client: client,
         )
         expandedPhotoIndicator.configure(count: expandedPhotos.count, current: expandedPhotoIndex)
+        playExpandedVideo(item)
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
@@ -1541,6 +1588,7 @@ ClientRestorableNavigationEntry {
             constraint.constant = expanded ? 0 : 96
         }
         expandedPhotosTask?.cancel()
+        playExpandedVideo(nil)
         expandedPhotos = []
         expandedPhotoIndex = 0
         expandedPhotoIndicator.configure(count: 0, current: 0)
@@ -3085,6 +3133,9 @@ ClientRestorableNavigationEntry {
         expandedAvatarView.frame = expandedPhotoContainer.bounds
         expandedAvatarView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         expandedPhotoContainer.addSubview(expandedAvatarView)
+        expandedVideoLayer.videoGravity = .resizeAspectFill
+        expandedVideoLayer.isHidden = true
+        expandedAvatarView.layer.addSublayer(expandedVideoLayer)
         expandedPhotoContainer.addGestureRecognizer(UITapGestureRecognizer(
             target: self,
             action: #selector(expandedAvatarTapped(_:)),
@@ -3173,6 +3224,10 @@ ClientRestorableNavigationEntry {
             width: width,
             height: width,
         )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        expandedVideoLayer.frame = CGRect(origin: .zero, size: expandedPhotoContainer.frame.size)
+        CATransaction.commit()
         let height = headerHeight + expandedSide
         layoutProfileCover()
         #if DEBUG
