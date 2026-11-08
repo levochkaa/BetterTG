@@ -98,6 +98,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             .changes
             .sink { [weak self] in self?.tableView.reloadData() }
             .store(in: &cancellables)
+        // Your Stars shows the balance updateOwnedStarCount reports.
+        StarsBalanceStore.shared
+            .changes
+            .sink { [weak self] in
+                guard let self, !isSearching else { return }
+                tableView.reloadData()
+            }
+            .store(in: &cancellables)
         ProxyStatusStore.shared
             .$state
             .removeDuplicates()
@@ -239,6 +247,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
              .privacyPolicy,
              .proxy,
              .savedMessages,
+             .stars,
              .support,
              .termsOfService,
              .tips:
@@ -364,6 +373,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(AppearanceViewController(), animated: true)
         case .language:
             navigationController?.pushViewController(LanguageSelectionViewController(), animated: true)
+        case .stars:
+            navigationController?.pushViewController(StarsTransactionsViewController(), animated: true)
         case .powerSaving:
             navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
@@ -707,6 +718,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 ? []
                 : [.notifications, .privacy, .dataAndStorage]
             return accountRows + [.appearance, .powerSaving, .language]
+        case .payment:
+            return TDLib.shared.activeAccountID == nil ? [] : [.stars]
         case .support:
             return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
         case .media:
@@ -908,6 +921,8 @@ extension SettingsViewController {
         case apps
         case shortcuts
         case appearance
+        /// PeerInfoSettingsItems' `.payment` section: Your Stars (BetterTG offers no Premium or Business).
+        case payment
         case support
         case media
         case about
@@ -925,6 +940,7 @@ extension SettingsViewController {
                  .edit,
                  .media,
                  .myProfile,
+                 .payment,
                  .profile,
                  .proxy,
                  .shortcuts,
@@ -964,6 +980,7 @@ extension SettingsViewController {
         case appearance
         case powerSaving
         case language
+        case stars
         case support
         case faq
         case tips
@@ -1032,6 +1049,8 @@ extension SettingsViewController {
                 L10n.telegram("Settings.PowerSaving")
             case .language:
                 L10n.telegram("Settings.AppLanguage")
+            case .stars:
+                L10n.telegram("Settings.Stars")
             case .support:
                 L10n.telegram("Settings.Support")
             case .faq:
@@ -1067,6 +1086,11 @@ extension SettingsViewController {
                 L10n.telegram(EnergyUsage.shared.isPowerSavingOn ? "Settings.PowerSavingOn" : "Settings.PowerSavingOff")
             case .language:
                 AppLocalization.shared.currentLanguage.nativeName
+            case .stars:
+                // The balance once it isn't zero.
+                StarsBalanceStore.shared.balance(for: TDLib.shared.activeUpdateSource).flatMap { amount in
+                    amount.starCount == 0 && amount.nanostarCount == 0 ? nil : StarsBalanceStore.text(amount)
+                }
             case .proxy:
                 ProxyStatusStore.shared.state.enabledTypeTitle ?? L10n.telegram("Settings.ProxyDisabled")
             case .version:
@@ -1104,7 +1128,8 @@ extension SettingsViewController {
                  .devices,
                  .language,
                  .powerSaving,
-                 .proxy: true
+                 .proxy,
+                 .stars: true
             default: false
             }
         }
@@ -1132,6 +1157,7 @@ extension SettingsViewController {
             case .dataAndStorage: "externaldrive.fill"
             case .appearance: "paintpalette.fill"
             case .language: "globe"
+            case .stars: "star.fill"
             case .powerSaving: "battery.50percent"
             case .support: "bubble.left.and.text.bubble.right.fill"
             case .faq: "questionmark.circle.fill"
@@ -1178,6 +1204,7 @@ extension SettingsViewController {
                  .support: .systemOrange
             case .faq: .systemCyan
             case .tips: .systemYellow
+            case .stars: .systemOrange
             }
         }
 

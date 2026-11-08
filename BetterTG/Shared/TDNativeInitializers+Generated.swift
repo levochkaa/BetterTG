@@ -1085,6 +1085,12 @@ extension TDNativeScopeNotificationSettings {
     }
 }
 
+extension TDNativeStarAmount {
+    init(nanostarCount: Int, starCount: Int64) {
+        self.init(starCount: starCount, nanostarCount: nanostarCount)
+    }
+}
+
 extension TDNativeTextEntity {
     init(length: Int, offset: Int, type: TDNativeTextEntityType) {
         self.init(offset: offset, length: length, type: type)
