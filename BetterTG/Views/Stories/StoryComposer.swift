@@ -473,7 +473,7 @@ UIColorPickerViewControllerDelegate {
     private var drawingStrokeCount = 0
     /// The editor's draw button, as its bottom panel's Pencil.
     private lazy var drawItem = UIBarButtonItem(
-        image: UIImage(systemName: "pencil.tip"),
+        image: UIImage(named: "MediaEditor/Pencil")?.withRenderingMode(.alwaysTemplate),
         primaryAction: UIAction { [weak self] _ in self?.setDrawing(true) },
     )
     private lazy var drawingCancelItem = UIBarButtonItem(

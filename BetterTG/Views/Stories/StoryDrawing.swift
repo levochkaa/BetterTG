@@ -4,23 +4,51 @@ import UIKit
 
 // MARK: - StoryDrawingTool
 
-/// DrawingToolState.Key's pen, arrow and eraser, with DrawingState.initial's colours and sizes.
+/// DrawingToolState.Key's pen, arrow, marker, neon and eraser, with DrawingState.initial's colours and sizes.
 enum StoryDrawingTool: CaseIterable {
     case pen
     case arrow
+    case marker
+    case neon
     case eraser
 
     var initialColor: UIColor? {
         switch self {
         case .pen: UIColor(red: 0xFF / 255, green: 0x45 / 255, blue: 0x3A / 255, alpha: 1)
         case .arrow: UIColor(red: 0xFF / 255, green: 0x8A / 255, blue: 0, alpha: 1)
+        case .marker: UIColor(red: 0xFF / 255, green: 0xD6 / 255, blue: 0x0A / 255, alpha: 1)
+        case .neon: UIColor(red: 0x34 / 255, green: 0xC7 / 255, blue: 0x59 / 255, alpha: 1)
         case .eraser: nil
         }
     }
 
     var initialSize: CGFloat {
-        self == .eraser ? 0.5 : 0.23
+        switch self {
+        case .arrow,
+             .pen: 0.23
+        case .marker: 0.75
+        case .neon: 0.4
+        case .eraser: 0.5
+        }
     }
+
+    /// One stroke of the tool.
+    func makeStroke(color: UIColor, size: CGFloat, drawingSize: CGSize) -> StoryStroke {
+        switch self {
+        case .marker: StoryMarkerStroke(color: color, size: size, drawingSize: drawingSize)
+        case .neon: StoryNeonStroke(color: color, size: size, drawingSize: drawingSize)
+        default: StoryPenStroke(tool: self, color: color, size: size, drawingSize: drawingSize)
+        }
+    }
+}
+
+// MARK: - StoryStroke
+
+/// DrawingElement: a stroke fed touch by touch, finished, and drawn in story points.
+protocol StoryStroke: AnyObject {
+    func add(_ location: CGPoint, velocity: CGFloat)
+    func end(at location: CGPoint)
+    func draw(in context: CGContext)
 }
 
 // MARK: - StoryPenStroke
@@ -29,7 +57,7 @@ enum StoryDrawingTool: CaseIterable {
 /// fifth of the way up from the thinnest (a fixed width for the eraser), eased 30/70 with the last; points closer than
 /// 8 pt are dropped and the rest smoothed through quadratic and cubic Béziers into 24 to 48 steps, each pair of steps a
 /// segment with round ends. The arrow adds two strokes 0.45 rad either side of the line's end; a tap leaves a dot.
-final class StoryPenStroke {
+final class StoryPenStroke: StoryStroke {
     struct Point {
         let location: CGPoint
         let width: CGFloat
@@ -270,10 +298,10 @@ final class StoryDrawingView: UIView {
     var size = StoryDrawingTool.pen.initialSize
     var onStrokesChange: (() -> Void)?
 
-    private(set) var strokes = [StoryPenStroke]()
+    private(set) var strokes = [StoryStroke]()
 
     private var committed: CGImage?
-    private var active: StoryPenStroke?
+    private var active: StoryStroke?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -334,7 +362,7 @@ final class StoryDrawingView: UIView {
         let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
         switch gesture.state {
         case .began:
-            let stroke = StoryPenStroke(tool: tool, color: color, size: size, drawingSize: bounds.size)
+            let stroke = tool.makeStroke(color: color, size: size, drawingSize: bounds.size)
             stroke.add(location, velocity: speed)
             active = stroke
         case .changed:
@@ -351,7 +379,7 @@ final class StoryDrawingView: UIView {
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let location = gesture.location(in: self)
-        let stroke = StoryPenStroke(tool: tool, color: color, size: size, drawingSize: bounds.size)
+        let stroke = tool.makeStroke(color: color, size: size, drawingSize: bounds.size)
         stroke.add(location, velocity: 0)
         active = stroke
         finish(at: location)
@@ -373,7 +401,7 @@ final class StoryDrawingView: UIView {
         onStrokesChange?()
     }
 
-    private func render(strokes: [StoryPenStroke], over image: CGImage?) -> CGImage? {
+    private func render(strokes: [StoryStroke], over image: CGImage?) -> CGImage? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -412,6 +440,8 @@ final class StoryDrawingToolsView: UIView {
                 switch tool {
                 case .pen: "Pen"
                 case .arrow: "Arrow"
+                case .marker: "Marker"
+                case .neon: "Neon"
                 case .eraser: "Eraser"
                 }
             background.contents = UIImage(named: "MediaEditor/Tool\(name)")?.cgImage
@@ -424,8 +454,14 @@ final class StoryDrawingToolsView: UIView {
             band.anchorPoint = CGPoint(x: 0.5, y: 0)
             band.position = CGPoint(x: size.width / 2, y: 64)
             layer.addSublayer(shadow)
-            layer.addSublayer(background)
-            addSubview(tip)
+            // The marker's and the neon's tips sit under the body.
+            if tool == .marker || tool == .neon {
+                addSubview(tip)
+                layer.addSublayer(background)
+            } else {
+                layer.addSublayer(background)
+                addSubview(tip)
+            }
             if tool != .eraser { layer.addSublayer(band) }
         }
 
@@ -515,5 +551,279 @@ final class StoryDrawingToolsView: UIView {
         if gesture.state == .began { resizeStart = sizes[selected] ?? 0.5 }
         let size = max(0, min(1, resizeStart - gesture.translation(in: self).y / 200))
         onResize?(size)
+    }
+}
+
+// MARK: - StoryMarkerStroke
+
+/// MarkerTool through DrawingMetalView's brush: BezierGenerator's quadratic smoothing every 5 pt, then the marker
+/// texture stamped every 2 pt at the size's width (1% to 9% of 1920), turned -0.55 rad, each stamp's alpha 5.5 over
+/// the stamps that overlap it, laid over each other.
+final class StoryMarkerStroke: StoryStroke {
+    private let width: CGFloat
+    private let stamp: CGImage?
+    private let canvas: CGContext?
+    private var points = [CGPoint]()
+    private var step = 0
+    private var lastStamped: CGPoint?
+
+    init(color: UIColor, size: CGFloat, drawingSize: CGSize) {
+        let longest = max(drawingSize.width, drawingSize.height)
+        let minLineWidth = max(10, longest * 0.01)
+        let maxLineWidth = max(20, longest * 0.09)
+        self.width = minLineWidth + (maxLineWidth - minLineWidth) * size
+        self.stamp = Self.makeStamp(color: color, width: width)
+        self.canvas = CGContext(
+            data: nil,
+            width: Int(drawingSize.width),
+            height: Int(drawingSize.height),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        )
+        // Story points top down, as the drawing view's.
+        canvas?.translateBy(x: 0, y: drawingSize.height)
+        canvas?.scaleBy(x: 1, y: -1)
+    }
+
+    /// The texture in the colour, turned -0.55 rad about its centre.
+    private static func makeStamp(color: UIColor, width: CGFloat) -> CGImage? {
+        guard let texture = UIImage(named: "MediaEditor/Marker") else { return nil }
+        let side = max(1, ceil(width))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
+            .image { context in
+                let cg = context.cgContext
+                cg.translateBy(x: side / 2, y: side / 2)
+                cg.rotate(by: -0.55)
+                cg.translateBy(x: -side / 2, y: -side / 2)
+                texture.withTintColor(color.withAlphaComponent(1), renderingMode: .alwaysTemplate)
+                    .draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+            }
+            .cgImage
+    }
+
+    func add(_ location: CGPoint, velocity _: CGFloat) {
+        if points.isEmpty {
+            points = [location]
+            step = 0
+            return
+        }
+        guard location != points.last else { return }
+        points.append(location)
+        guard points.count >= 3 else { return }
+        step += 1
+        stamp(along: smoothPoints(), isEnd: false)
+    }
+
+    func end(at location: CGPoint) {
+        if points.count < 3 {
+            // A tap or a short touch still leaves the marker's mark.
+            stamp(along: points + [location], isEnd: true)
+        }
+    }
+
+    func draw(in context: CGContext) {
+        guard let image = canvas?.makeImage() else { return }
+        context.saveGState()
+        context.translateBy(x: 0, y: CGFloat(image.height))
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.restoreGState()
+    }
+
+    /// generateSmoothPathPoints: a quadratic through the middles of the last points, a step every 5 pt.
+    private func smoothPoints() -> [CGPoint] {
+        let mid: (CGPoint, CGPoint) -> CGPoint = { CGPoint(x: ($0.x + $1.x) / 2, y: ($0.y + $1.y) / 2) }
+        let end = mid(points[step], points[step + 1])
+        let begin: CGPoint
+        let control: CGPoint
+        if step == 1 {
+            begin = points[0]
+            control = mid(mid(points[0], points[1]), points[1])
+        } else {
+            begin = mid(points[step - 1], points[step])
+            control = points[step]
+        }
+        let distance = ((end.x - begin.x) * (end.x - begin.x) + (end.y - begin.y) * (end.y - begin.y)).squareRoot()
+        let count = max(Int(distance / 5), 2)
+        var result = (0..<count).map { index -> CGPoint in
+            let t = CGFloat(index) / CGFloat(count)
+            let u = 1 - t
+            return CGPoint(
+                x: u * u * begin.x + 2 * u * t * control.x + t * t * end.x,
+                y: u * u * begin.y + 2 * u * t * control.y + t * t * end.y,
+            )
+        }
+        result.append(end)
+        return result
+    }
+
+    /// pushPoint and preparedBuffer: lines between the points 2 pt or more apart, a stamp each 2 pt along them.
+    private func stamp(along points: [CGPoint], isEnd: Bool) {
+        guard let canvas, let stamp, let first = points.first else { return }
+        let width = width
+        let stepLength: CGFloat = 2
+        canvas.setAlpha(min(1, 5.5 / max(1, width / stepLength)))
+        let put: (CGPoint) -> Void = { point in
+            canvas.draw(stamp, in: CGRect(x: point.x - width / 2, y: point.y - width / 2, width: width, height: width))
+        }
+        guard points.count > 1 else {
+            put(first)
+            return
+        }
+        var previous = lastStamped ?? first
+        for (index, point) in points.enumerated().dropFirst() {
+            let dx = point.x - previous.x
+            let dy = point.y - previous.y
+            let length = (dx * dx + dy * dy).squareRoot()
+            guard (isEnd && index == points.count - 1) || length >= stepLength else { continue }
+            let count = max(length / stepLength, 1)
+            for i in 0..<Int(count) {
+                let t = CGFloat(i) / count
+                put(CGPoint(x: previous.x + dx * t, y: previous.y + dy * t))
+            }
+            previous = point
+        }
+        lastStamped = previous
+    }
+}
+
+// MARK: - StoryNeonStroke
+
+/// NeonTool: the line smoothed like the pen's but at one width (0.2% to 7% of 1920), filled white with a rim 0.8% of
+/// 1080 wide of white mixed a quarter with the colour, over the colour's glow at 87% blurred 1.9 × 2% of 1080 around a
+/// shape twice as wide; a black line keeps its colour and glows in 0x440881.
+final class StoryNeonStroke: StoryStroke {
+    private let lineWidth: CGFloat
+    private let strokeWidth: CGFloat
+    private let shadowRadius: CGFloat
+    private let fillColor: UIColor
+    private let shadowColor: UIColor
+    private let path = UIBezierPath()
+    private var activePath: UIBezierPath?
+    private var points = [CGPoint](repeating: .zero, count: 4)
+    private var pointPtr = 0
+
+    init(color: UIColor, size: CGFloat, drawingSize: CGSize) {
+        let longest = max(drawingSize.width, drawingSize.height)
+        let shortest = min(drawingSize.width, drawingSize.height)
+        let minLineWidth = max(1, longest * 0.002)
+        let maxLineWidth = max(10, longest * 0.07)
+        self.lineWidth = minLineWidth + (maxLineWidth - minLineWidth) * size
+        self.strokeWidth = shortest * 0.008
+        self.shadowRadius = shortest * 0.02
+        let color = color.withAlphaComponent(1)
+        if StoryTextEntityView.lightness(color) < 0.01 {
+            self.fillColor = color
+            self.shadowColor = UIColor(red: 0x44 / 255, green: 0x08 / 255, blue: 0x81 / 255, alpha: 1)
+        } else {
+            self.fillColor = .white
+            self.shadowColor = color
+        }
+    }
+
+    /// UIColor.mixedWith.
+    private static func mix(_ first: UIColor, _ second: UIColor, _ alpha: CGFloat) -> UIColor {
+        var r1: CGFloat = 0
+        var g1: CGFloat = 0
+        var b1: CGFloat = 0
+        var a1: CGFloat = 0
+        var r2: CGFloat = 0
+        var g2: CGFloat = 0
+        var b2: CGFloat = 0
+        var a2: CGFloat = 0
+        guard first.getRed(&r1, green: &g1, blue: &b1, alpha: &a1),
+              second.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        else { return first }
+        let u = 1 - alpha
+        return UIColor(
+            red: r1 * u + r2 * alpha,
+            green: g1 * u + g2 * alpha,
+            blue: b1 * u + b2 * alpha,
+            alpha: a1 * u + a2 * alpha,
+        )
+    }
+
+    func add(_ location: CGPoint, velocity _: CGFloat) {
+        if pointPtr == 0 {
+            points[0] = location
+            pointPtr = 1
+        } else {
+            let previous = points[pointPtr - 1]
+            let dx = previous.x - location.x
+            let dy = previous.y - location.y
+            guard (dx * dx + dy * dy).squareRoot() > 10 else { return }
+            if pointPtr >= 4 {
+                points[3] = CGPoint(x: (points[2].x + location.x) / 2, y: (points[2].y + location.y) / 2)
+                if let curve = curve(3) {
+                    path.append(curve)
+                    activePath = nil
+                }
+                points[0] = points[3]
+                pointPtr = 1
+            }
+            points[pointPtr] = location
+            pointPtr += 1
+        }
+        activePath = curve(pointPtr - 1)
+    }
+
+    func end(at location: CGPoint) {
+        if let activePath { path.append(activePath) }
+        activePath = nil
+        if path.isEmpty {
+            path.move(to: location)
+            path.addLine(to: CGPoint(x: location.x + 0.1, y: location.y))
+        }
+    }
+
+    /// draw(in:): the glow from a copy drawn out of sight, then the rim and the fill.
+    func draw(in context: CGContext) {
+        let line = path.cgPath.mutableCopy() ?? CGMutablePath()
+        if let activePath { line.addPath(activePath.cgPath) }
+        guard !line.isEmpty else { return }
+        let shape = line.copy(strokingWithWidth: lineWidth, lineCap: .round, lineJoin: .round, miterLimit: 0)
+        let glow = line.copy(strokingWithWidth: lineWidth * 2, lineCap: .round, lineJoin: .round, miterLimit: 0)
+        context.saveGState()
+        context.setBlendMode(.normal)
+        // Only the shadow lands on the canvas: the glow's shape is drawn far to the left of it.
+        let offset: CGFloat = 4000
+        context.translateBy(x: -offset, y: 0)
+        context.addPath(glow)
+        context.setFillColor(fillColor.cgColor)
+        context.setStrokeColor(fillColor.cgColor)
+        context.setLineWidth(strokeWidth * 0.5)
+        context.setLineCap(.round)
+        context.setShadow(
+            offset: CGSize(width: offset, height: 0),
+            blur: shadowRadius * 1.9,
+            color: shadowColor.withAlphaComponent(0.87).cgColor,
+        )
+        context.drawPath(using: .fillStroke)
+        context.translateBy(x: offset, y: 0)
+        context.setShadow(offset: .zero, blur: 0, color: nil)
+        context.addPath(shape)
+        context.setLineWidth(strokeWidth)
+        context.setStrokeColor(Self.mix(fillColor, shadowColor, 0.25).cgColor)
+        context.strokePath()
+        context.addPath(shape)
+        context.fillPath()
+        context.restoreGState()
+    }
+
+    private func curve(_ count: Int) -> UIBezierPath? {
+        let curve = UIBezierPath()
+        curve.move(to: points[0])
+        switch count {
+        case 1: curve.addLine(to: points[1])
+        case 2: curve.addQuadCurve(to: points[2], controlPoint: points[1])
+        case 3: curve.addCurve(to: points[3], controlPoint1: points[1], controlPoint2: points[2])
+        default: return nil
+        }
+        return curve
     }
 }
