@@ -375,6 +375,11 @@ final class TelegramListNavigationBar: UIView {
             platter.glassView.contentView.alpha = 0
             platter.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
         }
+        // iPhone Duo's column keeps its first shape in place: the arriving ones take their slots at once and grow in
+        // there, instead of sliding out of the frames they had when hidden.
+        if arriving.contains(where: \.isInSideColumn) {
+            UIView.performWithoutAnimation { columnStack.layoutIfNeeded() }
+        }
         UIView.animate(springDuration: 0.416, bounce: 0.25, options: [.beginFromCurrentState, .allowUserInteraction]) {
             for platter in leaving {
                 platter.setGlassMaterialized(false)

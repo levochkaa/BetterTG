@@ -85,9 +85,10 @@ final class TelegramGlassPlatter: UIView {
         }
     }
 
-    /// The pill's length in the side column.
+    /// The pill's length in the side column. A pill whose items have gone while it fades out keeps one item's length,
+    /// so the column holds still around it.
     var columnLength: CGFloat {
-        IPhoneDuoLayout.Metrics.columnLength(count: visibleItems.count)
+        IPhoneDuoLayout.Metrics.columnLength(count: max(1, visibleItems.count))
     }
 
     /// The pill's width for its visible items: an icon's 44 pt, a text's own width, a custom view's fitting width,
