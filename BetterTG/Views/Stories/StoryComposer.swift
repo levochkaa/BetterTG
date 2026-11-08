@@ -11,8 +11,8 @@ import VideoToolbox
 
 // MARK: - StoryComposer
 
-/// ChatListController.openStoryCamera for the account's first story, from what BetterTG has: a photo or a video from
-/// the library (Telegram opens its camera with the gallery under it), its MediaEditorScreen preview on a 9:16 canvas
+/// ChatListController.openStoryCamera for the account's first story: the camera, or a photo or a video from the
+/// library through its gallery button, its MediaEditorScreen preview on a 9:16 canvas
 /// with the caption, then ShareWithPeersScreen's Share Story. Telegram's camera, its trimming and splitting of long
 /// videos and the editor's drawing, text, stickers and areas aren't ported.
 @MainActor final class StoryComposer: NSObject, PHPickerViewControllerDelegate {
@@ -22,21 +22,28 @@ import VideoToolbox
     private let client: TDLibClient
     private let accountID: UUID?
 
+    private weak var camera: StoryCameraViewController?
+
     private init(host: UIViewController, client: TDLibClient, accountID: UUID?) {
         self.host = host
         self.client = client
         self.accountID = accountID
     }
 
+    /// openStoryCamera: the camera first, the library from its gallery button. The camera keeps the composer while it
+    /// is up.
     static func start(from host: UIViewController, client: TDLibClient, accountID: UUID?) {
         let composer = StoryComposer(host: host, client: client, accountID: accountID)
         current = composer
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .any(of: [.images, .videos])
-        configuration.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = composer
-        host.present(picker, animated: true)
+        let camera = StoryCameraViewController()
+        camera.modalPresentationStyle = .fullScreen
+        camera.onPhoto = { image in composer.openPreview(.photo(Self.canvas(image))) }
+        camera.onGallery = { [weak camera] in
+            guard let camera else { return }
+            composer.presentPicker(from: camera)
+        }
+        composer.camera = camera
+        host.present(camera, animated: true)
     }
 
     /// MediaEditor's 1080 by 1920 canvas: the photo fitted in the middle over MediaEditor's gradient from the
@@ -155,6 +162,16 @@ import VideoToolbox
         }
     }
 
+    private func presentPicker(from presenter: UIViewController) {
+        Self.current = self
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .any(of: [.images, .videos])
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        presenter.present(picker, animated: true)
+    }
+
     /// The picked video, copied out of the provider's file, which goes away when its handler returns.
     private func loadVideo(_ provider: NSItemProvider) {
         provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
@@ -205,7 +222,12 @@ import VideoToolbox
             )
             let navigation = TelegramNavigationController(rootViewController: preview)
             navigation.modalPresentationStyle = .fullScreen
-            host.present(navigation, animated: true)
+            // The editor takes the camera's place.
+            if let camera = self.camera, camera.presentingViewController != nil {
+                camera.dismiss(animated: false) { host.present(navigation, animated: false) }
+            } else {
+                host.present(navigation, animated: true)
+            }
             Self.current = nil
         }
     }
