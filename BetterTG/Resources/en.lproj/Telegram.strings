@@ -4877,3 +4877,12 @@
 "Story.ToastStealthModeActivatedText" = "The creators of stories you viewed in the last **%1$@** or will view in the next **%2$@** won’t see you in the viewers’ lists.";
 "StoryFeed.ViewAnonymously" = "View Anonymously";
 "Story.Context.ViewStats" = "View Statistics";
+"Story.Camera.Photo" = "Photo";
+"Story.Camera.Video" = "Video";
+"Story.Camera.AccessPlaceholderTitle" = "Allow Telegram to access your camera and microphone";
+"Story.Camera.AccessPlaceholderText" = "This lets you share photos and record videos.";
+"Story.Camera.AccessOpenSettings" = "Open Settings";
+"Story.Camera.SwipeUpToZoom" = "Swipe up to zoom";
+"Story.Camera.SwipeLeftToLock" = "Swipe left to lock";
+"Story.Camera.SwipeLeftRelease" = "Release to lock";
+"Story.Camera.SwipeRightToFlip" = "Swipe right to flip";

@@ -17,6 +17,25 @@ import UIKit
 final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDelegate,
     AVCaptureFileOutputRecordingDelegate
 {
+    /// CaptureControlsComponent.SwipeHint.
+    private enum SwipeHint {
+        case none
+        case zoom
+        case lock
+        case releaseLock
+        case flip
+
+        var text: String {
+            switch self {
+            case .none: " "
+            case .zoom: L10n.telegram("Story.Camera.SwipeUpToZoom")
+            case .lock: L10n.telegram("Story.Camera.SwipeLeftToLock")
+            case .releaseLock: L10n.telegram("Story.Camera.SwipeLeftRelease")
+            case .flip: L10n.telegram("Story.Camera.SwipeRightToFlip")
+            }
+        }
+    }
+
     /// CameraState.Recording.
     private enum Recording {
         case none
@@ -50,6 +69,16 @@ final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDe
     private let flipButton = UIButton(type: .custom)
     /// The flip button beside the shutter while a video records.
     private let recordingFlipButton = UIButton(type: .custom)
+    /// The 60 pt lines either side of the shutter while it is held.
+    private let leftGuide = UIView()
+    private let rightGuide = UIView()
+    /// LockContentComponent: the lock 28 pt in on the shutter's row while it is held.
+    private let lockView = UIImageView(image: UIImage(named: "MediaEditor/CameraLockIcon"))
+    private let hintLabel = UILabel()
+    private var swipeHint = SwipeHint.none
+    private var isBanding: Bool?
+    private var didFlip = false
+    private var zoomFraction: CGFloat = 0
     private let timeBackground = UIView()
     private let timeLabel = UILabel()
     private let accessView = UIStackView()
@@ -132,6 +161,17 @@ final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDe
         timeLabel.layer.shadowOffset = .zero
         view.addSubview(timeBackground)
         view.addSubview(timeLabel)
+        for guide in [leftGuide, rightGuide] {
+            guide.backgroundColor = UIColor(white: 1, alpha: 0.2)
+            guide.isUserInteractionEnabled = false
+            view.insertSubview(guide, belowSubview: shutterButton)
+        }
+        lockView.tintColor = .white
+        lockView.contentMode = .center
+        view.insertSubview(lockView, belowSubview: shutterButton)
+        hintLabel.textAlignment = .center
+        view.addSubview(hintLabel)
+        setSwipeHint(.none)
         updateFlashIcon()
         updateControls(animated: false)
         loadNewestPhoto()
@@ -181,6 +221,34 @@ final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDe
         modeControl.center = CGPoint(
             x: bounds.width / 2,
             y: bounds.height - bottomInset + 24 + controlsBottomInset + 16,
+        )
+        // The guides 9 pt off the shutter's square, the lock over the gallery button's place on the shutter's row,
+        // the hint 136 pt over the bottom inset, or over the held shutter's 92 pt ring where the controls rise on a
+        // short screen.
+        let guideHeight = 1 + 1 / max(1, traitCollection.displayScale)
+        let isHolding = recording == .holding
+        let guideWidth: CGFloat = isHolding ? 60 : 0
+        leftGuide.frame = CGRect(
+            x: shutterButton.center.x - 48 - 9 - guideWidth,
+            y: shutterCenterY - guideHeight / 2,
+            width: guideWidth,
+            height: guideHeight,
+        )
+        rightGuide.frame = CGRect(
+            x: shutterButton.center.x + 48 + 9,
+            y: shutterCenterY - guideHeight / 2,
+            width: guideWidth,
+            height: guideHeight,
+        )
+        for guide in [leftGuide, rightGuide] {
+            guide.layer.cornerRadius = guideHeight / 2
+        }
+        lockView.bounds = CGRect(x: 0, y: 0, width: 30, height: 30)
+        lockView.center = CGPoint(x: 28 + 24, y: shutterCenterY)
+        hintLabel.bounds = CGRect(x: 0, y: 0, width: bounds.width - 32, height: 20)
+        hintLabel.center = CGPoint(
+            x: bounds.width / 2,
+            y: min(bounds.height - bottomInset - 136, shutterCenterY - 46 - 20),
         )
         let timeSize = timeLabel.sizeThatFits(CGSize(width: 200, height: 28))
         let timeCenter = CGPoint(x: bounds.width / 2, y: topRowTop + 20)
@@ -281,6 +349,15 @@ final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDe
             self.recordingFlipButton.transform = isRecording ? .identity : CGAffineTransform(scaleX: 0.01, y: 0.01)
             self.timeLabel.alpha = isRecording ? 1 : 0
             self.timeBackground.alpha = isRecording ? 1 : 0
+            let isHolding = self.recording == .holding
+            self.lockView.alpha = isHolding ? 1 : 0
+            self.lockView.transform = isHolding ? .identity : CGAffineTransform(scaleX: 0.1, y: 0.1)
+            self.hintLabel.alpha = isHolding ? 1 : 0
+            for guide in [self.leftGuide, self.rightGuide] {
+                guide.alpha = isHolding ? 1 : 0
+            }
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
         }
         for view in [closeButton, flashButton, modeControl, galleryButton, flipGlass] as [UIView] {
             view.isUserInteractionEnabled = !isRecording
@@ -441,20 +518,119 @@ final class StoryCameraViewController: UIViewController, AVCapturePhotoCaptureDe
         }
     }
 
-    /// shutterPressed and shutterReleased: held, the shutter records in either mode until it is let go.
+    /// shutterPressed, handlePan and shutterReleased: held, the shutter records in either mode until it is let go.
+    /// The red circle follows the finger along the row: let go past 60 pt to the left it locks the recording, which
+    /// then goes on until a tap; dragged past 70 pt from the right edge it flips the camera once; raised above the
+    /// controls it zooms in by one for each 60 pt.
     @objc private func shutterHeld(_ gesture: UILongPressGestureRecognizer) {
         guard shutterButton.isEnabled else { return }
+        let width = view.bounds.width
+        let location = gesture.location(in: view)
         switch gesture.state {
         case .began:
             guard recording == .none else { return }
             startRecording(holding: true)
+            setSwipeHint(.zoom)
+            shutterButton.setInnerOffset(0, animated: false)
+        case .changed:
+            guard recording == .holding else { return }
+            followFinger(location)
         case .cancelled,
              .ended:
+            isBanding = nil
+            didFlip = false
             guard recording == .holding else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            stopRecording()
+            if gesture.state == .ended, location.x < width / 2 - 60 {
+                lockRecording()
+            } else {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                stopRecording()
+                shutterButton.setInnerOffset(0, spring: 0.25)
+            }
         default:
             break
+        }
+    }
+
+    /// handlePan's horizontal half: the offset banded near the middle and free past 60 pt, the hint for the side,
+    /// the flip at the right edge and the zoom above the row.
+    private func followFinger(_ location: CGPoint) {
+        let width = view.bounds.width
+        let controlsY = location.y - (shutterButton.center.y - 48)
+        let zoom = controlsY < -10 ? min(8, (abs(controlsY) - 10) / 60) : 0
+        if zoom != zoomFraction {
+            zoomFraction = zoom
+            let captureSession = captureSession
+            let position = position
+            sessionQueue.async { captureSession.setZoom(zoom, position: position) }
+        }
+        func band(_ offset: CGFloat) -> CGFloat {
+            (1 - 1 / (offset * 0.4 / 60 + 1)) * 60
+        }
+        var offset = max(lockView.center.x, min(recordingFlipButton.center.x, location.x)) - width / 2
+        let banding: Bool
+        if location.x < width / 2 - 30 {
+            if location.x < width / 2 - 60 {
+                setSwipeHint(.releaseLock)
+                banding = false
+            } else {
+                setSwipeHint(.lock)
+                offset = band(offset)
+                banding = true
+            }
+        } else if location.x > width / 2 + 30 {
+            setSwipeHint(.flip)
+            if location.x > width / 2 + 60 {
+                banding = false
+                if didFlip, location.x < width - 100 { didFlip = false }
+                if !didFlip, location.x > width - 70 {
+                    didFlip = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    flip()
+                }
+            } else {
+                didFlip = false
+                offset = -band(-offset)
+                banding = true
+            }
+        } else {
+            offset = band(offset)
+            setSwipeHint(.zoom)
+            banding = true
+        }
+        if let isBanding, isBanding != banding {
+            shutterButton.setInnerOffset(offset, spring: 0.35)
+        } else {
+            shutterButton.setInnerOffset(offset, animated: false)
+        }
+        isBanding = banding
+    }
+
+    /// lockVideoRecording: the circle springs onto the lock and the recording goes on hands-free.
+    private func lockRecording() {
+        recording = .handsFree
+        updateControls(animated: true)
+        shutterButton.setInnerOffset(lockView.center.x - view.bounds.width / 2, spring: 0.35)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.shutterButton.setInnerOffset(0, animated: false)
+        }
+    }
+
+    /// HintLabelComponent: uppercased in SF Camera 14 pt semibold.
+    private func setSwipeHint(_ hint: SwipeHint) {
+        guard hint != swipeHint || hintLabel.attributedText == nil else { return }
+        swipeHint = hint
+        let font = UIFont(name: "SFCamera-Semibold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        let apply = {
+            self.hintLabel.attributedText = NSAttributedString(
+                string: hint.text.uppercased(),
+                attributes: [.font: font, .foregroundColor: UIColor.white],
+            )
+        }
+        if hintLabel.window != nil {
+            UIView.transition(with: hintLabel, duration: 0.2, options: .transitionCrossDissolve, animations: apply)
+        } else {
+            apply()
         }
     }
 
@@ -578,6 +754,8 @@ private final class StoryShutterButton: UIControl {
     private let progress = CAShapeLayer()
     private let inner = CALayer()
     private var look = Look.generic
+    /// The circle's offset along the row, as ShutterBlobView follows the finger.
+    private var innerOffset: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -613,6 +791,26 @@ private final class StoryShutterButton: UIControl {
         self.look = look
         accessibilityLabel = L10n.telegram(look == .generic ? "Story.Camera.Photo" : "Story.Camera.Video")
         apply(animated: animated)
+    }
+
+    func setInnerOffset(_ offset: CGFloat, animated: Bool) {
+        innerOffset = offset
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        inner.position = CGPoint(x: bounds.midX + offset, y: bounds.midY)
+        CATransaction.commit()
+    }
+
+    /// The offset on a spring of the given duration.
+    func setInnerOffset(_ offset: CGFloat, spring duration: TimeInterval) {
+        let from = inner.presentation()?.position ?? inner.position
+        setInnerOffset(offset, animated: false)
+        let animation = CASpringAnimation(perceptualDuration: duration, bounce: 0)
+        animation.keyPath = "position"
+        animation.fromValue = NSValue(cgPoint: from)
+        animation.toValue = NSValue(cgPoint: inner.position)
+        animation.duration = animation.settlingDuration
+        inner.add(animation, forKey: "offset")
     }
 
     /// The capture's blink.
@@ -668,7 +866,7 @@ private final class StoryShutterButton: UIControl {
         inner.backgroundColor = innerColor.cgColor
         inner.bounds = CGRect(x: 0, y: 0, width: innerSize, height: innerSize)
         inner.cornerRadius = innerSize / 2
-        inner.position = center
+        inner.position = CGPoint(x: center.x + innerOffset, y: center.y)
         CATransaction.commit()
     }
 }
@@ -912,6 +1110,18 @@ private final class StoryCaptureSession: @unchecked Sendable {
         }
         session.commitConfiguration()
         if !session.isRunning { session.startRunning() }
+    }
+
+    /// setZoomLevel: the neutral zoom plus the level, within what the camera allows.
+    func setZoom(_ level: CGFloat, position: AVCaptureDevice.Position) {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+              (try? device.lockForConfiguration()) != nil
+        else { return }
+        device.videoZoomFactor = min(
+            max(1 + level, device.minAvailableVideoZoomFactor),
+            device.maxAvailableVideoZoomFactor,
+        )
+        device.unlockForConfiguration()
     }
 
     /// The microphone joins the session for the first video, then the file records.
