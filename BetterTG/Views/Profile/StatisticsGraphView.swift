@@ -202,6 +202,15 @@ private final class StatisticsPlotView: UIView {
         return lower...max(lower, upper)
     }
 
+    /// PieChartComponentController.pieDataWithCurrentPreviewRange: each shown series' sum over the days after the
+    /// range's start through its end.
+    private var pieValues: [Double] {
+        let indices = data.x.indices.filter { data.x[$0] > range.lowerBound + 1 && data.x[$0] <= range.upperBound }
+        return data.series.enumerated().map { index, line in
+            visible[index] ? indices.reduce(0) { $0 + line.values[$1] } : 0
+        }
+    }
+
     init(data: StatisticsChartData, kind: StatisticsGraphKind, range: ClosedRange<Double>, isPreview: Bool) {
         self.data = data
         self.kind = kind
@@ -253,7 +262,20 @@ private final class StatisticsPlotView: UIView {
     /// ChartView's touches: a touch selects the nearest point and a drag follows it, with a tick on each new point;
     /// a touch while the details show hides them, as does a tap on the details.
     override func touchesBegan(_ touches: Set<UITouch>, with _: UIEvent?) {
-        guard !isPreview, kind != .pie, let point = touches.first?.location(in: self) else { return }
+        guard !isPreview, let point = touches.first?.location(in: self) else { return }
+        // PieChartComponentController.chartInteractionDidBegin: a touch on a segment selects it.
+        if kind == .pie {
+            if let segment = pieSegment(at: point) {
+                let wasShown = selectedIndex != nil
+                selectedIndex = segment
+                showDetails(segment)
+                if !wasShown {
+                    detailsView.alpha = 0
+                    UIView.animate(withDuration: 0.2) { self.detailsView.alpha = 1 }
+                }
+            }
+            return
+        }
         if selectedIndex != nil {
             hideDetails()
             ignoresTouch = true
@@ -315,9 +337,13 @@ private final class StatisticsPlotView: UIView {
         UIView.animate(withDuration: 0.2) { self.detailsView.alpha = 0 }
     }
 
-    /// Refreshes the details for the shown series.
+    /// Refreshes the details for the shown series and range; a hidden pie segment loses its selection.
     func updateDetails() {
         guard let selectedIndex else { return }
+        if kind == .pie, !visible[selectedIndex] {
+            hideDetails()
+            return
+        }
         showDetails(selectedIndex)
     }
 
@@ -358,6 +384,22 @@ private final class StatisticsPlotView: UIView {
     /// its colour, with stacked bars' Total; ChartView.detailsViewPosition puts it 8 pt right of the point, or left of
     /// it when it would cross the edge, 5 pt under the chart's top.
     private func showDetails(_ index: Int) {
+        // chartDetailsViewModel(segmentInde:): the segment's name and sum with no title, a quarter of the way in.
+        if kind == .pie {
+            let line = data.series[index]
+            detailsView.configure(
+                title: "",
+                rows: [(line.name, Self.detailsText(pieValues[index]), line.color)],
+                total: nil,
+            )
+            let size = detailsView.size
+            let position = chartFrame.width / 4
+            detailsView.frame = CGRect(
+                origin: CGPoint(x: max(8, min(position + 8, bounds.width - size.width - 8)), y: chartFrame.minY + 5),
+                size: size,
+            )
+            return
+        }
         let date = data.x[index]
         let title = date <= 24
             ? "\(Int(date)):00"
@@ -647,15 +689,9 @@ private final class StatisticsPlotView: UIView {
     /// PieChartRenderer: the visible days' shares from a third of a turn, each share of at least 1.5% labelled in
     /// white, the larger the share the larger and nearer the centre.
     private func drawPie(_ context: CGContext) {
-        let lower = data.x.firstIndex { $0 >= range.lowerBound - data.step / 2 } ?? 0
-        let upper = data.x.lastIndex { $0 <= range.upperBound + data.step / 2 } ?? data.x.count - 1
-        guard lower <= upper else { return }
-        let values = data.series.enumerated().map { index, line in
-            visible[index] ? line.values[lower...upper].reduce(0, +) : 0
-        }
+        let values = pieValues
         let total = values.reduce(0, +)
         guard total > 0 else { return }
-        let center = CGPoint(x: chartFrame.midX, y: chartFrame.midY)
         let radius = min(chartFrame.width, chartFrame.height) / 2
         let diagramRadius = radius - radius / 15
         let maximumFontSize = radius / 7
@@ -665,6 +701,13 @@ private final class StatisticsPlotView: UIView {
             let percent = CGFloat(value / total)
             let size = 2 * .pi * percent
             let end = start + size
+            // The selected segment stands out by the selection offset, unless it is the only one.
+            let middleAngle = (start + end) / 2
+            let offset = index == selectedIndex && values.count(where: { $0 > 0 }) > 1 ? radius / 15 : 0
+            let center = CGPoint(
+                x: chartFrame.midX + cos(middleAngle) * offset,
+                y: chartFrame.midY + sin(middleAngle) * offset,
+            )
             context.setFillColor(data.series[index].color.cgColor)
             context.move(to: center)
             context.addArc(center: center, radius: diagramRadius, startAngle: start, endAngle: end, clockwise: false)
@@ -689,6 +732,26 @@ private final class StatisticsPlotView: UIView {
             }
             start = end
         }
+    }
+
+    /// PieChartRenderer.selectedItemIndex: the segment under a point within the radius.
+    private func pieSegment(at point: CGPoint) -> Int? {
+        let center = CGPoint(x: chartFrame.midX, y: chartFrame.midY)
+        let radius = min(chartFrame.width, chartFrame.height) / 2
+        guard hypot(point.x - center.x, point.y - center.y) <= radius else { return nil }
+        let angle = atan2(center.y - point.y, center.x - point.x) + .pi
+        let values = pieValues
+        let total = values.reduce(0, +)
+        guard total > 0 else { return nil }
+        var start = CGFloat.pi / 3
+        for (index, value) in values.enumerated() {
+            let end = start + 2 * .pi * CGFloat(value / total)
+            if angle >= start && angle <= end || angle + 2 * .pi >= start && angle + 2 * .pi <= end {
+                return value > 0 ? index : nil
+            }
+            start = end
+        }
+        return nil
     }
 
     /// PercentChartRenderer: each day's shares stacked to the full height.
@@ -756,8 +819,9 @@ private final class StatisticsDetailsView: UIView {
         labels = []
         let width: CGFloat = 10 * 2 + 110 + 70
         titleLabel.text = title
+        titleLabel.isHidden = title.isEmpty
         titleLabel.frame = CGRect(x: 10, y: 8, width: width, height: 18)
-        var y: CGFloat = 8 + 18
+        var y: CGFloat = title.isEmpty ? 8 : 8 + 18
         func addRow(_ name: String, _ value: String, _ color: UIColor, wraps: Bool) {
             let nameLabel = UILabel()
             nameLabel.font = .systemFont(ofSize: 12)
@@ -1209,17 +1273,22 @@ final class StatisticsGraphView: UIView {
     }
 
     private func updateRange(_ fraction: ClosedRange<CGFloat>) {
-        // updateChartRange cancels the interaction.
-        plot?.hideDetails()
+        // updateChartRange cancels the interaction; a pie keeps its segment with the new sum.
+        if kind != .pie {
+            plot?.hideDetails()
+        }
         plot?.range = range(for: fraction)
+        if kind == .pie {
+            plot?.updateDetails()
+        }
         updateTitle()
     }
 
     /// GeneralChartComponentController.updateChartRangeTitle: the first and last visible days in the medium style, or
-    /// one day in the full style. A bar's day is its point.
+    /// one day in the full style. A bar's day is its point, and a pie counts the days after the range's start.
     private func updateTitle() {
         guard let plot, case .loaded(let data) = state else { return }
-        let from = Date(timeIntervalSince1970: plot.range.lowerBound + (kind.isBar ? data.step : 0) + 1)
+        let from = Date(timeIntervalSince1970: plot.range.lowerBound + (kind.isBar || kind == .pie ? data.step : 0) + 1)
         let to = Date(timeIntervalSince1970: plot.range.upperBound)
         let formatter = DateFormatter()
         formatter.timeZone = .gmt
