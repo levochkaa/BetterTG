@@ -4640,3 +4640,5 @@
 "BusinessMessageSetup.ToggleGreetingMessage" = "Send Greeting Message";
 "Chat.CommandList.EditQuickReplies" = "Edit Quick Replies";
 "Attachment.Reply" = "Reply";
+"Map.SetThisLocation" = "Set This Location";
+"Map.SetThisPlace" = "Set This Place";

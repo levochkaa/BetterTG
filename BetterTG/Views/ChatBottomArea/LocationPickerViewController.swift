@@ -183,6 +183,8 @@ struct LocationPickerVenue {
     /// LocationPickerController's `.poll` source: the subtitle under the title, such as "Add location to this
     /// option", and Add This Location for the user's location.
     var pollSubtitle: String?
+    /// LocationPickerController's `.pick` mode, such as a business location: Set This Location and Set This Place.
+    var isPicking = false
 
     private let peerName: String?
     private let allowsLiveLocation: Bool
@@ -873,14 +875,22 @@ struct LocationPickerVenue {
             let subtitle = userLocation.map {
                 L10n.telegram("Map.AccurateTo", distanceFormatter.string(fromDistance: $0.horizontalAccuracy))
             } ?? L10n.telegram("Map.Locating")
-            let title = pollSubtitle == nil ? "Map.SendMyCurrentLocation" : "Location.AddThisLocation"
+            let title = isPicking
+                ? "Map.SetThisLocation"
+                : pollSubtitle == nil ? "Map.SendMyCurrentLocation" : "Location.AddThisLocation"
             return (L10n.telegram(title), subtitle)
         case .selecting:
-            return (L10n.telegram("Map.SendThisLocation"), L10n.telegram("Map.Locating"))
+            return (
+                L10n.telegram(isPicking ? "Map.SetThisLocation" : "Map.SendThisLocation"),
+                L10n.telegram("Map.Locating"),
+            )
         case .location(_, let address):
-            return (L10n.telegram("Map.SendThisLocation"), address ?? L10n.telegram("Map.Locating"))
+            return (
+                L10n.telegram(isPicking ? "Map.SetThisLocation" : "Map.SendThisLocation"),
+                address ?? L10n.telegram("Map.Locating"),
+            )
         case .venue(let venue):
-            return (L10n.telegram("Map.SendThisPlace"), venue.title)
+            return (L10n.telegram(isPicking ? "Map.SetThisPlace" : "Map.SendThisPlace"), venue.title)
         }
     }
 

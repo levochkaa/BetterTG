@@ -291,6 +291,7 @@ final class BusinessLocationViewController: SettingsListViewController {
             }
             reload()
         }
+        picker.isPicking = true
         // A picker closed without a choice leaves the switch off.
         picker.onDismiss = { [weak self] in self?.reload() }
         present(UINavigationController(rootViewController: picker), animated: true)
