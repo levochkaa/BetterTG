@@ -205,6 +205,7 @@ public typealias PollVoter = TDNativePollVoter
 public typealias PollVoters = TDNativePollVoters
 public typealias ProfilePhoto = TDNativeProfilePhoto
 public typealias Proxy = TDNativeProxy
+public typealias PublicForward = TDNativePublicForward
 public typealias PushMessageContent = TDNativePushMessageContent
 public typealias ReactionType = TDNativeReactionType
 public typealias ReactionTypeEmoji = TDNativeReactionTypeEmoji

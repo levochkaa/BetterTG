@@ -20,10 +20,44 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         let kind: StatisticsGraphKind
     }
 
-    /// A public share's channel and the shared message.
-    private struct PublicShare {
-        let message: Message
-        let chat: Chat
+    /// A public share: a channel's message or story with the channel (StatsPostItem with the peer).
+    private enum PublicShare {
+        case message(Message, Chat)
+        case story(Story, Chat)
+
+        var chat: Chat {
+            switch self {
+            case .message(_, let chat),
+                 .story(_, let chat): chat
+            }
+        }
+
+        var date: Int {
+            switch self {
+            case .message(let message, _): message.date
+            case .story(let story, _): story.date
+            }
+        }
+
+        /// The post's views, shares and reactions.
+        var interactions: PostInteractions {
+            switch self {
+            case .message(let message, _):
+                let info = message.interactionInfo
+                return PostInteractions(
+                    views: info?.viewCount ?? 0,
+                    forwards: info?.forwardCount ?? 0,
+                    reactions: info?.reactions?.reactions.reduce(0) { $0 + $1.totalCount } ?? 0,
+                )
+            case .story(let story, _):
+                let info = story.interactionInfo
+                return PostInteractions(
+                    views: info?.viewCount ?? 0,
+                    forwards: info?.forwardCount ?? 0,
+                    reactions: info?.reactionCount ?? 0,
+                )
+            }
+        }
     }
 
     /// StatsPostItem: a recent post, a message or a story.
@@ -276,6 +310,28 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             cell.items = overviewItems
             return cell
         }
+        if indexPath.section == publicSharesSection, publicShares.indices.contains(indexPath.row) {
+            let share = publicShares[indexPath.row]
+            let cell = StatisticsPostCell()
+            let interactions = share.interactions
+            cell.configure(
+                peer: SettingsPeer(chat: share.chat),
+                date: share.date,
+                isStory: {
+                    if case .story = share {
+                        true
+                    } else {
+                        false
+                    }
+                }(),
+                views: interactions.views,
+                forwards: interactions.forwards,
+                reactions: interactions.reactions,
+                client: client,
+                accountID: accountID,
+            )
+            return cell
+        }
         if indexPath.section == postsSection, posts.indices.contains(indexPath.row) {
             let (post, interaction) = posts[indexPath.row]
             let cell = StatisticsPostCell()
@@ -331,7 +387,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         if indexPath.section == 0, !overviewItems.isEmpty {
             return StatisticsOverviewCell.height(itemCount: overviewItems.count)
         }
-        if indexPath.section == postsSection {
+        if indexPath.section == postsSection || indexPath.section == publicSharesSection {
             return StatisticsPostCell.height
         }
         guard let index = graphSections[indexPath.section], let state = graphStates[index] else {
@@ -343,6 +399,12 @@ final class ChannelStatisticsViewController: SettingsListViewController {
 
     /// StatsMessageItem's action: a recent post opens its own statistics.
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if indexPath.section == publicSharesSection, publicShares.indices.contains(indexPath.row) {
+            tableView.deselectRow(at: indexPath, animated: true)
+            let cell = tableView.cellForRow(at: indexPath) as? StatisticsPostCell
+            openPublicShare(publicShares[indexPath.row], sourceView: cell?.storySourceView)
+            return
+        }
         guard indexPath.section == postsSection, posts.indices.contains(indexPath.row) else {
             super.tableView(tableView, didSelectRowAt: indexPath)
             return
@@ -396,7 +458,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
 
     /// MessageStatsContext with ChannelStatsPublicForwardsContext's first page: the post's graphs, then the public
     /// shares and the channels they're in.
-    /// A page of getMessagePublicForwards with each share's channel; story shares aren't listed yet.
+    /// A page of getMessagePublicForwards with each share's channel.
     private static func publicShares(
         chatID: Int64,
         messageID: Int64,
@@ -409,36 +471,43 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             offset: offset,
             limit: 50,
         )) else { return nil }
-        var shares = [PublicShare]()
-        for forward in page.forwards {
-            guard case .publicForwardMessage(let item) = forward,
-                  let chat = try? await client.getChat(chatId: item.message.chatId)
-            else { continue }
-            shares.append(PublicShare(message: item.message, chat: chat))
-        }
+        let shares = await Self.shares(page.forwards, client: client)
         return (page.totalCount, shares, page.nextOffset)
     }
 
+    /// Each forward with its channel: a message, or a story reposted to a channel's stories.
+    private static func shares(_ forwards: [PublicForward], client: TDLibClient) async -> [PublicShare] {
+        var shares = [PublicShare]()
+        for forward in forwards {
+            switch forward {
+            case .publicForwardMessage(let item):
+                if let chat = try? await client.getChat(chatId: item.message.chatId) {
+                    shares.append(.message(item.message, chat))
+                }
+            case .publicForwardStory(let item):
+                if let chat = try? await client.getChat(chatId: item.story.posterChatId) {
+                    shares.append(.story(item.story, chat))
+                }
+            }
+        }
+        return shares
+    }
+
+    /// A page of getStoryPublicForwards (StoryStatsPublicForwardsContext): the channels' messages and stories.
     private static func storyPublicShares(
         chatID: Int64,
         storyID: Int,
         offset: String,
         client: TDLibClient,
-    ) async -> (totalCount: Int, shares: [PublicShare])? {
+    ) async -> (totalCount: Int, shares: [PublicShare], nextOffset: String)? {
         guard let page = try? await client.send(TDNativeRequests.getStoryPublicForwards(
             storyPosterChatId: chatID,
             storyId: storyID,
             offset: offset,
             limit: 50,
         )) else { return nil }
-        var shares = [PublicShare]()
-        for forward in page.forwards {
-            guard case .publicForwardMessage(let item) = forward,
-                  let chat = try? await client.getChat(chatId: item.message.chatId)
-            else { continue }
-            shares.append(PublicShare(message: item.message, chat: chat))
-        }
-        return (page.totalCount, shares)
+        let shares = await Self.shares(page.forwards, client: client)
+        return (page.totalCount, shares, page.nextOffset)
     }
 
     private func loadPoll() {
@@ -509,16 +578,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             publicSharesSection = sections.count
             sections.append(SettingsSection(
                 header: L10n.telegram("Stats.MessagePublicForwardsTitle").uppercased(),
-                rows: publicShares.map { share in
-                    let views = share.message.interactionInfo?.viewCount ?? 0
-                    return SettingsRow(
-                        title: share.chat.title,
-                        detail: views == 0
-                            ? L10n.telegram("Stats.MessageViews.NoViews")
-                            : L10n.telegramPlural("Stats.MessageViews", count: views),
-                        style: .peer(SettingsPeer(chat: share.chat)),
-                    ) { [weak self] in self?.openPublicShare(share) }
-                },
+                rows: publicShares.map { _ in SettingsRow(title: "") },
             ))
         }
         return sections
@@ -667,25 +727,46 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
     }
 
-    /// navigateToMessage: a public share opens its channel at the shared post.
-    private func openPublicShare(_ share: PublicShare) {
+    /// navigateToMessage: a shared message opens its channel at the post; a shared story opens the story from the
+    /// channel's circle.
+    private func openPublicShare(_ share: PublicShare, sourceView: UIView?) {
         let client = client
-        Task {
-            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: share.chat.id, client: client)
-            else { return }
-            NavigationStorage.shared.push(.customChat(chat, targetMessageID: share.message.id))
+        switch share {
+        case .message(let message, let chat):
+            Task {
+                guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client)
+                else { return }
+                NavigationStorage.shared.push(.customChat(chat, targetMessageID: message.id))
+            }
+        case .story(let story, _):
+            StoryViewerController.present(
+                .story(chatID: story.posterChatId, storyID: story.id),
+                client: client,
+                from: self,
+                sourceView: sourceView,
+                sourceIsAvatar: true,
+            )
         }
     }
 
     /// ChannelStatsPublicForwardsContext.loadMore: the next page once the list's end comes into view.
     private func loadMorePublicShares() {
-        guard let message, !publicSharesOffset.isEmpty, !loadsPublicShares else { return }
+        guard message != nil || story != nil, !publicSharesOffset.isEmpty, !loadsPublicShares else { return }
         loadsPublicShares = true
         let client = client
         let chatID = chat.id
         let offset = publicSharesOffset
+        let messageID = message?.id
+        let storyID = story?.id
         Task { [weak self] in
-            let page = await Self.publicShares(chatID: chatID, messageID: message.id, offset: offset, client: client)
+            let page: (totalCount: Int, shares: [PublicShare], nextOffset: String)? =
+                if let messageID {
+                    await Self.publicShares(chatID: chatID, messageID: messageID, offset: offset, client: client)
+                } else if let storyID {
+                    await Self.storyPublicShares(chatID: chatID, storyID: storyID, offset: offset, client: client)
+                } else {
+                    nil
+                }
             guard let self, contextIsCurrent else { return }
             loadsPublicShares = false
             guard let page else { return }
@@ -722,7 +803,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 setGraph(result.storyReactionGraph, at: 1)
                 publicShareCount = shares?.totalCount
                 publicShares = shares?.shares ?? []
-                publicSharesOffset = ""
+                publicSharesOffset = shares?.nextOffset ?? ""
             } else {
                 failed = true
             }
@@ -800,16 +881,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             publicSharesSection = sections.count
             sections.append(SettingsSection(
                 header: L10n.telegram("Stats.MessagePublicForwardsTitle").uppercased(),
-                rows: publicShares.map { share in
-                    let views = share.message.interactionInfo?.viewCount ?? 0
-                    return SettingsRow(
-                        title: share.chat.title,
-                        detail: views == 0
-                            ? L10n.telegram("Stats.MessageViews.NoViews")
-                            : L10n.telegramPlural("Stats.MessageViews", count: views),
-                        style: .peer(SettingsPeer(chat: share.chat)),
-                    ) { [weak self] in self?.openPublicShare(share) }
-                },
+                rows: publicShares.map { _ in SettingsRow(title: "") },
             ))
         }
         return sections
@@ -1260,11 +1332,13 @@ private final class StatisticsPostCell: UITableViewCell {
 
     private var storyRing: StoryAvatarRingView?
     private var storyButton: UIButton?
+    /// A public share's channel, in place of the post's picture (isPeer).
+    private var avatarView: ProfileAvatarView?
 
     private var isStory = false
 
     var storySourceView: UIView {
-        thumbnailView
+        avatarView ?? thumbnailView
     }
 
     init() {
@@ -1316,7 +1390,8 @@ private final class StatisticsPostCell: UITableViewCell {
             thumbnailView.frame = CGRect(x: 10, y: ((height - 40) / 2).rounded(.down), width: 40, height: 40)
             thumbnailView.layer.cornerRadius = 6
         }
-        let left: CGFloat = thumbnailView.isHidden ? 16 : 16 + 46
+        avatarView?.frame = thumbnailView.frame
+        let left: CGFloat = thumbnailView.isHidden && avatarView == nil ? 16 : 16 + 46
         let viewsSize = Self.size(of: viewsLabel)
         let reactionsSize = Self.size(of: reactionsLabel)
         let forwardsSize = Self.size(of: forwardsLabel)
@@ -1390,6 +1465,60 @@ private final class StatisticsPostCell: UITableViewCell {
 
     private static func size(of label: UILabel) -> CGSize {
         label.text == nil ? .zero : label.sizeThatFits(CGSize(width: 128, height: CGFloat.greatestFiniteMagnitude))
+    }
+
+    /// StatsMessageItem with isPeer, for a public share: the channel's avatar (34 pt in its unseen ring for a story,
+    /// which opens it), its title and the post's date.
+    func configure(
+        peer: SettingsPeer,
+        date: Int,
+        isStory: Bool,
+        views: Int,
+        forwards: Int,
+        reactions: Int,
+        client: TDLibClient,
+        accountID: UUID?,
+    ) {
+        titleLabel.text = peer.title
+        let day = Date(timeIntervalSince1970: TimeInterval(date))
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMddyy")
+        dateLabel.text = L10n.telegram(
+            "Time.MediumDate",
+            formatter.string(from: day),
+            day.formatted(date: .omitted, time: .shortened),
+        )
+        viewsLabel.text = views == 0
+            ? L10n.telegram("Stats.MessageViews.NoViews")
+            : L10n.telegramPlural("Stats.MessageViews", count: views)
+        reactionsLabel.text = reactions > 0 ? Self.compact(reactions) : nil
+        forwardsLabel.text = forwards > 0 ? Self.compact(forwards) : nil
+        reactionsIcon.isHidden = reactions == 0
+        forwardsIcon.isHidden = forwards == 0
+        thumbnailView.isHidden = true
+        self.isStory = isStory
+        let avatar = avatarView ?? ProfileAvatarView()
+        if avatarView == nil {
+            avatar.isUserInteractionEnabled = false
+            contentView.addSubview(avatar)
+        }
+        avatarView = avatar
+        avatar.configure(
+            file: peer.file,
+            minithumbnail: peer.minithumbnail,
+            placeholder: peer.placeholder,
+            accountID: accountID,
+            accountUserID: 0,
+            client: client,
+        )
+        if isStory {
+            let ring = storyRing ?? StoryAvatarRingView(activeLineWidth: 1.5, inactiveLineWidth: 1.5)
+            ring.style = .unseen
+            ring.isUserInteractionEnabled = false
+            if storyRing == nil { contentView.addSubview(ring) }
+            storyRing = ring
+        }
+        setNeedsLayout()
     }
 
     /// StatsMessageItem for a story: Story, its date, its media in a 34 pt circle 3 pt further in inside a 1.5 pt
