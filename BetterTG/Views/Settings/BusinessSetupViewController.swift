@@ -1,5 +1,6 @@
 // BusinessSetupViewController.swift
 
+import MapKit
 import TDLibKit
 import UIKit
 
@@ -241,10 +242,8 @@ final class BusinessLocationViewController: SettingsListViewController {
                 isMultiline: true,
             ) { [weak self] text in self?.address = text }))],
         )]
-        sections.append(SettingsSection(rows: [SettingsRow(
+        var mapRows = [SettingsRow(
             title: L10n.telegram("BusinessLocationSetup.SetLocationOnMap"),
-            detail: coordinate.map { String(format: "%.5f, %.5f", $0.latitude, $0.longitude) },
-            style: .subtitle,
             accessory: .toggle(isOn: coordinate != nil) { [weak self] isOn in
                 guard let self else { return }
                 if isOn {
@@ -254,7 +253,10 @@ final class BusinessLocationViewController: SettingsListViewController {
                     reload()
                 }
             },
-        )]))
+        )]
+        // BusinessLocationSetupScreen's map under the switch, drawn by its own cell.
+        if coordinate != nil { mapRows.append(SettingsRow(title: "")) }
+        sections.append(SettingsSection(rows: mapRows))
         if !original.isEmpty {
             sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram("BusinessLocationSetup.DeleteLocation"),
@@ -266,6 +268,15 @@ final class BusinessLocationViewController: SettingsListViewController {
             }]))
         }
         return sections
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard indexPath == IndexPath(row: 1, section: 1), let coordinate else {
+            return super.tableView(tableView, cellForRowAt: indexPath)
+        }
+        let cell = BusinessLocationMapCell()
+        cell.configure(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return cell
     }
 
     /// LocationPickerController in its pick mode: the pin or place chosen on the map, whose address fills an empty
@@ -685,5 +696,43 @@ UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
         query = searchController.searchBar.text ?? ""
         reload()
+    }
+}
+
+// MARK: - BusinessLocationMapCell
+
+/// BusinessLocationSetupScreen's map: the pin at the chosen coordinates on a still map.
+private final class BusinessLocationMapCell: UITableViewCell {
+    private let mapView = MKMapView()
+
+    init() {
+        super.init(style: .default, reuseIdentifier: nil)
+        selectionStyle = .none
+        mapView.isUserInteractionEnabled = false
+        mapView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(mapView)
+        NSLayoutConstraint.activate([
+            mapView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            mapView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            mapView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            mapView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            mapView.heightAnchor.constraint(equalToConstant: 160),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(latitude: Double, longitude: Double) {
+        let center = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        mapView.setRegion(
+            MKCoordinateRegion(center: center, latitudinalMeters: 1000, longitudinalMeters: 1000),
+            animated: false,
+        )
+        let pin = MKPointAnnotation()
+        pin.coordinate = center
+        mapView.removeAnnotations(mapView.annotations)
+        mapView.addAnnotation(pin)
     }
 }
