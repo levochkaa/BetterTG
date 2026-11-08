@@ -6578,6 +6578,15 @@ import UIKit
             let client = client
             Task { _ = try? await client.send(TDNativeRequests.loadSavedMessagesTopics(limit: 100)) }
         }
+        // updateTopicMessageCount keeps the sublist's count once TDLib knows it.
+        let chatID = location.chatID
+        let topic = location.topic
+        let source = TDLib.shared.activeUpdateSource
+        nc.scopedPublisher(&cancellables, for: .updateTopicMessageCount) { [weak self] event in
+            guard let self, event.source == source, event.value.chatId == chatID, event.value.topicId == topic,
+                  locationContextIsCurrent else { return }
+            savedMessagesTopicMessageCount = event.value.messageCount
+        }
     }
 
     private func applySavedMessagesTopic(_ topic: SavedMessagesTopic?) {
