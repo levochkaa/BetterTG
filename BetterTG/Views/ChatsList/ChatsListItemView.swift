@@ -271,6 +271,9 @@ final class ChatListCell: UITableViewCell {
             ChatListMentionBadge.image(.mention, inactive: isArchived)
         } else if chat.chat.unreadReactionCount > 0 {
             ChatListMentionBadge.image(.reaction, inactive: isMuted)
+        } else if chat.chat.unreadPollVoteCount > 0 {
+            // ChatListItem's hasUnseenPollVotes after mentions and reactions.
+            ChatListMentionBadge.image(.pollVote, inactive: isMuted)
         } else {
             nil
         }
