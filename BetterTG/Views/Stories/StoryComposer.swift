@@ -585,6 +585,7 @@ UIColorPickerViewControllerDelegate {
         }
         drawingSwatch.addAction(UIAction { [weak self] _ in self?.presentColorPicker() }, for: .touchUpInside)
         entitiesView.drawingView.onStrokesChange = { [weak self] in self?.updateUndo() }
+        entitiesView.drawingView.storyImage = { [weak self] in self?.media.canvas.cgImage }
         imageView.isUserInteractionEnabled = true
         imageView.addSubview(entitiesView)
         // A tap while the caption is edited only ends that, as MediaEditorScreen's tap does with the keyboard up.
@@ -762,7 +763,7 @@ UIColorPickerViewControllerDelegate {
     /// The tools 120 pt tall along the story's bottom, the swatch at its leading corner.
     private func layoutDrawingTools() {
         let story = imageView.frame
-        drawingTools.frame = CGRect(x: story.minX + 56, y: story.maxY - 120, width: story.width - 112, height: 120)
+        drawingTools.frame = CGRect(x: story.minX + 56, y: story.maxY - 120, width: story.width - 60, height: 120)
         drawingSwatch.frame = CGRect(x: story.minX + 8, y: story.maxY - 56, width: 44, height: 44)
     }
 

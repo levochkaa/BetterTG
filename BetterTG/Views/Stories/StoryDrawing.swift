@@ -4,12 +4,13 @@ import UIKit
 
 // MARK: - StoryDrawingTool
 
-/// DrawingToolState.Key's pen, arrow, marker, neon and eraser, with DrawingState.initial's colours and sizes.
+/// DrawingToolState.Key's pen, arrow, marker, neon, blur and eraser, with DrawingState.initial's colours and sizes.
 enum StoryDrawingTool: CaseIterable {
     case pen
     case arrow
     case marker
     case neon
+    case blur
     case eraser
 
     var initialColor: UIColor? {
@@ -18,7 +19,8 @@ enum StoryDrawingTool: CaseIterable {
         case .arrow: UIColor(red: 0xFF / 255, green: 0x8A / 255, blue: 0, alpha: 1)
         case .marker: UIColor(red: 0xFF / 255, green: 0xD6 / 255, blue: 0x0A / 255, alpha: 1)
         case .neon: UIColor(red: 0x34 / 255, green: 0xC7 / 255, blue: 0x59 / 255, alpha: 1)
-        case .eraser: nil
+        case .blur,
+             .eraser: nil
         }
     }
 
@@ -28,7 +30,8 @@ enum StoryDrawingTool: CaseIterable {
              .pen: 0.23
         case .marker: 0.75
         case .neon: 0.4
-        case .eraser: 0.5
+        case .blur,
+             .eraser: 0.5
         }
     }
 
@@ -76,9 +79,13 @@ final class StoryPenStroke: StoryStroke {
 
     let tool: StoryDrawingTool
     let color: UIColor
+    /// The blur tool's source: the story blurred, shown through the stroke.
+    var blurredImage: CGImage?
     private(set) var segments = [Segment]()
     private(set) var activeSegments = [Segment]()
     private(set) var arrow: (left: CGPoint, start: CGPoint, right: CGPoint, width: CGFloat)?
+
+    private let drawingSize: CGSize
 
     private let renderLineWidth: CGFloat
     private let renderMinLineWidth: CGFloat
@@ -101,7 +108,10 @@ final class StoryPenStroke: StoryStroke {
         let maxLineWidth = max(10, longest * 0.07)
         let lineWidth = minLineWidth + (maxLineWidth - minLineWidth) * size
         self.renderLineWidth = lineWidth
-        self.renderMinLineWidth = tool == .eraser ? lineWidth : minLineWidth + (lineWidth - minLineWidth) * 0.2
+        self.drawingSize = drawingSize
+        self.renderMinLineWidth = tool == .eraser || tool == .blur
+            ? lineWidth
+            : minLineWidth + (lineWidth - minLineWidth) * 0.2
         self.renderArrowLength = max(max(10, longest * 0.02), lineWidth * 3)
     }
 
@@ -176,6 +186,26 @@ final class StoryPenStroke: StoryStroke {
         CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
     }
 
+    /// pathForSegment: the step's quadrilateral with round ends.
+    private static func path(of segment: Segment) -> CGPath {
+        let path = CGMutablePath()
+        path.addLines(between: [segment.a, segment.c, segment.d, segment.b])
+        path.closeSubpath()
+        path.addEllipse(in: CGRect(
+            x: segment.abCenter.x - segment.radius1,
+            y: segment.abCenter.y - segment.radius1,
+            width: segment.radius1 * 2,
+            height: segment.radius1 * 2,
+        ))
+        path.addEllipse(in: CGRect(
+            x: segment.cdCenter.x - segment.radius2,
+            y: segment.cdCenter.y - segment.radius2,
+            width: segment.radius2 * 2,
+            height: segment.radius2 * 2,
+        ))
+        return path
+    }
+
     func add(_ location: CGPoint, velocity: CGFloat) {
         let velocity = velocity == 0 ? 1000 : velocity
         var width = max(renderMinLineWidth, min(renderLineWidth - velocity / 200, renderLineWidth))
@@ -246,8 +276,13 @@ final class StoryPenStroke: StoryStroke {
         }
     }
 
-    /// draw(in:): the eraser clears, the rest fill in the colour at full opacity.
+    /// draw(in:): the eraser clears, the blur shows the blurred story through the stroke, the rest fill in the colour
+    /// at full opacity.
     func draw(in context: CGContext) {
+        if tool == .blur {
+            drawBlur(in: context)
+            return
+        }
         context.saveGState()
         context.setBlendMode(tool == .eraser ? .clear : .normal)
         context.setFillColor(color.withAlphaComponent(1).cgColor)
@@ -279,6 +314,39 @@ final class StoryPenStroke: StoryStroke {
         context.restoreGState()
     }
 
+    /// PenTool's blur: the segments as a mask at half the resolution, and the blurred story drawn through it.
+    private func drawBlur(in context: CGContext) {
+        guard let blurredImage else { return }
+        let width = Int(drawingSize.width / 2)
+        let height = Int(drawingSize.height / 2)
+        guard width > 0, height > 0, let mask = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue,
+        ) else { return }
+        mask.setFillColor(gray: 0, alpha: 1)
+        mask.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        mask.translateBy(x: 0, y: CGFloat(height))
+        mask.scaleBy(x: 0.5, y: -0.5)
+        mask.setFillColor(gray: 1, alpha: 1)
+        for segment in allSegments {
+            mask.addPath(Self.path(of: segment))
+            mask.fillPath(using: .winding)
+        }
+        guard let maskImage = mask.makeImage() else { return }
+        let bounds = CGRect(origin: .zero, size: drawingSize)
+        context.saveGState()
+        context.translateBy(x: 0, y: drawingSize.height)
+        context.scaleBy(x: 1, y: -1)
+        context.clip(to: bounds, mask: maskImage)
+        context.draw(blurredImage, in: bounds)
+        context.restoreGState()
+    }
+
     private func currentSmoothPoints(_ count: Int) -> [Point]? {
         switch count {
         case 2: Self.smooth(points[0], control1: points[1], control2: nil, end: points[2])
@@ -293,7 +361,15 @@ final class StoryPenStroke: StoryStroke {
 /// DrawingView over the story in story points: a finger draws with the chosen tool while drawing is on, the strokes
 /// kept so the last can be undone and all cleared. It draws at one pixel a story point, the story's own resolution.
 final class StoryDrawingView: UIView {
-    var tool = StoryDrawingTool.pen
+    var tool = StoryDrawingTool.pen {
+        didSet {
+            guard tool != oldValue else { return }
+            preparedBlurredImage = tool == .blur ? makeBlurredImage() : nil
+        }
+    }
+
+    /// The story under the drawing, which the blur tool blurs.
+    var storyImage: (() -> CGImage?)?
     var color = StoryDrawingTool.pen.initialColor ?? .white
     var size = StoryDrawingTool.pen.initialSize
     var onStrokesChange: (() -> Void)?
@@ -302,6 +378,7 @@ final class StoryDrawingView: UIView {
 
     private var committed: CGImage?
     private var active: StoryStroke?
+    private var preparedBlurredImage: CGImage?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -362,7 +439,7 @@ final class StoryDrawingView: UIView {
         let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
         switch gesture.state {
         case .began:
-            let stroke = tool.makeStroke(color: color, size: size, drawingSize: bounds.size)
+            let stroke = makeStroke()
             stroke.add(location, velocity: speed)
             active = stroke
         case .changed:
@@ -379,7 +456,7 @@ final class StoryDrawingView: UIView {
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let location = gesture.location(in: self)
-        let stroke = tool.makeStroke(color: color, size: size, drawingSize: bounds.size)
+        let stroke = makeStroke()
         stroke.add(location, velocity: 0)
         active = stroke
         finish(at: location)
@@ -393,6 +470,30 @@ final class StoryDrawingView: UIView {
         strokes.append(stroke)
         committed = render(strokes: [stroke], over: committed)
         onStrokesChange?()
+    }
+
+    private func makeStroke() -> StoryStroke {
+        let stroke = tool.makeStroke(color: color, size: size, drawingSize: bounds.size)
+        (stroke as? StoryPenStroke)?.blurredImage = preparedBlurredImage
+        return stroke
+    }
+
+    /// getFullImage: the story and the drawing fitted into 256 pt and blurred twice with a radius of 7, roughly a
+    /// Gaussian of 6 there.
+    private func makeBlurredImage() -> CGImage? {
+        guard let story = storyImage?() else { return nil }
+        let scale = min(256 / bounds.width, 256 / bounds.height)
+        let size = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let small = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIImage(cgImage: story).draw(in: CGRect(origin: .zero, size: size))
+            if let committed { UIImage(cgImage: committed).draw(in: CGRect(origin: .zero, size: size)) }
+        }
+        guard let input = CIImage(image: small) else { return nil }
+        let blurred = input.clampedToExtent().applyingGaussianBlur(sigma: 6).cropped(to: input.extent)
+        return CIContext().createCGImage(blurred, from: input.extent)
     }
 
     private func rebuild() {
@@ -442,11 +543,14 @@ final class StoryDrawingToolsView: UIView {
                 case .arrow: "Arrow"
                 case .marker: "Marker"
                 case .neon: "Neon"
+                case .blur: "Blur"
                 case .eraser: "Eraser"
                 }
             background.contents = UIImage(named: "MediaEditor/Tool\(name)")?.cgImage
             shadow.contents = UIImage(named: "MediaEditor/Tool\(name)Shadow")?.cgImage
-            tip.image = UIImage(named: "MediaEditor/Tool\(name)Tip")?.withRenderingMode(.alwaysTemplate)
+            // The blur's tip keeps its own picture; the others take the colour.
+            tip.image = UIImage(named: "MediaEditor/Tool\(name)Tip")?
+                .withRenderingMode(tool == .blur ? .alwaysOriginal : .alwaysTemplate)
             tip.frame = CGRect(origin: .zero, size: size)
             shadow.frame = CGRect(origin: .zero, size: size).insetBy(dx: -4, dy: 0)
             background.frame = CGRect(origin: .zero, size: size)
@@ -455,14 +559,14 @@ final class StoryDrawingToolsView: UIView {
             band.position = CGPoint(x: size.width / 2, y: 64)
             layer.addSublayer(shadow)
             // The marker's and the neon's tips sit under the body.
-            if tool == .marker || tool == .neon {
+            if tool == .marker || tool == .neon || tool == .blur {
                 addSubview(tip)
                 layer.addSublayer(background)
             } else {
                 layer.addSublayer(background)
                 addSubview(tip)
             }
-            if tool != .eraser { layer.addSublayer(band) }
+            if tool != .eraser, tool != .blur { layer.addSublayer(band) }
         }
 
         @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -532,7 +636,8 @@ final class StoryDrawingToolsView: UIView {
     }
 
     private func layoutTools() {
-        let spacing: CGFloat = 44
+        // ToolsComponent's 44 pt, closer together where the story is narrower than the row.
+        let spacing = min(44, (bounds.width - 24) / CGFloat(toolViews.count - 1))
         let left = (bounds.width - spacing * CGFloat(toolViews.count - 1)) / 2
         for (index, view) in toolViews.enumerated() {
             let isSelected = view.tool == selected
