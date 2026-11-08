@@ -268,6 +268,7 @@ public typealias UpdateNewMessage = TDNativeUpdateNewMessage
 public typealias UpdateServiceNotification = TDNativeUpdateServiceNotification
 public typealias UpdateSupergroup = TDNativeUpdateSupergroup
 public typealias UpdateSupergroupFullInfo = TDNativeUpdateSupergroupFullInfo
+public typealias UpdateTermsOfService = TDNativeUpdateTermsOfService
 public typealias UpdateUnreadChatCount = TDNativeUpdateUnreadChatCount
 public typealias UpdateUser = TDNativeUpdateUser
 public typealias UpdateUserFullInfo = TDNativeUpdateUserFullInfo

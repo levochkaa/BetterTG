@@ -61,6 +61,10 @@ extension RootVM {
                   event.source == TDLib.shared.activeUpdateSource else { return }
             AppBadge.shared.update(unreadChats: event.value.unreadUnmutedCount)
         }
+        nc.scopedPublisher(&cancellables, for: .updateTermsOfService) { event in
+            guard event.source == TDLib.shared.activeUpdateSource else { return }
+            TermsOfServicePresenter.present(event.value, client: TDLib.shared.activeClient)
+        }
         nc.scopedPublisher(&cancellables, for: .updateServiceNotification) { event in
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             ServiceNotificationPresenter.present(event.value)
