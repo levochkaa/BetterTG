@@ -345,8 +345,10 @@ import UIKit
             let info = try? await client.send(TDNativeRequests.getDeepLinkInfo(link: value.link))
             guard !Task.isCancelled, authority.isCurrent, let text = info?.text.text, !text.isEmpty else { return }
             presentAlert(text, presenter: presenter)
+        case .internalLinkTypeOauth(let value):
+            // OpenResolvedUrl's `.oauth`: AuthConfirmationScreen for the request.
+            AuthConfirmationPresenter.present(url: value.url, client: client)
         case .internalLinkTypeAuthenticationCode,
-             .internalLinkTypeOauth,
              .internalLinkTypePassportDataRequest,
              .internalLinkTypePhoneNumberConfirmation,
              .internalLinkTypeQrCodeAuthentication:

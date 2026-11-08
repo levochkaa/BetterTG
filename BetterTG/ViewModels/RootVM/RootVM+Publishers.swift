@@ -65,6 +65,10 @@ extension RootVM {
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             TermsOfServicePresenter.present(event.value, client: TDLib.shared.activeClient)
         }
+        nc.scopedPublisher(&cancellables, for: .updateNewOauthRequest) { event in
+            guard event.source == TDLib.shared.activeUpdateSource else { return }
+            AuthConfirmationPresenter.present(url: event.value.url, client: TDLib.shared.activeClient)
+        }
         nc.scopedPublisher(&cancellables, for: .updateServiceNotification) { event in
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             ServiceNotificationPresenter.present(event.value)

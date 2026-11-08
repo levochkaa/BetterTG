@@ -182,6 +182,7 @@ public typealias Minithumbnail = TDNativeMinithumbnail
 public typealias NetworkType = TDNativeNetworkType
 public typealias NotificationSettingsScope = TDNativeNotificationSettingsScope
 public typealias NotificationType = TDNativeNotificationType
+public typealias OauthLinkInfo = TDNativeOauthLinkInfo
 public typealias OptionValue = TDNativeOptionValue
 public typealias OptionValueString = TDNativeOptionValueString
 public typealias Outline = TDNativeOutline

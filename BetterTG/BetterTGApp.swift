@@ -75,6 +75,7 @@ import UIKit
             ThreadReplyProbe.sendMessageEffectIfRequested()
             ServiceNotificationPresenter.presentProbeIfRequested()
             TermsOfServicePresenter.presentProbeIfRequested()
+            AuthConfirmationPresenter.presentProbeIfRequested()
             ThreadReplyProbe.setUpCommunityIfRequested()
             ChatTitleIconsProbe.runIfRequested()
             MessageStatusLineProbe.runIfRequested()
