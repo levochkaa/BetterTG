@@ -89,6 +89,8 @@ import UIKit
         /// A Saved Messages sublist's ChatChannelSubscriberInputPanelNode: Open Chat, Open Group or Open Channel
         /// opens the chat its messages were saved from.
         case openSavedFromChat(title: String, chatID: Int64)
+        /// ChatRestrictedInputPanelNode for a frozen account: You account is frozen, which opens the details.
+        case accountFrozen
     }
 
     /// ChatReportPeerTitlePanelNode's buttons (`peerButtons`).
@@ -807,6 +809,16 @@ import UIKit
     /// The panel in the composer's place for the whole chat; threads, topics and direct messages chats keep theirs.
     var statusPanel: StatusPanel? {
         guard !previewing else { return nil }
+        // ChatInterfaceStateInputPanels' isFrozen: every chat but the appeal bot's.
+        let source = location.accountID.map { TdUpdateSource(accountID: $0, clientID: location.clientID) }
+        if AccountFreezeStore.shared.freeze(for: source) != nil,
+           !AccountFreezeStore.shared.isAppealChat(
+               username: customChat.user?.usernames?.activeUsernames.first,
+               source: source,
+           )
+        {
+            return .accountFrozen
+        }
         if location.savedMessagesTopicID != nil { return savedMessagesTopicPanel }
         guard location.messageThreadID == nil, location.forumTopicID == nil else { return nil }
         if showsUnblockPanel { return .unblock }

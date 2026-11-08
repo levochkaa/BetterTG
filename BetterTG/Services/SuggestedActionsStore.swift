@@ -32,6 +32,7 @@ import TDLibKit
 
     private static func rank(_ notice: ChatListNotice) -> Int {
         switch notice {
+        case .accountFrozen: -1
         case .reviewLogin: 0
         case .setupPassword: 1
         case .setupPhoto: 2

@@ -261,6 +261,7 @@ public typealias UpdateDeleteMessages = TDNativeUpdateDeleteMessages
 public typealias UpdateFile = TDNativeUpdateFile
 public typealias UpdateFileGenerationStart = TDNativeUpdateFileGenerationStart
 public typealias UpdateForumTopic = TDNativeUpdateForumTopic
+public typealias UpdateFreezeState = TDNativeUpdateFreezeState
 public typealias UpdateLanguagePackStrings = TDNativeUpdateLanguagePackStrings
 public typealias UpdateMessageContent = TDNativeUpdateMessageContent
 public typealias UpdateMessageEdited = TDNativeUpdateMessageEdited

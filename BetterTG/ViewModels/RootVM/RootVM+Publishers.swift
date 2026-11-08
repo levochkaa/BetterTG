@@ -69,6 +69,9 @@ extension RootVM {
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             AuthConfirmationPresenter.present(url: event.value.url, client: TDLib.shared.activeClient)
         }
+        nc.scopedPublisher(&cancellables, for: .updateFreezeState) { event in
+            AccountFreezeStore.shared.receive(event.value, source: event.source)
+        }
         nc.scopedPublisher(&cancellables, for: .updateServiceNotification) { event in
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             ServiceNotificationPresenter.present(event.value)

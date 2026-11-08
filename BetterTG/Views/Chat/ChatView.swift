@@ -3674,6 +3674,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .init(title: text, style: .status)
         case .openSavedFromChat(let title, _):
             .init(title: title, style: .action(spansWidth: true), showsSearch: false, showsHelp: false)
+        case .accountFrozen:
+            .init(title: L10n.telegram("Chat.PanelFrozenAccount.Title"), style: .destructive)
         }
     }
 
@@ -3770,6 +3772,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             navigationController?.popToRootViewController(animated: true)
         case .openSavedFromChat(_, let chatID):
             TelegramLinkRouter.shared.openChat(chatID, profile: false, from: self)
+        case .accountFrozen:
+            guard let freeze = AccountFreezeStore.shared.freeze(for: navigationClientSource) else { return }
+            AccountFreezeInfoViewController.present(freeze, from: self)
         }
     }
 

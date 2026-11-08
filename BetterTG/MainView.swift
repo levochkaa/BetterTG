@@ -1133,11 +1133,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .changes
             .sink { [weak self] in self?.updateChatListNotice() }
             .store(in: &cancellables)
+        AccountFreezeStore.shared
+            .changes
+            .sink { [weak self] in self?.updateChatListNotice() }
+            .store(in: &cancellables)
     }
 
     private func updateChatListNotice() {
         let next: ChatListNotice? =
-            if let sessionReview {
+            if AccountFreezeStore.shared.freeze(for: navigationClientSource) != nil {
+                .accountFrozen
+            } else if let sessionReview {
                 .reviewLogin(sessionReview)
             } else {
                 SuggestedActionsStore.shared.chatListNotices(for: navigationClientSource).first { notice in
@@ -1182,6 +1188,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private func activateChatListNotice() {
         guard let notice = chatListNotice else { return }
         switch notice {
+        case .accountFrozen:
+            guard let freeze = AccountFreezeStore.shared.freeze(for: navigationClientSource) else { return }
+            AccountFreezeInfoViewController.present(freeze, from: self)
         case .reviewLogin:
             break
         case .setupPassword:

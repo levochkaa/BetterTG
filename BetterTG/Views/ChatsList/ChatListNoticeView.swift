@@ -7,6 +7,8 @@ import UIKit
 /// The chat list notices of Telegram's ChatListNotice that BetterTG shows, in GlobalControlPanelsContext's order: a
 /// login to review, a password to set up, a photo, a birthday, then a server's own suggestion.
 enum ChatListNotice: Equatable {
+    /// ChatListNoticeItem's accountFreeze: the account is frozen, in red, before anything else.
+    case accountFrozen
     case reviewLogin(UnconfirmedSessionStore.Review)
     case setupPassword
     case setupPhoto
@@ -19,7 +21,8 @@ enum ChatListNotice: Equatable {
         case .link,
              .setupBirthday,
              .setupPhoto: true
-        case .reviewLogin,
+        case .accountFrozen,
+             .reviewLogin,
              .setupPassword: false
         }
     }
@@ -170,7 +173,11 @@ final class ChatListNoticeView: UIView {
     func configure(_ notice: ChatListNotice) {
         self.notice = notice
         var textFont = UIFont.systemFont(ofSize: 15)
+        titleLabel.textColor = notice == .accountFrozen ? .systemRed : .label
         switch notice {
+        case .accountFrozen:
+            titleLabel.text = L10n.telegram("ChatList.FrozenAccount.Title")
+            textLabel.text = L10n.telegram("ChatList.FrozenAccount.Text")
         case .reviewLogin(let review):
             let title = L10n.telegram("ChatList.SessionReview.PanelTitle")
             titleLabel.text = review.count > 1 ? "1/\(review.count) \(title)" : title
