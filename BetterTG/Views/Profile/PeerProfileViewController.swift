@@ -206,6 +206,10 @@ ClientRestorableNavigationEntry {
     /// PeerInfoAvatarListContainerNode's photos and its strip of segments, paged in place by tapping the sides.
     private let expandedPhotoIndicator = ProfilePhotoIndicatorView()
     private var expandedPhotos = [ProfileAvatarGalleryItem]()
+    private lazy var expandedPhotoIndicatorTop = expandedPhotoIndicator.topAnchor.constraint(
+        equalTo: expandedPhotoContainer.topAnchor,
+        constant: 8,
+    )
     private var expandedPhotoIndex = 0
     private var expandedPhotosTask: Task<Void, Never>?
     private var isAvatarExpanded = false
@@ -3203,7 +3207,7 @@ ClientRestorableNavigationEntry {
         expandedPhotoIndicator.translatesAutoresizingMaskIntoConstraints = false
         expandedPhotoContainer.addSubview(expandedPhotoIndicator)
         NSLayoutConstraint.activate([
-            expandedPhotoIndicator.topAnchor.constraint(equalTo: expandedPhotoContainer.topAnchor, constant: 8),
+            expandedPhotoIndicatorTop,
             expandedPhotoIndicator.leadingAnchor.constraint(equalTo: expandedPhotoContainer.leadingAnchor, constant: 8),
             expandedPhotoIndicator.trailingAnchor.constraint(
                 equalTo: expandedPhotoContainer.trailingAnchor,
@@ -3273,11 +3277,16 @@ ClientRestorableNavigationEntry {
         profileHeaderView.frame = CGRect(x: sideInsets.left, y: -headerHeight, width: width, height: headerHeight)
         // The expanded photo is square across the header's width, above it.
         let expandedSide = isAvatarExpanded ? width : 0
+        // PeerInfoHeaderNode's expanded photo reaches the screen's top, under the bar: it grows up by the bar's height
+        // and the list draws past its top edge while it is open.
+        let barHeight = isAvatarExpanded ? collectionView.frame.minY : 0
+        collectionView.clipsToBounds = !isAvatarExpanded
+        expandedPhotoIndicatorTop.constant = barHeight + 8
         expandedPhotoContainer.frame = CGRect(
             x: sideInsets.left,
-            y: -headerHeight - expandedSide,
+            y: -headerHeight - expandedSide - barHeight,
             width: width,
-            height: width,
+            height: width + barHeight,
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
