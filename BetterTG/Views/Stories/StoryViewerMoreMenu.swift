@@ -35,6 +35,8 @@ enum StoryMoreMenu {
         case channelPage(isPosted: Bool, isGroup: Bool)
         /// performDeleteAction on a channel's or group's story the account may delete.
         case delete
+        /// Story.Context.ViewStats: makeStoryStatsController, for a story whose statistics the account may see.
+        case statistics
         /// updatePeerStoriesHidden: Hide Stories moves them to the archive, Unhide Stories back.
         case archive(isHidden: Bool)
         case save
@@ -141,6 +143,9 @@ enum StoryMoreMenu {
         if !isLive, story.canBeForwarded {
             items.append(.save)
         }
+        if !isLive, story.canGetStatistics {
+            items.append(.statistics)
+        }
         if !story.caption.text.isEmpty, let language = translatableLanguage(story.caption.text) {
             items.append(.translate(language: language))
         }
@@ -185,6 +190,9 @@ enum StoryMoreMenu {
         }
         if !isLive, story.canToggleIsPostedToChatPage {
             items.append(.channelPage(isPosted: story.isPostedToChatPage, isGroup: isGroup))
+        }
+        if !isLive, story.canGetStatistics {
+            items.append(.statistics)
         }
         if !isLive {
             items.append(.save)
@@ -257,6 +265,8 @@ enum StoryMoreMenu {
             L10n.telegram(isPosted ? "Story.Context.RemoveFromChannel" : "Story.Context.SaveToChannel")
         case .delete:
             L10n.telegram("Story.ContextDeleteStory")
+        case .statistics:
+            L10n.telegram("Story.Context.ViewStats")
         case .archive(let isHidden):
             L10n.telegram(isHidden ? "StoryFeed.ContextUnarchive" : "StoryFeed.ContextArchive")
         case .save:
@@ -280,6 +290,7 @@ enum StoryMoreMenu {
             case .share: "arrowshape.turn.up.right"
             case .channelPage(let isPosted, _): isPosted ? "pin.slash" : "pin"
             case .delete: "trash"
+            case .statistics: "chart.bar"
             case .archive(let isHidden): isHidden ? "tray.and.arrow.up" : "archivebox"
             case .save: "square.and.arrow.down"
             case .translate: "translate"
@@ -298,6 +309,7 @@ enum StoryMoreMenu {
         case .share: "share"
         case .channelPage(let isPosted, _): isPosted ? "remove-from-channel" : "save-to-channel"
         case .delete: "delete"
+        case .statistics: "statistics"
         case .archive(let isHidden): isHidden ? "unhide" : "hide"
         case .save: "save"
         case .translate: "translate"

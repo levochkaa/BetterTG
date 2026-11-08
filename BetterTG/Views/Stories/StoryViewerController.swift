@@ -1555,6 +1555,23 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             )
         case .report:
             report(story)
+        case .statistics:
+            openStatistics(of: story)
+        }
+    }
+
+    /// Story.Context.ViewStats: Story Statistics over the story, as makeStoryStatsController is pushed over it.
+    private func openStatistics(of story: Story) {
+        let client = session.client
+        let chatID = story.posterChatId
+        Task { [weak self] in
+            guard let chat = try? await client.send(TDNativeRequests.getChat(chatId: chatID)),
+                  let self, !isClosing, presentedViewController == nil
+            else { return }
+            let statistics = ChannelStatisticsViewController(story: story, chat: chat)
+            let navigation = TelegramNavigationController(rootViewController: statistics)
+            navigation.modalPresentationStyle = .pageSheet
+            present(navigation, animated: true)
         }
     }
 

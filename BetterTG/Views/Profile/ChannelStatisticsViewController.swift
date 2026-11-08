@@ -200,6 +200,13 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
         if story != nil {
             title = L10n.telegram("Stats.StoryTitle")
+            // Opened over a story, the screen leads its own stack and closes.
+            if navigationController?.viewControllers.first === self {
+                navigationItem.leftBarButtonItem = UIBarButtonItem(
+                    title: L10n.telegram("Common.Close"),
+                    primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
+                )
+            }
             loadStory()
             return
         }

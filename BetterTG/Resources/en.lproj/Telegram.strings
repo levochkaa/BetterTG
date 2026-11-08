@@ -4876,3 +4876,4 @@
 "Story.ToastStealthModeActivatedTitle" = "Stealth Mode On";
 "Story.ToastStealthModeActivatedText" = "The creators of stories you viewed in the last **%1$@** or will view in the next **%2$@** won’t see you in the viewers’ lists.";
 "StoryFeed.ViewAnonymously" = "View Anonymously";
+"Story.Context.ViewStats" = "View Statistics";
