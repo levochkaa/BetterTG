@@ -12,11 +12,14 @@ final class BusinessLinksViewController: SettingsListViewController {
     private let me: User?
     private var links: [TDNativeBusinessChatLink]?
     private var isCreating = false
+    /// BusinessLinksSetupScreen's `displayPhone`: the t.me/+phone link shows while anyone may find the account by its
+    /// number (Who can find me by my number: Everybody).
+    private var displaysPhone = true
 
     /// You can also use a simple link: t.me/username, t.me/+phone, or both.
     private var simpleLinkInfo: String? {
         let username = me?.usernames?.activeUsernames.first
-        let phone = me?.phoneNumber.isEmpty == false ? me?.phoneNumber : nil
+        let phone = me?.phoneNumber.isEmpty == false && displaysPhone ? me?.phoneNumber : nil
         let text: String? =
             if let username, let phone {
                 L10n.telegram("Business.Links.SimpleLinkInfoUsernamePhone", username, phone)
@@ -123,7 +126,19 @@ final class BusinessLinksViewController: SettingsListViewController {
         let client = client
         Task { [weak self] in
             let links = await (try? client.send(TDNativeRequests.getBusinessChatLinks()))?.links
+            let finding = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
+                setting: .userPrivacySettingAllowFindingByPhoneNumber,
+            ))
             guard let self, contextIsCurrent else { return }
+            if let finding {
+                displaysPhone = finding.rules.contains {
+                    if case .userPrivacySettingRuleAllowAll = $0 {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
             self.links = links ?? []
             reload()
         }
