@@ -66,6 +66,9 @@ struct TelegramAvatarPlaceholder {
 
     private static let grayscaleGradient = [UIColor(rgb: 0xB1B1B1), UIColor(rgb: 0xCDCDCD)]
 
+    /// updateAccentColors' available_accent_color_ids: the name colours the account may pick, in their order.
+    private(set) var availableAccentColorIDs = Array(0...6)
+
     private var serverColors = [Int: AccentColor]()
     private var cancellables = Set<AnyCancellable>()
     private var started = false
@@ -112,6 +115,7 @@ struct TelegramAvatarPlaceholder {
             for: TdNotification<UpdateAccentColors>.updateAccentColors,
         ) { [weak self] update in
             self?.serverColors = Dictionary(uniqueKeysWithValues: update.colors.map { ($0.id, $0) })
+            self?.availableAccentColorIDs = update.availableAccentColorIds
             nc.post(name: .telegramAvatarColorsChanged)
         }
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
@@ -122,6 +126,18 @@ struct TelegramAvatarPlaceholder {
 
     /// PeerNameColors: an author's name colour, Telegram's seven built-in ones, or TDLib's accent colour for the
     /// light or dark theme.
+    /// PeerNameColors' colours for a name colour: one for the built-in seven, two or three for a server one's
+    /// stripes.
+    func nameColors(accentColorID: Int) -> [UIColor] {
+        guard accentColorID > 6, let serverColor = serverColors[accentColorID], !serverColor.lightThemeColors.isEmpty
+        else { return [nameColor(accentColorID: accentColorID)] }
+        return serverColor.lightThemeColors.indices.map { index in
+            let light = serverColor.lightThemeColors[index]
+            let dark = serverColor.darkThemeColors[safe: index] ?? light
+            return UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) }
+        }
+    }
+
     func nameColor(accentColorID: Int) -> UIColor {
         if accentColorID > 6, let serverColor = serverColors[accentColorID],
            let light = serverColor.lightThemeColors.first

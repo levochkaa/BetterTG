@@ -227,6 +227,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
              .addTestServerAccount,
              .setEmojiStatus,
              .setPhoto,
+             .setProfileColor,
              .setUsername:
             // PeerInfoScreenActionItem: an accent action.
             configuration.textProperties.color = .systemBlue
@@ -386,6 +387,12 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(profile, animated: true)
         case .setUsername:
             navigationController?.pushViewController(UsernameSetupViewController(), animated: true)
+        case .setProfileColor:
+            guard let me else { return }
+            navigationController?.pushViewController(
+                NameColorViewController(client: TDLib.shared.activeClient, user: me),
+                animated: true,
+            )
         case .setEmojiStatus:
             let currentID: Int64? =
                 if case .emojiStatusTypeCustomEmoji(let status)? = me?.emojiStatus?.type {
@@ -683,7 +690,9 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             }
             let hasUsername = me.usernames?.activeUsernames.contains { !$0.isEmpty } == true
             // PeerInfoSettingsItems: the emoji status leads for Premium.
-            let status: [Row] = me.isPremium ? [.setEmojiStatus(hasStatus: me.emojiStatus != nil)] : []
+            let status: [Row] = me.isPremium
+                ? [.setEmojiStatus(hasStatus: me.emojiStatus != nil), .setProfileColor]
+                : []
             return status + [.setPhoto(hasPhoto: me.profilePhoto != nil)] + (hasUsername ? [] : [.setUsername])
         case .suggestion:
             guard TDLib.shared.activeAccountID != nil,
@@ -957,6 +966,8 @@ extension SettingsViewController {
         case setUsername
         /// Set Emoji Status or Change Emoji Status, for Premium.
         case setEmojiStatus(hasStatus: Bool)
+        /// Change Profile Color, for Premium.
+        case setProfileColor
         /// The reminder's title and text (PeerInfoScreenInfoItem).
         case suggestionInfo(SuggestedActionsStore.Reminder)
         /// Keep the number or the password, which dismisses the reminder.
@@ -1027,6 +1038,8 @@ extension SettingsViewController {
                 L10n.telegram("Settings.SetUsername")
             case .setEmojiStatus(let hasStatus):
                 L10n.telegram(hasStatus ? "PeerInfo.ChangeEmojiStatus" : "PeerInfo.SetEmojiStatus")
+            case .setProfileColor:
+                L10n.telegram("PeerInfo.ChangeProfileColor")
             case .myProfile:
                 L10n.telegram("Settings.MyProfile")
             case .proxy:
@@ -1113,6 +1126,7 @@ extension SettingsViewController {
                  .savedMessages,
                  .setEmojiStatus,
                  .setPhoto,
+                 .setProfileColor,
                  .setUsername,
                  .support,
                  .termsOfService,
@@ -1143,6 +1157,7 @@ extension SettingsViewController {
             case .setPhoto: "camera"
             case .setUsername: "at"
             case .setEmojiStatus: "face.smiling"
+            case .setProfileColor: "paintpalette"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
             case .addTestServerAccount: "testtube.2"
@@ -1186,6 +1201,7 @@ extension SettingsViewController {
                  .savedMessages,
                  .setEmojiStatus,
                  .setPhoto,
+                 .setProfileColor,
                  .setUsername,
                  .version: .systemBlue
             case .devices: .systemOrange
