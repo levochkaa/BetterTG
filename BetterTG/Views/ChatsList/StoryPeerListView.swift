@@ -168,11 +168,14 @@ final class StoryPeerListExpandedView: UIView {
         let chatID: Int64
         let peer: SettingsPeer
         let title: String
-        let ringStyle: StoryAvatarRingView.Style
+        /// None for the account before its first story.
+        let ringStyle: StoryAvatarRingView.Style?
+        /// StoryPeerListItemComponent's plus on My Story while the account has no story.
+        var showsAdd = false
 
         static func == (lhs: Item, rhs: Item) -> Bool {
             lhs.chatID == rhs.chatID && lhs.title == rhs.title && lhs.ringStyle == rhs.ringStyle
-                && lhs.peer.file?.id == rhs.peer.file?.id
+                && lhs.peer.file?.id == rhs.peer.file?.id && lhs.showsAdd == rhs.showsAdd
         }
     }
 
@@ -185,6 +188,7 @@ final class StoryPeerListExpandedView: UIView {
 
         private let avatar = ProfileAvatarView()
         private let titleLabel = UILabel()
+        private let addBadge = UIImageView()
 
         init(item: Item, client: TDLibClient, accountID: UUID?) {
             super.init(frame: .zero)
@@ -195,17 +199,35 @@ final class StoryPeerListExpandedView: UIView {
                 file: item.peer.file,
                 minithumbnail: item.peer.minithumbnail,
                 placeholder: item.peer.placeholder,
+                // The account's own item shows its photo, not Saved Messages.
+                usesPeerPhotoForSavedMessages: true,
                 accountID: accountID,
                 client: client,
             )
-            ringView.addSubview(avatar)
             addSubview(ringView)
+            addSubview(avatar)
             titleLabel.text = item.title
             titleLabel.font = .systemFont(ofSize: 11)
             titleLabel.textAlignment = .center
             titleLabel.lineBreakMode = .byTruncatingTail
             titleLabel.textColor = item.ringStyle == .seen ? .label.withAlphaComponent(0.5) : .label
             addSubview(titleLabel)
+            // A 20 pt accent circle with a white plus, cut out of the avatar by the background's 2 pt ring.
+            addBadge.image = UIImage(
+                systemName: "plus",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold),
+            )
+            addBadge.tintColor = .white
+            addBadge.contentMode = .center
+            addBadge.backgroundColor = .systemBlue
+            addBadge.layer.cornerRadius = 10
+            addBadge.layer.borderWidth = 2
+            addBadge.layer.borderColor = UIColor.systemGroupedBackground.cgColor
+            addBadge.isHidden = !item.showsAdd
+            addSubview(addBadge)
+            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ItemView, _) in
+                view.addBadge.layer.borderColor = UIColor.systemGroupedBackground.cgColor
+            }
             isAccessibilityElement = true
             accessibilityLabel = item.title
             accessibilityTraits = .button
@@ -219,9 +241,10 @@ final class StoryPeerListExpandedView: UIView {
         override func layoutSubviews() {
             super.layoutSubviews()
             ringView.frame = CGRect(x: (bounds.width - 60) / 2, y: 0, width: 60, height: 60)
-            avatar.frame = CGRect(x: 4, y: 4, width: 52, height: 52)
+            avatar.frame = CGRect(x: ringView.frame.minX + 4, y: 4, width: 52, height: 52)
             let height = ceil(titleLabel.font.lineHeight)
             titleLabel.frame = CGRect(x: -4, y: ringView.frame.maxY + 2, width: bounds.width + 8, height: height)
+            addBadge.frame = CGRect(x: ringView.frame.minX + 4 + 52 - 20 + 2, y: 4 + 52 - 20 + 2, width: 20, height: 20)
         }
     }
 

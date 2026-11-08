@@ -577,7 +577,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         customNavigationBar.onStoriesTap = { [weak self] in self?.currentFolderController?.expandStories() }
         storyRowView.clipsToBounds = true
         storyRowView.isHidden = true
-        storyRowView.onSelect = { [weak self] chatID, source in self?.openStories(from: chatID, sourceView: source) }
+        storyRowView.onSelect = { [weak self] chatID, source in self?.storyRowSelected(chatID, source: source) }
         view.insertSubview(storyRowView, belowSubview: customNavigationBar)
         storySubscriptions.load(client: client)
     }
@@ -594,7 +594,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func updateStoryPeers() {
-        let missing = storySubscriptions.entries.map(\.chatID).filter { storyPeers[$0] == nil }
+        let ownID = TDLib.shared.activeAccount?.userID
+        let missing = (storySubscriptions.entries.map(\.chatID) + (ownID.map { [$0] } ?? []))
+            .filter { storyPeers[$0] == nil }
         applyStoryPeers()
         guard !missing.isEmpty else { return }
         let client = actionAuthority.client
@@ -631,22 +633,46 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         )
         customNavigationBar.updateStories()
         let ownID = TDLib.shared.activeAccount?.userID
+        var rowItems = expandedStoryEntries.compactMap { entry in
+            storyPeers[entry.chatID].map {
+                StoryPeerListExpandedView.Item(
+                    chatID: entry.chatID,
+                    peer: $0,
+                    title: entry.chatID == ownID
+                        ? L10n.telegram("StoryFeed.MyStory")
+                        : storyTitles[entry.chatID] ?? $0.title,
+                    ringStyle: entry.ringStyle,
+                )
+            }
+        }
+        // StoryPeerListComponent's account item leads the row, with the plus until its first story.
+        if let ownID, !rowItems.isEmpty, !rowItems.contains(where: { $0.chatID == ownID }),
+           let own = storyPeers[ownID]
+        {
+            var item = StoryPeerListExpandedView.Item(
+                chatID: ownID,
+                peer: own,
+                title: L10n.telegram("StoryFeed.MyStory"),
+                ringStyle: nil,
+            )
+            item.showsAdd = true
+            rowItems.insert(item, at: 0)
+        }
         storyRowView.update(
-            items: expandedStoryEntries.compactMap { entry in
-                storyPeers[entry.chatID].map {
-                    StoryPeerListExpandedView.Item(
-                        chatID: entry.chatID,
-                        peer: $0,
-                        title: entry.chatID == ownID
-                            ? L10n.telegram("StoryFeed.MyStory")
-                            : storyTitles[entry.chatID] ?? $0.title,
-                        ringStyle: entry.ringStyle,
-                    )
-                }
-            },
+            items: rowItems,
             client: actionAuthority.client,
             accountID: TDLib.shared.activeAccountID,
         )
+    }
+
+    /// storyPeerAction: My Story before the account's first story opens the composer, any other item its stories.
+    private func storyRowSelected(_ chatID: Int64, source: UIView) {
+        let ownID = TDLib.shared.activeAccount?.userID
+        if chatID == ownID, !storySubscriptions.entries.contains(where: { $0.chatID == ownID }) {
+            StoryComposer.start(from: self, client: actionAuthority.client, accountID: TDLib.shared.activeAccountID)
+            return
+        }
+        openStories(from: chatID, sourceView: source)
     }
 
     /// ChatListController.openStories: a poster's stories, then the row's others in its order.
