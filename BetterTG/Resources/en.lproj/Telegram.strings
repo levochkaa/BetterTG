@@ -4646,3 +4646,13 @@
 "Business.Intro.IntroTextPlaceholder" = "Enter Message";
 "Business.Intro.IntroSticker" = "Choose Sticker";
 "Business.Intro.IntroStickerValueRandom" = "Random";
+"PrivacySettings.Passkey" = "Passkey";
+"Passkeys.Title" = "Passkeys";
+"Passkeys.Subtitle" = "Log in safely and keep your account secure.";
+"Passkeys.ListFooter" = "Your passkeys are stored securely in your password manager.";
+"Passkeys.EmptyName" = "Passkey";
+"Passkeys.PasskeyCreatedPattern" = "created %@";
+"Passkeys.PasskeyCreatedAndUsedPattern" = "created %1$@ • used %2$@";
+"Passkeys.DeleteAlert.Title" = "Delete Passkey?";
+"Passkeys.DeleteAlert.Text" = "Once deleted, this passkey can't be used to log in.\n\nDon't forget to remove it from your password manager too.";
+"Passkeys.DeleteAlert.Action" = "Delete";

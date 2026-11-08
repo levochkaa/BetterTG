@@ -14,6 +14,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
     private var blockedCount: Int?
     private var websitesCount = 0
     private var hasPassword: Bool?
+    /// PrivacyAndSecurityController's Passkey row, shown where the app config's ios_display_passkeys (or dev) is set.
+    private var displaysPasskeys = false
+    private var hasPasskeys: Bool?
     /// The login email's pattern from getPasswordState, nil until it is read; empty without one.
     private var loginEmailPattern: String?
     private var autoDeleteTime: Int?
@@ -27,6 +30,21 @@ final class PrivacySettingsViewController: SettingsListViewController {
     /// Who can write first (getNewChatPrivacySettings) and what its screen needs.
     private var newChatPrivacy: IncomingMessagePrivacyViewController.Value?
     private var messagesConfiguration = IncomingMessagePrivacyViewController.Configuration()
+
+    private var passkeyRows: [SettingsRow] {
+        guard displaysPasskeys else { return [] }
+        let detail = hasPasskeys
+            .map { L10n.telegram($0 ? "PrivacySettings.PasscodeOn" : "PrivacySettings.PasscodeOff") }
+        return [SettingsRow(
+            title: L10n.telegram("PrivacySettings.Passkey"),
+            detail: detail,
+            symbol: "person.badge.key.fill",
+            symbolTint: .systemGreen,
+            accessory: .disclosure,
+        ) { [weak self] in
+            self?.navigationController?.pushViewController(PasskeysViewController(), animated: true)
+        }]
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -85,6 +103,7 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 symbolTint: .systemOrange,
                 accessory: .disclosure,
             ) { [weak self] in self?.openTwoStepVerification() },
+        ] + passkeyRows + [
             SettingsRow(
                 title: L10n.telegram("Settings.AutoDeleteTitle"),
                 detail: autoDeleteText ?? loading,
@@ -273,6 +292,21 @@ final class PrivacySettingsViewController: SettingsListViewController {
             let me = try? await client.getMe()
             let websites = try? await client.send(TDNativeRequests.getConnectedWebsites())
             let newChats = try? await client.send(TDNativeRequests.getNewChatPrivacySettings())
+            var displaysPasskeys = false
+            if case .jsonValueObject(let object)? = try? await client.send(TDNativeRequests.getApplicationConfig()) {
+                displaysPasskeys = object.members.contains { member in
+                    if member.key == "ios_display_passkeys" { return true }
+                    guard member.key == "dev", case .jsonValueNumber(let value) = member.value else { return false }
+                    return value.value == 1
+                }
+            }
+            #if DEBUG
+                // `-ui-probe-privacy-passkeys` shows the row the server offers only to some accounts.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-passkeys") { displaysPasskeys = true }
+            #endif
+            let passkeys = displaysPasskeys
+                ? try? await client.send(TDNativeRequests.getLoginPasskeys())
+                : nil
             var premium = me?.isPremium ?? false
             #if DEBUG
                 // `-ui-probe-privacy-non-premium` shows the Premium-locked rules as an account without it sees them.
@@ -297,6 +331,8 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 : nil
             guard let self, contextIsCurrent else { return }
             self.canAutoArchive = canAutoArchive
+            self.displaysPasskeys = displaysPasskeys
+            hasPasskeys = passkeys.map { !$0.passkeys.isEmpty }
             archiveSettings = archive
             websitesCount = websites?.websites.count ?? 0
             rules = loadedRules
