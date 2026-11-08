@@ -172,10 +172,13 @@ final class StoryPeerListExpandedView: UIView {
         let ringStyle: StoryAvatarRingView.Style?
         /// StoryPeerListItemComponent's plus on My Story while the account has no story.
         var showsAdd = false
+        /// ringAnimation's indefinite dashes while the account's story uploads.
+        var isUploading = false
 
         static func == (lhs: Item, rhs: Item) -> Bool {
             lhs.chatID == rhs.chatID && lhs.title == rhs.title && lhs.ringStyle == rhs.ringStyle
                 && lhs.peer.file?.id == rhs.peer.file?.id && lhs.showsAdd == rhs.showsAdd
+                && lhs.isUploading == rhs.isUploading
         }
     }
 
@@ -189,6 +192,8 @@ final class StoryPeerListExpandedView: UIView {
         private let avatar = ProfileAvatarView()
         private let titleLabel = UILabel()
         private let addBadge = UIImageView()
+        /// StoryPeerListItemComponent's indefiniteDashLayer: a dashed ring turning while the story uploads.
+        private let uploadRing = CAShapeLayer()
 
         init(item: Item, client: TDLibClient, accountID: UUID?) {
             super.init(frame: .zero)
@@ -223,8 +228,24 @@ final class StoryPeerListExpandedView: UIView {
             addBadge.layer.cornerRadius = 10
             addBadge.layer.borderWidth = 2
             addBadge.layer.borderColor = UIColor.systemGroupedBackground.cgColor
-            addBadge.isHidden = !item.showsAdd
+            addBadge.isHidden = !item.showsAdd || item.isUploading
             addSubview(addBadge)
+            uploadRing.fillColor = nil
+            uploadRing.strokeColor = UIColor.systemBlue.cgColor
+            uploadRing.lineWidth = 2.33
+            uploadRing.lineCap = .round
+            uploadRing.lineDashPattern = [8, 6]
+            uploadRing.isHidden = !item.isUploading
+            layer.addSublayer(uploadRing)
+            if item.isUploading {
+                ringView.isHidden = true
+                let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+                spin.fromValue = 0
+                spin.toValue = 2 * Double.pi
+                spin.duration = 2
+                spin.repeatCount = .infinity
+                uploadRing.add(spin, forKey: "spin")
+            }
             registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ItemView, _) in
                 view.addBadge.layer.borderColor = UIColor.systemGroupedBackground.cgColor
             }
@@ -244,6 +265,8 @@ final class StoryPeerListExpandedView: UIView {
             avatar.frame = CGRect(x: ringView.frame.minX + 4, y: 4, width: 52, height: 52)
             let height = ceil(titleLabel.font.lineHeight)
             titleLabel.frame = CGRect(x: -4, y: ringView.frame.maxY + 2, width: bounds.width + 8, height: height)
+            uploadRing.frame = ringView.frame
+            uploadRing.path = UIBezierPath(ovalIn: ringView.bounds.insetBy(dx: 1.2, dy: 1.2)).cgPath
             addBadge.frame = CGRect(x: ringView.frame.minX + 4 + 52 - 20 + 2, y: 4 + 52 - 20 + 2, width: 20, height: 20)
         }
     }

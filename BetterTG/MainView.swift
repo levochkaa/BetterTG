@@ -63,6 +63,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var storyPeers = [Int64: SettingsPeer]()
     /// The expanded row's names: a person's first name, a chat's title.
     private var storyTitles = [Int64: String]()
+    /// The account's stories TDLib is still posting (is_being_posted), until their post succeeds or fails.
+    private var uploadingStoryIDs = Set<Int>()
     /// StoryPeerListComponent unlocked: the row the list's pull shows under the bar.
     private let storyRowView = StoryPeerListExpandedView()
     private var storyPeerTask: Task<Void, Never>?
@@ -535,6 +537,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         presentTabMenu(actions, from: source, tracking: gesture, anchor: anchor)
     }
 
+    private func setStoryUploading(_ storyID: Int, _ uploading: Bool) {
+        let changed = uploading ? uploadingStoryIDs.insert(storyID).inserted : uploadingStoryIDs.remove(storyID) != nil
+        if changed { applyStoryPeers() }
+    }
+
     /// A tab's menu opens over the tab bar without the button morph, as a folder tab's does: the tab shares the bar's
     /// glass, which the morph can't take in. A button with glass of its own morphs.
     private func presentTabMenu(
@@ -573,6 +580,20 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         nc.scopedPublisher(&cancellables, for: .updateChatActiveStories) { [weak self] event in
             guard let self, event.source == source, actionAuthority.isCurrent else { return }
             storySubscriptions.apply(event.value.activeStories)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateStory) { [weak self] event in
+            guard let self, event.source == source, actionAuthority.isCurrent,
+                  event.value.story.posterChatId == TDLib.shared.activeAccount?.userID
+            else { return }
+            setStoryUploading(event.value.story.id, event.value.story.isBeingPosted)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateStoryPostSucceeded) { [weak self] event in
+            guard let self, event.source == source else { return }
+            setStoryUploading(event.value.oldStoryId, false)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateStoryPostFailed) { [weak self] event in
+            guard let self, event.source == source else { return }
+            setStoryUploading(event.value.story.id, false)
         }
         customNavigationBar.onStoriesTap = { [weak self] in self?.currentFolderController?.expandStories() }
         storyRowView.clipsToBounds = true
@@ -657,6 +678,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             )
             item.showsAdd = true
             rowItems.insert(item, at: 0)
+        }
+        // StoryFeed.MyUploading with the dashed ring while a story posts.
+        if let ownID, let index = rowItems.firstIndex(where: { $0.chatID == ownID }), !uploadingStoryIDs.isEmpty {
+            rowItems[index] = StoryPeerListExpandedView.Item(
+                chatID: rowItems[index].chatID,
+                peer: rowItems[index].peer,
+                title: L10n.telegram("StoryFeed.MyUploading"),
+                ringStyle: rowItems[index].ringStyle,
+                showsAdd: false,
+                isUploading: true,
+            )
         }
         storyRowView.update(
             items: rowItems,

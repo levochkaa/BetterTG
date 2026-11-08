@@ -4834,3 +4834,4 @@
 "Story.Privacy.ExcludePeopleExceptNames" = "except %@";
 "Story.Privacy.EditList" = "edit list";
 "Story.Privacy.ExcludedPeople" = "Excluded People";
+"StoryFeed.MyUploading" = "Uploading...";
