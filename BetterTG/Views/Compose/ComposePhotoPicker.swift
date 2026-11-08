@@ -115,6 +115,13 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
     /// setChatPhoto with the square photo as `inputChatPhotoStatic`; false when TDLib refused it.
     static func upload(_ image: UIImage, chatID: Int64, client: TDLibClient) async -> Bool {
+        await upload(image) { photo in
+            await (try? client.send(TDNativeRequests.setChatPhoto(chatId: chatID, photo: photo))) != nil
+        }
+    }
+
+    /// The image as a square JPEG for `set`, which sends it as a chat's or community's photo; the file goes after.
+    static func upload(_ image: UIImage, set: (TDNativeInputChatPhoto) async -> Bool) async -> Bool {
         guard let data = squareJPEG(image) else { return false }
         let url = FileManager.default
             .temporaryDirectory
@@ -123,7 +130,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let photo = TDNativeInputChatPhoto.inputChatPhotoStatic(TDNativeInputChatPhotoStatic(
             photo: .inputFileLocal(InputFileLocal(path: url.path)),
         ))
-        let succeeded = await (try? client.send(TDNativeRequests.setChatPhoto(chatId: chatID, photo: photo))) != nil
+        let succeeded = await set(photo)
         try? FileManager.default.removeItem(at: url)
         return succeeded
     }

@@ -4174,3 +4174,5 @@
 "Community.Edit.PermissionAllMembersInfo" = "Allow members to add their groups and channels to the community.";
 "Community.Edit.PermissionOnlyAdmins" = "Only Admins";
 "Community.Edit.PermissionOnlyAdminsInfo" = "Chats suggested by community members require admin approval.";
+"Settings.SetPhoto" = "Set Photo";
+"Settings.ChangePhoto" = "Change Photo";

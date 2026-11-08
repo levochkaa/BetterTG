@@ -238,6 +238,17 @@ final class ProfileCommunityView: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// A community without a photo: its first letter on a colour picked by its identifier.
+    static func placeholder(_ communityID: Int64, name: String?) -> TelegramAvatarPlaceholder {
+        TelegramAvatarPlaceholder(
+            peerID: communityID,
+            accentColorID: Int(abs(communityID % 7)),
+            upgradedGiftColors: nil,
+            letters: (name?.first).map { [String($0)] } ?? [],
+            isDeleted: false,
+        )
+    }
+
     func configure(community: Community?, communityID: Int64, chatCount: Int?, client: TDLibClient) {
         titleLabel.text = community?.name ?? L10n.telegram("Community.View.Title")
         subtitleLabel.text = chatCount.map {
@@ -247,13 +258,7 @@ final class ProfileCommunityView: UIControl {
         avatarView.configure(
             file: community?.photo?.small,
             minithumbnail: community?.photo?.minithumbnail,
-            placeholder: TelegramAvatarPlaceholder(
-                peerID: communityID,
-                accentColorID: Int(communityID % 7),
-                upgradedGiftColors: nil,
-                letters: (community?.name.first).map { [String($0)] } ?? [],
-                isDeleted: false,
-            ),
+            placeholder: Self.placeholder(communityID, name: community?.name),
             client: client,
         )
     }
@@ -269,6 +274,10 @@ final class CommunityEditViewController: SettingsListViewController {
     var onDeleted: (() -> Void)?
 
     private let community: Community
+    private lazy var photoHeader = ComposePhotoHeaderView(
+        buttonTitle: L10n.telegram(community.photo == nil ? "Settings.SetPhoto" : "Settings.ChangePhoto"),
+    )
+    private lazy var photoPicker = ComposePhotoPicker(host: self)
     private var name: String
     private var membersCanAddChats: Bool
     private var isSaving = false
@@ -296,6 +305,25 @@ final class CommunityEditViewController: SettingsListViewController {
         super.viewDidLoad()
         title = L10n.telegram("Common.Edit")
         navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
+        // CommunityEditScreen's avatar: Set Photo, or Change Photo with removal.
+        photoHeader.onSetPhoto = { [weak self] source in
+            guard let self, !isSaving else { return }
+            photoPicker.presentMenu(from: source, hasPhoto: community.photo != nil)
+        }
+        photoPicker.onChange = { [weak self] image in self?.photoPicked(image) }
+        photoHeader.setCurrentPhoto(
+            SettingsPeer(
+                id: community.id,
+                title: community.name,
+                file: community.photo?.small,
+                minithumbnail: community.photo?.minithumbnail,
+                placeholder: ProfileCommunityView.placeholder(community.id, name: community.name),
+            ),
+            client: client,
+            accountID: accountID,
+        )
+        photoHeader.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: ComposePhotoHeaderView.height)
+        tableView.tableHeaderView = photoHeader
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -338,6 +366,50 @@ final class CommunityEditViewController: SettingsListViewController {
         case .communityMemberStatusCreator: true
         case .communityMemberStatusAdministrator(let administrator): administrator.rights.canChangeInfo
         default: false
+        }
+    }
+
+    private func photoPicked(_ image: UIImage?) {
+        guard let image else {
+            confirm(message: nil, actionTitle: L10n.telegram("Settings.RemoveConfirmation")) { [weak self] in
+                self?.updatePhoto(nil)
+            }
+            return
+        }
+        photoHeader.setPhoto(image)
+        updatePhoto(image)
+    }
+
+    /// setCommunityPhoto with the picked photo, or none to remove it.
+    private func updatePhoto(_ image: UIImage?) {
+        guard !isSaving, contextIsCurrent else { return }
+        isSaving = true
+        photoHeader.setEnabled(false)
+        let client = client
+        let communityID = community.id
+        Task { [weak self] in
+            let succeeded =
+                if let image {
+                    await ComposePhotoPicker.upload(image) { photo in
+                        await (try? client.send(TDNativeRequests.setCommunityPhoto(
+                            communityId: communityID,
+                            photo: photo,
+                        ))) != nil
+                    }
+                } else {
+                    await (try? client.send(TDNativeRequests.setCommunityPhoto(
+                        communityId: communityID,
+                        photo: nil,
+                    ))) != nil
+                }
+            guard let self else { return }
+            isSaving = false
+            photoHeader.setEnabled(true)
+            guard contextIsCurrent else { return }
+            if !succeeded {
+                photoHeader.setPhoto(nil)
+                presentAlert(title: nil, message: L10n.telegram("Login.UnknownError"))
+            }
         }
     }
 
