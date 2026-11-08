@@ -44,6 +44,13 @@ final class BusinessSetupViewController: SettingsListViewController {
                     ) {
                         [weak self] in self?.openHours()
                     },
+                    feature("Business.Links", "Business.LinksInfo", symbol: "link", tint: .systemBlue) {
+                        [weak self] in
+                        self?.navigationController?.pushViewController(
+                            BusinessLinksViewController(me: self?.me),
+                            animated: true,
+                        )
+                    },
                     feature("Business.Intro", "Business.IntroInfo", symbol: "hand.wave", tint: .systemPink) {
                         [weak self] in self?.openIntro()
                     },
