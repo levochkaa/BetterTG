@@ -582,7 +582,10 @@ UIColorPickerViewControllerDelegate {
             guard let self else { return }
             drawingSizes[drawingTool] = size
             applyDrawingTool()
+            entitiesView.drawingView.setBrushSizePreview(size)
         }
+        drawingTools.onResizeEnd = { [weak self] in self?.entitiesView.drawingView.setBrushSizePreview(nil) }
+        sizeSlider.onRelease = { [weak self] in self?.entitiesView.drawingView.setBrushSizePreview(nil) }
         drawingSwatch.addAction(UIAction { [weak self] _ in self?.presentColorPicker() }, for: .touchUpInside)
         entitiesView.drawingView.onStrokesChange = { [weak self] in self?.updateUndo() }
         entitiesView.drawingView.storyImage = { [weak self] in self?.media.canvas.cgImage }
@@ -619,6 +622,7 @@ UIColorPickerViewControllerDelegate {
             if isDrawing {
                 drawingSizes[drawingTool] = value
                 applyDrawingTool()
+                entitiesView.drawingView.setBrushSizePreview(value)
                 return
             }
             guard let entity = entitiesView.editingEntity else { return }
@@ -824,7 +828,8 @@ UIColorPickerViewControllerDelegate {
         drawing.size = drawingSizes[drawingTool] ?? 0.5
         if let color = drawingColors[drawingTool] { drawing.color = color }
         drawingTools.update(selected: drawingTool, colors: drawingColors, sizes: drawingSizes)
-        drawingSwatch.color = drawingColors[drawingTool] ?? drawingSwatch.color
+        // The blur and the eraser have no colour: the swatch shows its ring alone.
+        drawingSwatch.color = drawingColors[drawingTool]
         drawingSwatch.isEnabled = drawingColors[drawingTool] != nil
         sizeSlider.value = drawing.size
     }

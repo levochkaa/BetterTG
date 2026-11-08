@@ -378,6 +378,8 @@ final class StoryDrawingView: UIView {
 
     private var committed: CGImage?
     private var active: StoryStroke?
+    /// brushSizePreviewLayer: a white circle as wide as the brush, in the middle while its size changes.
+    private let brushPreview = CAShapeLayer()
     private var preparedBlurredImage: CGImage?
 
     override init(frame: CGRect) {
@@ -391,10 +393,25 @@ final class StoryDrawingView: UIView {
         addGestureRecognizer(pan)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         addGestureRecognizer(tap)
+        brushPreview.bounds = CGRect(x: 0, y: 0, width: 100, height: 100)
+        brushPreview.path = CGPath(ellipseIn: brushPreview.bounds, transform: nil)
+        brushPreview.strokeColor = UIColor(red: 0x91 / 255, green: 0x91 / 255, blue: 0x91 / 255, alpha: 1).cgColor
+        brushPreview.fillColor = UIColor.white.cgColor
+        brushPreview.opacity = 0
+        brushPreview.shadowColor = UIColor.black.cgColor
+        brushPreview.shadowOpacity = 0.5
+        brushPreview.shadowOffset = CGSize(width: 0, height: 3)
+        brushPreview.shadowRadius = 20
+        layer.addSublayer(brushPreview)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        brushPreview.position = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 
     override func didMoveToWindow() {
@@ -413,6 +430,24 @@ final class StoryDrawingView: UIView {
             context.restoreGState()
         }
         active?.draw(in: context)
+    }
+
+    /// setBrushSizePreview: the circle at the size's width, between 0.2% and 7% of the longer side, or gone.
+    func setBrushSizePreview(_ size: CGFloat?) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.2)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        if let size {
+            let longest = max(bounds.width, bounds.height)
+            let minimum = max(1, longest * 0.002)
+            let maximum = max(10, longest * 0.07)
+            let width = minimum + (maximum - minimum) * size
+            brushPreview.transform = CATransform3DMakeScale(width / 100, width / 100, 1)
+            brushPreview.opacity = 1
+        } else {
+            brushPreview.opacity = 0
+        }
+        CATransaction.commit()
     }
 
     func undo() {
@@ -593,6 +628,7 @@ final class StoryDrawingToolsView: UIView {
 
     var onSelect: ((StoryDrawingTool) -> Void)?
     var onResize: ((CGFloat) -> Void)?
+    var onResizeEnd: (() -> Void)?
 
     private var toolViews = [ToolView]()
     private var selected = StoryDrawingTool.pen
@@ -656,6 +692,7 @@ final class StoryDrawingToolsView: UIView {
         if gesture.state == .began { resizeStart = sizes[selected] ?? 0.5 }
         let size = max(0, min(1, resizeStart - gesture.translation(in: self).y / 200))
         onResize?(size)
+        if gesture.state == .ended || gesture.state == .cancelled { onResizeEnd?() }
     }
 }
 

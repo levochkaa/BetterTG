@@ -684,14 +684,15 @@ final class StoryTextSettingsBar: UIView {
 
 // MARK: - StoryColorSwatchButton
 
-/// ColorSwatchComponent's main swatch: the colour in a 38 pt circle inside RoundSpectrum's 2 pt ring.
+/// ColorSwatchComponent's main swatch: the colour in a 38 pt circle inside RoundSpectrum's 2 pt ring, the ring alone
+/// without a colour.
 final class StoryColorSwatchButton: UIControl {
     override var isHighlighted: Bool {
         didSet { alpha = isHighlighted ? 0.6 : 1 }
     }
 
-    var color = UIColor.white {
-        didSet { circle.fillColor = color.cgColor }
+    var color: UIColor? = .white {
+        didSet { circle.fillColor = color?.cgColor }
     }
 
     private let ring = CALayer()
@@ -706,7 +707,7 @@ final class StoryColorSwatchButton: UIControl {
         ringMask.lineWidth = 2
         ring.mask = ringMask
         layer.addSublayer(ring)
-        circle.fillColor = color.cgColor
+        circle.fillColor = color?.cgColor
         layer.addSublayer(circle)
     }
 
@@ -790,6 +791,7 @@ final class StoryTextSizeSlider: UIView, UIGestureRecognizerDelegate {
     }
 
     var onChange: ((CGFloat) -> Void)?
+    var onRelease: (() -> Void)?
 
     private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     private let backgroundMask = CAShapeLayer()
@@ -896,6 +898,7 @@ final class StoryTextSizeSlider: UIView, UIGestureRecognizerDelegate {
              .failed:
             isTracking = false
             applyTracking(animated: true)
+            onRelease?()
         default:
             break
         }
