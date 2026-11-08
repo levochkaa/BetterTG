@@ -5,25 +5,43 @@ import UIKit
 
 // MARK: - NameColorViewController
 
-/// PeerNameColorScreen's Name tab for the account: COLOR PREVIEW with a message from the account in the chosen colour
-/// (its name, a reply to it and a link preview), then PeerNameColorItem's colours (updateAccentColors' available
-/// ones, a server colour's stripes split around its circle) and the description, and Apply Color, which sets the colour
-/// and keeps the reply icon (setAccentColor).
-final class NameColorViewController: UIViewController, UITableViewDataSource {
+/// PeerNameColorScreen for the account, its Profile and Name tabs. Profile: the profile's header in the chosen
+/// profile colour's gradient with the avatar and name, the profile colours (updateProfileAccentColors) and Reset
+/// Profile Color. Name: COLOR PREVIEW with a message from the account in the chosen colour (its name, a reply to it
+/// and a link preview), then PeerNameColorItem's colours (updateAccentColors' available ones, a server colour's
+/// stripes split around its circle) and the description. Apply Color sets what changed, keeping the icons
+/// (setProfileAccentColor, setAccentColor).
+final class NameColorViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+    private enum Tab: Int {
+        case profile
+        case name
+    }
+
     private let client: TDLibClient
+    private let user: User
     private let name: String
     private let backgroundCustomEmojiID: Int64
     private let originalColorID: Int
     private var colorID: Int
+    private let originalProfileColorID: Int
+    private var profileColorID: Int
+    private var selectedTab = Tab.profile
+    private let tabs = UISegmentedControl(items: [
+        L10n.telegram("ProfileColorSetup.TitleProfile"),
+        L10n.telegram("ProfileColorSetup.TitleName"),
+    ])
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let applyButton = UIButton(configuration: .prominentGlass())
 
     init(client: TDLibClient, user: User) {
         self.client = client
+        self.user = user
         self.name = ServiceMessageText.displayTitle(user)
         self.backgroundCustomEmojiID = user.backgroundCustomEmojiId
         self.originalColorID = user.accentColorId
         self.colorID = user.accentColorId
+        self.originalProfileColorID = user.profileAccentColorId
+        self.profileColorID = user.profileAccentColorId
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -33,10 +51,22 @@ final class NameColorViewController: UIViewController, UITableViewDataSource {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("NameColor.Title.Account")
+        tabs.selectedSegmentIndex = selectedTab.rawValue
+        tabs.addAction(UIAction { [weak self] _ in
+            guard let self, let tab = Tab(rawValue: tabs.selectedSegmentIndex) else { return }
+            selectedTab = tab
+            tableView.reloadData()
+        }, for: .valueChanged)
+        navigationItem.titleView = tabs
         view.backgroundColor = .systemGroupedBackground
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(
+            ProfileColorPreviewCell.self,
+            forCellReuseIdentifier: ProfileColorPreviewCell.reuseIdentifier,
+        )
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ResetCell")
         tableView.register(NameColorPreviewCell.self, forCellReuseIdentifier: NameColorPreviewCell.reuseIdentifier)
         tableView.register(NameColorGridCell.self, forCellReuseIdentifier: NameColorGridCell.reuseIdentifier)
         view.addSubview(tableView)
@@ -58,19 +88,35 @@ final class NameColorViewController: UIViewController, UITableViewDataSource {
         ])
     }
 
-    func numberOfSections(in _: UITableView) -> Int { 2 }
+    func numberOfSections(in _: UITableView) -> Int {
+        selectedTab == .profile && profileColorID >= 0 ? 3 : 2
+    }
 
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int { 1 }
 
     func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? L10n.telegram("NameColor.ChatPreview.Title") : nil
+        selectedTab == .name && section == 0 ? L10n.telegram("NameColor.ChatPreview.Title") : nil
     }
 
     func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        section == 1 ? L10n.telegram("NameColor.ChatPreview.Description.Account") : nil
+        guard section == 1 else { return nil }
+        return L10n.telegram(selectedTab == .profile
+            ? "ProfileColorSetup.AccountColorInfoLabel"
+            : "NameColor.ChatPreview.Description.Account")
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        // Reset Profile Color.
+        guard selectedTab == .profile, indexPath.section == 2 else { return }
+        profileColorID = -1
+        tableView.reloadData()
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if selectedTab == .profile {
+            return profileCell(tableView, at: indexPath)
+        }
         if indexPath.section == 0 {
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NameColorPreviewCell.reuseIdentifier,
@@ -84,10 +130,50 @@ final class NameColorViewController: UIViewController, UITableViewDataSource {
         }
         let cell = tableView.dequeueReusableCell(withIdentifier: NameColorGridCell.reuseIdentifier, for: indexPath)
         (cell as? NameColorGridCell)?.configure(
-            colorIDs: AvatarColorPalette.shared.availableAccentColorIDs,
+            colors: AvatarColorPalette.shared.availableAccentColorIDs.map {
+                (id: $0, colors: AvatarColorPalette.shared.nameColors(accentColorID: $0))
+            },
             selected: colorID,
         ) { [weak self] id in self?.choose(id) }
         return cell
+    }
+
+    /// The Profile tab: the header, the profile colours, and Reset Profile Color while one is chosen.
+    private func profileCell(_ tableView: UITableView, at indexPath: IndexPath) -> UITableViewCell {
+        switch indexPath.section {
+        case 0:
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: ProfileColorPreviewCell.reuseIdentifier,
+                for: indexPath,
+            )
+            (cell as? ProfileColorPreviewCell)?.configure(
+                user: user,
+                name: name,
+                background: AvatarColorPalette.shared.profileColors(id: profileColorID)?.background,
+                client: client,
+            )
+            return cell
+        case 1:
+            let cell = tableView.dequeueReusableCell(withIdentifier: NameColorGridCell.reuseIdentifier, for: indexPath)
+            (cell as? NameColorGridCell)?.configure(
+                colors: AvatarColorPalette.shared.availableProfileAccentColorIDs.compactMap { id in
+                    AvatarColorPalette.shared.profileColors(id: id).map { (id: id, colors: $0.palette) }
+                },
+                selected: profileColorID,
+            ) { [weak self] id in
+                guard let self, id != profileColorID else { return }
+                profileColorID = id
+                tableView.reloadData()
+            }
+            return cell
+        default:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ResetCell", for: indexPath)
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = L10n.telegram("ProfileColorSetup.ResetAction")
+            configuration.textProperties.color = .systemBlue
+            cell.contentConfiguration = configuration
+            return cell
+        }
     }
 
     private func choose(_ id: Int) {
@@ -102,6 +188,16 @@ final class NameColorViewController: UIViewController, UITableViewDataSource {
         let colorID = colorID
         let emojiID = backgroundCustomEmojiID
         let host = navigationController?.view
+        if profileColorID != originalProfileColorID {
+            let profileColorID = profileColorID
+            let profileEmojiID = user.profileBackgroundCustomEmojiId
+            Task {
+                _ = try? await client.send(TDNativeRequests.setProfileAccentColor(
+                    profileAccentColorId: profileColorID,
+                    profileBackgroundCustomEmojiId: profileEmojiID,
+                ))
+            }
+        }
         if colorID != originalColorID {
             Task {
                 _ = try? await client.send(TDNativeRequests.setAccentColor(
@@ -353,20 +449,17 @@ private final class NameColorGridCell: UITableViewCell {
         }
     }
 
-    func configure(colorIDs: [Int], selected: Int, onSelect: @escaping (Int) -> Void) {
+    func configure(colors: [(id: Int, colors: [UIColor])], selected: Int, onSelect: @escaping (Int) -> Void) {
         self.onSelect = onSelect
         grid.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let perRow = 7
-        for start in stride(from: 0, to: colorIDs.count, by: perRow) {
+        for start in stride(from: 0, to: colors.count, by: perRow) {
             let row = UIStackView()
             row.axis = .horizontal
             row.distribution = .equalSpacing
-            for id in colorIDs[start..<min(start + perRow, colorIDs.count)] {
+            for (id, circleColors) in colors[start..<min(start + perRow, colors.count)] {
                 let button = UIButton(type: .custom)
-                button.setImage(Self.circle(
-                    AvatarColorPalette.shared.nameColors(accentColorID: id),
-                    isSelected: id == selected,
-                ), for: .normal)
+                button.setImage(Self.circle(circleColors, isSelected: id == selected), for: .normal)
                 button.accessibilityTraits = id == selected ? [.button, .selected] : .button
                 button.addAction(UIAction { [weak self] _ in self?.onSelect?(id) }, for: .touchUpInside)
                 button.translatesAutoresizingMaskIntoConstraints = false
@@ -384,6 +477,76 @@ private final class NameColorGridCell: UITableViewCell {
                 row.addArrangedSubview(spacer)
             }
             grid.addArrangedSubview(row)
+        }
+    }
+}
+
+// MARK: - ProfileColorPreviewCell
+
+/// PeerInfoHeaderNode in the profile colour: the avatar and the name, in white over the colour's gradient, or in the
+/// list's colours without one.
+private final class ProfileColorPreviewCell: UITableViewCell {
+    static let reuseIdentifier = "ProfileColorPreviewCell"
+
+    private let gradient = CAGradientLayer()
+    private let avatarView = ProfileAvatarView()
+    private let nameLabel = UILabel()
+    private let statusLabel = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        contentView.layer.insertSublayer(gradient, at: 0)
+        avatarView.layer.cornerRadius = 40
+        avatarView.clipsToBounds = true
+        nameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        statusLabel.font = .systemFont(ofSize: 15)
+        statusLabel.text = L10n.telegram("Presence.online")
+        let stack = UIStackView(arrangedSubviews: [avatarView, nameLabel, statusLabel])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 6
+        stack.setCustomSpacing(12, after: avatarView)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            avatarView.widthAnchor.constraint(equalToConstant: 80),
+            avatarView.heightAnchor.constraint(equalToConstant: 80),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+            stack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradient.frame = contentView.bounds
+    }
+
+    func configure(user: User, name: String, background: [UIColor]?, client: TDLibClient) {
+        avatarView.configure(
+            file: user.profilePhoto?.small,
+            minithumbnail: user.profilePhoto?.minithumbnail,
+            placeholder: user.telegramAvatarPlaceholder,
+            usesPeerPhotoForSavedMessages: true,
+            accountUserID: user.id,
+            client: client,
+        )
+        nameLabel.text = name
+        if let background, !background.isEmpty {
+            let colors = background.count == 1 ? [background[0], background[0]] : background
+            gradient.colors = colors.map { $0.resolvedColor(with: traitCollection).cgColor }
+            gradient.isHidden = false
+            nameLabel.textColor = .white
+            statusLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+        } else {
+            gradient.isHidden = true
+            nameLabel.textColor = .label
+            statusLabel.textColor = .systemBlue
         }
     }
 }

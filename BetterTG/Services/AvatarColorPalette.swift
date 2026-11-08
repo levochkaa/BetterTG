@@ -68,6 +68,10 @@ struct TelegramAvatarPlaceholder {
 
     /// updateAccentColors' available_accent_color_ids: the name colours the account may pick, in their order.
     private(set) var availableAccentColorIDs = Array(0...6)
+    private(set) var availableProfileAccentColorIDs = [Int]()
+
+    /// updateProfileAccentColors: the profile colours by ID and the ones the account may pick.
+    private var profileAccentColors = [Int: TDNativeProfileAccentColor]()
 
     private var serverColors = [Int: AccentColor]()
     private var cancellables = Set<AnyCancellable>()
@@ -118,6 +122,13 @@ struct TelegramAvatarPlaceholder {
             self?.availableAccentColorIDs = update.availableAccentColorIds
             nc.post(name: .telegramAvatarColorsChanged)
         }
+        nc.publisher(
+            &cancellables,
+            for: TdNotification<TDNativeUpdateProfileAccentColors>.updateProfileAccentColors,
+        ) { [weak self] update in
+            self?.profileAccentColors = Dictionary(uniqueKeysWithValues: update.colors.map { ($0.id, $0) })
+            self?.availableProfileAccentColorIDs = update.availableAccentColorIds
+        }
         nc.publisher(&cancellables, for: .activeTelegramAccountChanged) { [weak self] _ in
             self?.serverColors = [:]
             nc.post(name: .telegramAvatarColorsChanged)
@@ -136,6 +147,22 @@ struct TelegramAvatarPlaceholder {
             let dark = serverColor.darkThemeColors[safe: index] ?? light
             return UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) }
         }
+    }
+
+    /// PeerNameColors.getProfile: the profile colour's palette (one or two colours) and its header gradient.
+    func profileColors(id: Int) -> (palette: [UIColor], background: [UIColor])? {
+        guard let color = profileAccentColors[id] else { return nil }
+        func dynamic(_ light: [Int], _ dark: [Int]) -> [UIColor] {
+            light.indices.map { index in
+                let lightValue = light[index]
+                let darkValue = dark[safe: index] ?? lightValue
+                return UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: darkValue) : UIColor(rgb: lightValue) }
+            }
+        }
+        return (
+            dynamic(color.lightThemeColors.paletteColors, color.darkThemeColors.paletteColors),
+            dynamic(color.lightThemeColors.backgroundColors, color.darkThemeColors.backgroundColors),
+        )
     }
 
     func nameColor(accentColorID: Int) -> UIColor {

@@ -4437,3 +4437,7 @@
 "NameColor.ChatPreview.Description.Account" = "You can choose an individual color to tint your name, the links you send, and replies to your messages.";
 "NameColor.ApplyColor" = "Apply Color";
 "NameColor.YourColorUpdated" = "Your name color has been updated.";
+"ProfileColorSetup.ResetAction" = "Reset Profile Color";
+"ProfileColorSetup.AccountColorInfoLabel" = "Choose a color for your profile";
+"ProfileColorSetup.TitleName" = "Name";
+"ProfileColorSetup.TitleProfile" = "Profile";
