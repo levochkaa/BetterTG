@@ -1036,7 +1036,8 @@ UIColorPickerViewControllerDelegate {
     /// presentColorPicker, as the system's colour picker: editing pauses while it is up.
     private func presentColorPicker() {
         let picker = UIColorPickerViewController()
-        picker.supportsAlpha = false
+        // ColorPickerScreen's Opacity slider.
+        picker.supportsAlpha = true
         // The editor's dark ColorPickerScreen.
         picker.overrideUserInterfaceStyle = .dark
         picker.delegate = self

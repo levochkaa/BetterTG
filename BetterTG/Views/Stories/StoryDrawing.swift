@@ -284,7 +284,13 @@ final class StoryPenStroke: StoryStroke {
             return
         }
         context.saveGState()
-        context.setBlendMode(tool == .eraser ? .clear : .normal)
+        if tool == .eraser {
+            context.setBlendMode(.clear)
+        } else {
+            // PenTool.draw: the colour's opacity over the whole stroke, copied so its overlaps don't darken.
+            context.setAlpha(color.cgColor.alpha)
+            context.setBlendMode(.copy)
+        }
         context.setFillColor(color.withAlphaComponent(1).cgColor)
         for segment in allSegments {
             let path = CGMutablePath()
@@ -708,6 +714,8 @@ final class StoryDrawingToolsView: UIView {
 /// the stamps that overlap it, laid over each other.
 final class StoryMarkerStroke: StoryStroke {
     private let width: CGFloat
+    /// The colour's opacity, which preparedBuffer folds into each stamp's.
+    private let opacity: CGFloat
     private let stamp: CGImage?
     private let canvas: CGContext?
     private var points = [CGPoint]()
@@ -719,6 +727,7 @@ final class StoryMarkerStroke: StoryStroke {
         let minLineWidth = max(10, longest * 0.01)
         let maxLineWidth = max(20, longest * 0.09)
         self.width = minLineWidth + (maxLineWidth - minLineWidth) * size
+        self.opacity = color.cgColor.alpha
         self.stamp = Self.makeStamp(color: color, width: width)
         self.canvas = CGContext(
             data: nil,
@@ -814,7 +823,7 @@ final class StoryMarkerStroke: StoryStroke {
         guard let canvas, let stamp, let first = points.first else { return }
         let width = width
         let stepLength: CGFloat = 2
-        canvas.setAlpha(min(1, 5.5 / max(1, width / stepLength)))
+        canvas.setAlpha(min(1, 5.5 / max(1, width / stepLength)) * opacity)
         let put: (CGPoint) -> Void = { point in
             canvas.draw(stamp, in: CGRect(x: point.x - width / 2, y: point.y - width / 2, width: width, height: width))
         }
