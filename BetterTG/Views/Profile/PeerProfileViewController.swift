@@ -191,6 +191,11 @@ ClientRestorableNavigationEntry {
     private let expandedAvatarView = ProfileAvatarView()
     /// The name and status over the expanded photo's bottom edge, on a darkening gradient.
     private let expandedNameView = ProfileExpandedNameView()
+    /// PeerInfoAvatarListContainerNode's photos and its strip of segments, paged in place by tapping the sides.
+    private let expandedPhotoIndicator = ProfilePhotoIndicatorView()
+    private var expandedPhotos = [ProfileAvatarGalleryItem]()
+    private var expandedPhotoIndex = 0
+    private var expandedPhotosTask: Task<Void, Never>?
     private var isAvatarExpanded = false
     private var avatarSizeConstraints = [NSLayoutConstraint]()
     /// The cover's colour over the bar, above the list, while the cover is at the list's top edge.
@@ -1461,6 +1466,44 @@ ClientRestorableNavigationEntry {
         )
     }
 
+    /// The peer's photos, the gallery's list, for paging the expanded photo in place.
+    private func loadExpandedPhotos() {
+        let client = client
+        expandedPhotosTask = Task { [weak self] in
+            guard let payload = try? await self?.loadAvatarGalleryPayload(client: client),
+                  let self, !Task.isCancelled, isAvatarExpanded
+            else { return }
+            expandedPhotos = payload.items
+            expandedPhotoIndex = 0
+            expandedPhotoIndicator.configure(count: payload.items.count, current: 0)
+        }
+    }
+
+    /// PeerInfoAvatarListContainerNode's taps: the left third goes back, the right third forward, the middle opens
+    /// the gallery.
+    @objc private func expandedAvatarTapped(_ gesture: UITapGestureRecognizer) {
+        let x = gesture.location(in: expandedAvatarView).x
+        let width = expandedAvatarView.bounds.width
+        let step = x < width / 3 ? -1 : x > width * 2 / 3 ? 1 : 0
+        guard step != 0, expandedPhotos.count > 1 else {
+            avatarPressed()
+            return
+        }
+        expandedPhotoIndex = (expandedPhotoIndex + step + expandedPhotos.count) % expandedPhotos.count
+        let item = expandedPhotos[expandedPhotoIndex]
+        expandedAvatarView.configure(
+            file: item.largestSize?.photo,
+            minithumbnail: item.minithumbnail,
+            placeholder: customChat.telegramAvatarPlaceholder,
+            usesPeerPhotoForSavedMessages: isSelfProfile,
+            accountID: accountID,
+            accountUserID: accountUserID,
+            client: client,
+        )
+        expandedPhotoIndicator.configure(count: expandedPhotos.count, current: expandedPhotoIndex)
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
     private func setAvatarExpanded(_ expanded: Bool) {
         guard isAvatarExpanded != expanded else { return }
         isAvatarExpanded = expanded
@@ -1478,6 +1521,11 @@ ClientRestorableNavigationEntry {
         for constraint in avatarSizeConstraints {
             constraint.constant = expanded ? 0 : 96
         }
+        expandedPhotosTask?.cancel()
+        expandedPhotos = []
+        expandedPhotoIndex = 0
+        expandedPhotoIndicator.configure(count: 0, current: 0)
+        if expanded { loadExpandedPhotos() }
         // The name and status move onto the photo while it is open.
         expandedNameView.configure(
             title: profileTitle(),
@@ -3015,7 +3063,18 @@ ClientRestorableNavigationEntry {
         expandedAvatarView.isSquare = true
         expandedAvatarView.clipsToBounds = true
         expandedAvatarView.isUserInteractionEnabled = true
-        expandedAvatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(avatarPressed)))
+        expandedAvatarView.addGestureRecognizer(UITapGestureRecognizer(
+            target: self,
+            action: #selector(expandedAvatarTapped(_:)),
+        ))
+        expandedPhotoIndicator.translatesAutoresizingMaskIntoConstraints = false
+        expandedAvatarView.addSubview(expandedPhotoIndicator)
+        NSLayoutConstraint.activate([
+            expandedPhotoIndicator.topAnchor.constraint(equalTo: expandedAvatarView.topAnchor, constant: 8),
+            expandedPhotoIndicator.leadingAnchor.constraint(equalTo: expandedAvatarView.leadingAnchor, constant: 8),
+            expandedPhotoIndicator.trailingAnchor.constraint(equalTo: expandedAvatarView.trailingAnchor, constant: -8),
+            expandedPhotoIndicator.heightAnchor.constraint(equalToConstant: 2),
+        ])
         expandedNameView.translatesAutoresizingMaskIntoConstraints = false
         expandedAvatarView.addSubview(expandedNameView)
         NSLayoutConstraint.activate([
@@ -7790,6 +7849,42 @@ func profileDateString(_ timestamp: Int) -> String {
 }
 
 /// A collection's background that lays its one view out below a top inset, as a header row leaves room for.
+// MARK: - ProfilePhotoIndicatorView
+
+/// PeerInfoAvatarListContainerNode's strip over an expanded photo: a segment for each photo, the current one white.
+private final class ProfilePhotoIndicatorView: UIView {
+    private var segments = [UIView]()
+    private var current = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !segments.isEmpty else { return }
+        let spacing: CGFloat = 4
+        let width = (bounds.width - spacing * CGFloat(segments.count - 1)) / CGFloat(segments.count)
+        for (index, segment) in segments.enumerated() {
+            segment.frame = CGRect(x: CGFloat(index) * (width + spacing), y: 0, width: width, height: bounds.height)
+        }
+    }
+
+    func configure(count: Int, current: Int) {
+        if segments.count != count {
+            segments.forEach { $0.removeFromSuperview() }
+            segments = (0..<count).map { _ in
+                let segment = UIView()
+                segment.layer.cornerRadius = 1
+                addSubview(segment)
+                return segment
+            }
+        }
+        self.current = current
+        isHidden = count < 2
+        for (index, segment) in segments.enumerated() {
+            segment.backgroundColor = index == current ? .white : UIColor.white.withAlphaComponent(0.3)
+        }
+        setNeedsLayout()
+    }
+}
+
 // MARK: - ProfileExpandedNameView
 
 /// PeerInfoHeaderNode's expanded title: the name in white and the status under it at the photo's bottom left, over a
