@@ -1,6 +1,7 @@
 // StoryComposer.swift
 
 import AVFoundation
+import Combine
 import CoreImage.CIFilterBuiltins
 import PhotosUI
 import TDLibKit
@@ -815,7 +816,13 @@ private final class StoryShareViewController: SettingsListViewController {
         let allowsScreenshots = allowsScreenshots
         let activePeriod = hours * 3600
         let media = media
-        Task { [weak self] in
+        // Telegram's editor hands the story to its upload and closes: the export and the post go on behind the chat
+        // list, whose story item shows the upload ring meanwhile.
+        weak let presenter = navigationController?.presentingViewController
+        let preparing = StoryPosting.shared.begin(chatID)
+        navigationController?.dismiss(animated: true)
+        Task { @MainActor in
+            defer { StoryPosting.shared.end(preparing) }
             do {
                 let content = try await media.content()
                 _ = try await client.send(TDNativeRequests.postStory(
@@ -830,13 +837,15 @@ private final class StoryShareViewController: SettingsListViewController {
                     isPostedToChatPage: keepsOnPage,
                     protectContent: !allowsScreenshots,
                 ))
-                guard let self else { return }
-                navigationController?.dismiss(animated: true)
             } catch {
-                guard let self else { return }
-                isPosting = false
-                reload()
-                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+                guard let presenter, presenter.presentedViewController == nil else { return }
+                let alert = UIAlertController(
+                    title: nil,
+                    message: ChatManagementRows.failureText(error),
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                presenter.present(alert, animated: true)
             }
         }
     }
@@ -961,5 +970,25 @@ private final class StoryPostAsViewController: SettingsListViewController {
     private func finish(_ chatID: Int64?) {
         onChoose(chatID)
         navigationController?.popViewController(animated: true)
+    }
+}
+
+// MARK: - StoryPosting
+
+/// Stories still exporting or waiting for postStory after Share Story closed, by the chat they go to, so its story
+/// item shows the upload ring until TDLib's is_being_posted takes over.
+@MainActor final class StoryPosting {
+    static let shared = StoryPosting()
+
+    @Published private(set) var preparingChatIDs = [UUID: Int64]()
+
+    func begin(_ chatID: Int64) -> UUID {
+        let id = UUID()
+        preparingChatIDs[id] = chatID
+        return id
+    }
+
+    func end(_ id: UUID) {
+        preparingChatIDs[id] = nil
     }
 }

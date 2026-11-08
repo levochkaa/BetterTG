@@ -63,8 +63,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var storyPeers = [Int64: SettingsPeer]()
     /// The expanded row's names: a person's first name, a chat's title.
     private var storyTitles = [Int64: String]()
-    /// The account's stories TDLib is still posting (is_being_posted), until their post succeeds or fails.
-    private var uploadingStoryIDs = Set<Int>()
+    /// Stories TDLib is still posting (is_being_posted), until their post succeeds or fails: the chat they go to, their
+    /// media's file and how much of it is up (storyUploadProgress), nil until TDLib reports it.
+    private var uploadingStories = [Int: (chatID: Int64, fileID: Int?, progress: Float?)]()
+    /// Chats whose new story is still exporting before postStory (StoryPosting).
+    private var preparingStoryChatIDs = Set<Int64>()
     /// StoryPeerListComponent unlocked: the row the list's pull shows under the bar.
     private let storyRowView = StoryPeerListExpandedView()
     private var storyPeerTask: Task<Void, Never>?
@@ -537,8 +540,37 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         presentTabMenu(actions, from: source, tracking: gesture, anchor: anchor)
     }
 
-    private func setStoryUploading(_ storyID: Int, _ uploading: Bool) {
-        let changed = uploading ? uploadingStoryIDs.insert(storyID).inserted : uploadingStoryIDs.remove(storyID) != nil
+    private func setStoryUploading(_ story: Story) {
+        guard story.isBeingPosted else {
+            stopStoryUploading(story.id)
+            return
+        }
+        let fileID: Int? =
+            switch story.content {
+            case .storyContentPhoto(let value): StoryMedia.photoFile(value.photo)?.id
+            case .storyContentVideo(let value): value.video.video.id
+            default: nil
+            }
+        let previous = uploadingStories[story.id]
+        uploadingStories[story.id] = (story.posterChatId, fileID, previous?.progress)
+        if previous == nil { applyStoryPeers() }
+    }
+
+    private func stopStoryUploading(_ storyID: Int) {
+        if uploadingStories.removeValue(forKey: storyID) != nil { applyStoryPeers() }
+    }
+
+    /// The uploaded share of a posting story's file, as Telegram's upload progress.
+    private func updateStoryUpload(_ file: File) {
+        guard !uploadingStories.isEmpty else { return }
+        let total = file.expectedSize > 0 ? file.expectedSize : file.size
+        guard total > 0 else { return }
+        let progress = min(1, Float(file.remote.uploadedSize) / Float(total))
+        var changed = false
+        for (id, upload) in uploadingStories where upload.fileID == file.id && upload.progress != progress {
+            uploadingStories[id]?.progress = progress
+            changed = true
+        }
         if changed { applyStoryPeers() }
     }
 
@@ -583,17 +615,29 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         nc.scopedPublisher(&cancellables, for: .updateStory) { [weak self] event in
             guard let self, event.source == source, actionAuthority.isCurrent,
-                  event.value.story.posterChatId == TDLib.shared.activeAccount?.userID
+                  event.value.story.isBeingPosted || uploadingStories[event.value.story.id] != nil
             else { return }
-            setStoryUploading(event.value.story.id, event.value.story.isBeingPosted)
+            setStoryUploading(event.value.story)
         }
         nc.scopedPublisher(&cancellables, for: .updateStoryPostSucceeded) { [weak self] event in
             guard let self, event.source == source else { return }
-            setStoryUploading(event.value.oldStoryId, false)
+            stopStoryUploading(event.value.oldStoryId)
         }
         nc.scopedPublisher(&cancellables, for: .updateStoryPostFailed) { [weak self] event in
             guard let self, event.source == source else { return }
-            setStoryUploading(event.value.story.id, false)
+            stopStoryUploading(event.value.story.id)
+        }
+        StoryPosting.shared
+            .$preparingChatIDs
+            .sink { [weak self] value in
+                guard let self else { return }
+                preparingStoryChatIDs = Set(value.values)
+                applyStoryPeers()
+            }
+            .store(in: &cancellables)
+        nc.scopedPublisher(&cancellables, for: .updateFile) { [weak self] event in
+            guard let self, event.source == source, !uploadingStories.isEmpty else { return }
+            updateStoryUpload(event.value.file)
         }
         customNavigationBar.onStoriesTap = { [weak self] in self?.currentFolderController?.expandStories() }
         storyRowView.clipsToBounds = true
@@ -679,15 +723,21 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             item.showsAdd = true
             rowItems.insert(item, at: 0)
         }
-        // StoryFeed.MyUploading with the dashed ring while a story posts.
-        if let ownID, let index = rowItems.firstIndex(where: { $0.chatID == ownID }), !uploadingStoryIDs.isEmpty {
+        // While a chat's story posts its item turns to the upload ring, the dashes until TDLib reports progress, then
+        // the share uploaded; the account's reads StoryFeed.MyUploading.
+        for index in rowItems.indices {
+            let chatID = rowItems[index].chatID
+            let uploads = uploadingStories.values.filter { $0.chatID == chatID }
+            guard !uploads.isEmpty || preparingStoryChatIDs.contains(chatID) else { continue }
+            let progresses = uploads.compactMap(\.progress)
             rowItems[index] = StoryPeerListExpandedView.Item(
-                chatID: rowItems[index].chatID,
+                chatID: chatID,
                 peer: rowItems[index].peer,
-                title: L10n.telegram("StoryFeed.MyUploading"),
+                title: chatID == ownID ? L10n.telegram("StoryFeed.MyUploading") : rowItems[index].title,
                 ringStyle: rowItems[index].ringStyle,
                 showsAdd: false,
                 isUploading: true,
+                uploadProgress: progresses.isEmpty ? nil : progresses.reduce(0, +) / Float(progresses.count),
             )
         }
         storyRowView.update(

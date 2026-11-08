@@ -172,8 +172,10 @@ final class StoryPeerListExpandedView: UIView {
         let ringStyle: StoryAvatarRingView.Style?
         /// StoryPeerListItemComponent's plus on My Story while the account has no story.
         var showsAdd = false
-        /// ringAnimation's indefinite dashes while the account's story uploads.
+        /// ringAnimation's indefinite dashes while a story uploads.
         var isUploading = false
+        /// ringAnimation's progress once TDLib reports it; left out of equality, as it moves the arc in place.
+        var uploadProgress: Float?
 
         static func == (lhs: Item, rhs: Item) -> Bool {
             lhs.chatID == rhs.chatID && lhs.title == rhs.title && lhs.ringStyle == rhs.ringStyle
@@ -194,6 +196,8 @@ final class StoryPeerListExpandedView: UIView {
         private let addBadge = UIImageView()
         /// StoryPeerListItemComponent's indefiniteDashLayer: a dashed ring turning while the story uploads.
         private let uploadRing = CAShapeLayer()
+        /// StoryProgressLayer's uploadProgressLayer: an arc as long as the share uploaded, turning every 2 s.
+        private let progressRing = CAShapeLayer()
 
         init(item: Item, client: TDLibClient, accountID: UUID?) {
             super.init(frame: .zero)
@@ -237,14 +241,24 @@ final class StoryPeerListExpandedView: UIView {
             uploadRing.lineDashPattern = [8, 6]
             uploadRing.isHidden = !item.isUploading
             layer.addSublayer(uploadRing)
+            progressRing.fillColor = nil
+            progressRing.strokeColor = UIColor.systemBlue.cgColor
+            progressRing.lineWidth = 2.33
+            progressRing.lineCap = .round
+            progressRing.strokeEnd = 0
+            progressRing.isHidden = true
+            layer.addSublayer(progressRing)
             if item.isUploading {
                 ringView.isHidden = true
-                let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-                spin.fromValue = 0
-                spin.toValue = 2 * Double.pi
-                spin.duration = 2
-                spin.repeatCount = .infinity
-                uploadRing.add(spin, forKey: "spin")
+                for ring in [uploadRing, progressRing] {
+                    let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+                    spin.fromValue = 0
+                    spin.toValue = 2 * Double.pi
+                    spin.duration = 2
+                    spin.repeatCount = .infinity
+                    ring.add(spin, forKey: "spin")
+                }
+                setUploadProgress(item.uploadProgress)
             }
             registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ItemView, _) in
                 view.addBadge.layer.borderColor = UIColor.systemGroupedBackground.cgColor
@@ -267,7 +281,29 @@ final class StoryPeerListExpandedView: UIView {
             titleLabel.frame = CGRect(x: -4, y: ringView.frame.maxY + 2, width: bounds.width + 8, height: height)
             uploadRing.frame = ringView.frame
             uploadRing.path = UIBezierPath(ovalIn: ringView.bounds.insetBy(dx: 1.2, dy: 1.2)).cgPath
+            progressRing.frame = ringView.frame
+            progressRing.path = uploadRing.path
             addBadge.frame = CGRect(x: ringView.frame.minX + 4 + 52 - 20 + 2, y: 4 + 52 - 20 + 2, width: 20, height: 20)
+        }
+
+        /// StoryProgressLayer.updateAnimations: the dashes give way to the arc once progress is known, and the arc
+        /// eases to each new share over 0.3 s, never shorter than 0.028.
+        func setUploadProgress(_ progress: Float?) {
+            guard let progress else { return }
+            let end = CGFloat(max(0.028, progress))
+            if progressRing.isHidden {
+                progressRing.isHidden = false
+                progressRing.strokeEnd = end
+                uploadRing.isHidden = true
+                return
+            }
+            let animation = CABasicAnimation(keyPath: "strokeEnd")
+            animation.fromValue = progressRing.presentation()?.strokeEnd ?? progressRing.strokeEnd
+            animation.toValue = end
+            animation.duration = 0.3
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            progressRing.strokeEnd = end
+            progressRing.add(animation, forKey: "progress")
         }
     }
 
@@ -307,7 +343,13 @@ final class StoryPeerListExpandedView: UIView {
     }
 
     func update(items: [Item], client: TDLibClient, accountID: UUID?) {
-        guard items != self.items else { return }
+        guard items != self.items else {
+            self.items = items
+            for (view, item) in zip(itemViews, items) where item.isUploading {
+                view.setUploadProgress(item.uploadProgress)
+            }
+            return
+        }
         self.items = items
         itemViews.forEach { $0.removeFromSuperview() }
         itemViews = items.map { item in
