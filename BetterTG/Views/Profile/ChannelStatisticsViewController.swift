@@ -65,6 +65,8 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private var publicShares = [PublicShare]()
     private var publicSharesSection: Int?
     private var failed = false
+    /// StatsOverviewItem's values, in reading order.
+    private var overviewItems = [StatisticsOverviewCell.Item]()
     /// Each graph's state by its entry; a graph with no data or error text has none and no section.
     private var graphStates = [Int: StatisticsGraphView.State]()
     private var graphViews = [Int: StatisticsGraphView]()
@@ -119,28 +121,10 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 )],
             )]
         }
-        var rows = [
-            row("Stats.Followers", statistics.memberCount),
-            SettingsRow(
-                title: L10n.telegram("Stats.EnabledNotifications"),
-                detail: Self.percent(statistics.enabledNotificationsPercentage),
-                style: .value,
-            ),
-            row("Stats.ViewsPerPost", statistics.meanMessageViewCount),
-            row("Stats.SharesPerPost", statistics.meanMessageShareCount),
-            row("Stats.ReactionsPerPost", statistics.meanMessageReactionCount),
-        ]
-        // The story means show once the channel has posted stories.
-        if statistics.meanStoryViewCount.value > 0 || statistics.meanStoryViewCount.previousValue > 0 {
-            rows += [
-                row("Stats.ViewsPerStory", statistics.meanStoryViewCount),
-                row("Stats.SharesPerStory", statistics.meanStoryShareCount),
-                row("Stats.ReactionsPerStory", statistics.meanStoryReactionCount),
-            ]
-        }
+        overviewItems = channelOverviewItems(statistics)
         var sections = [SettingsSection(
             header: L10n.telegram("Stats.Overview") + "  " + Self.periodText(statistics.period),
-            rows: rows,
+            rows: [SettingsRow(title: "")],
         )]
         appendGraphSections(to: &sections)
         postsSection = nil
@@ -155,6 +139,11 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if indexPath.section == 0, !overviewItems.isEmpty {
+            let cell = StatisticsOverviewCell()
+            cell.items = overviewItems
+            return cell
+        }
         if indexPath.section == postsSection, posts.indices.contains(indexPath.row) {
             let (message, interaction) = posts[indexPath.row]
             let cell = StatisticsPostCell()
@@ -185,6 +174,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     }
 
     override func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if indexPath.section == 0, !overviewItems.isEmpty {
+            return StatisticsOverviewCell.height(itemCount: overviewItems.count)
+        }
         if indexPath.section == postsSection {
             return StatisticsPostCell.height
         }
@@ -216,16 +208,21 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             : value.formatted(.number.precision(.fractionLength(0...1)))
     }
 
-    private static func percent(_ value: Double) -> String {
-        "\(value.formatted(.number.precision(.fractionLength(0...1))))%"
-    }
-
     /// The overview's period, as the header's dates.
     private static func periodText(_ period: TDNativeDateRange) -> String {
         let format: (Int) -> String = {
             Date(timeIntervalSince1970: TimeInterval($0)).formatted(.dateTime.month(.abbreviated).day())
         }
         return "\(format(period.startDate)) – \(format(period.endDate))".uppercased()
+    }
+
+    /// deltaText: the change as +12 (3.40%), or nothing while the previous period had none.
+    private static func delta(_ value: TDNativeStatisticalValue) -> (String, UIColor)? {
+        let change = value.value - value.previousValue
+        guard change != 0, value.previousValue > 0 else { return nil }
+        let percentage = String(format: "%.02f%%", abs(change / value.previousValue) * 100)
+        let sign = change > 0 ? "+" : "-"
+        return ("\(sign)\(compact(Double(abs(Int(change))))) (\(percentage))", change > 0 ? .systemGreen : .systemRed)
     }
 
     private func appendGraphSections(to sections: inout [SettingsSection]) {
@@ -252,20 +249,21 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         let info = message.interactionInfo
         let forwards = info?.forwardCount ?? 0
         let reactions = info?.reactions?.reactions.reduce(0) { $0 + $1.totalCount } ?? 0
-        let value: (String, String) -> SettingsRow = { key, text in
-            SettingsRow(title: L10n.telegram(key), detail: text, style: .value)
+        let item: (String, String) -> StatisticsOverviewCell.Item = { value, key in
+            StatisticsOverviewCell.Item(value: value, title: L10n.telegram(key), delta: nil)
         }
+        overviewItems = [
+            item(Self.compact(Double(info?.viewCount ?? 0)), "Stats.Message.Views"),
+            item(publicShareCount.map { Self.compact(Double($0)) } ?? "–", "Stats.Message.PublicShares"),
+            item(Self.compact(Double(reactions)), "Stats.Message.Reactions"),
+            item(
+                publicShareCount.map { "~" + Self.compact(Double(max(0, forwards - $0))) } ?? "–",
+                "Stats.Message.PrivateShares",
+            ),
+        ]
         var sections = [SettingsSection(
             header: L10n.telegram("Stats.MessageOverview").uppercased(),
-            rows: [
-                value("Stats.Message.Views", Self.compact(Double(info?.viewCount ?? 0))),
-                value("Stats.Message.PublicShares", publicShareCount.map { Self.compact(Double($0)) } ?? "–"),
-                value("Stats.Message.Reactions", Self.compact(Double(reactions))),
-                value(
-                    "Stats.Message.PrivateShares",
-                    publicShareCount.map { "~" + Self.compact(Double(max(0, forwards - $0))) } ?? "–",
-                ),
-            ],
+            rows: [SettingsRow(title: "")],
         )]
         appendGraphSections(to: &sections)
         publicSharesSection = nil
@@ -450,31 +448,134 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
     }
 
-    /// StatsOverviewItem's cell: the value, then the change since the previous period as +12 (3.4%).
-    private func row(_ key: String, _ value: TDNativeStatisticalValue) -> SettingsRow {
-        let delta = value.value - value.previousValue
-        let change: String? =
-            if delta == 0 || value.previousValue == 0 && value.growthRatePercentage == 0 {
-                nil
-            } else {
-                "\(delta > 0 ? "+" : "−")\(Self.compact(abs(delta))) (\(Self.percent(abs(value.growthRatePercentage))))"
-            }
-        let color: UIColor = delta >= 0 ? .systemGreen : .systemRed
-        let text = NSMutableAttributedString(
-            string: Self.compact(value.value),
-            attributes: [.foregroundColor: UIColor.secondaryLabel, .font: UIFont.preferredFont(forTextStyle: .body)],
-        )
-        if let change {
-            text.append(NSAttributedString(
-                string: "  " + change,
-                attributes: [.foregroundColor: color, .font: UIFont.preferredFont(forTextStyle: .subheadline)],
-            ))
+    /// StatsOverviewItem's ChannelStats: Followers and Enabled Notifications, then the post means while the channel
+    /// has posts and the story means while it has stories, the two kinds interleaved by column.
+    private func channelOverviewItems(_ statistics: TDNativeChatStatisticsChannel) -> [StatisticsOverviewCell.Item] {
+        let item: (TDNativeStatisticalValue, String) -> StatisticsOverviewCell.Item = { value, key in
+            StatisticsOverviewCell.Item(
+                value: Self.compact(Double(Int(value.value))),
+                title: L10n.telegram(key),
+                delta: Self.delta(value),
+            )
         }
-        return SettingsRow(title: L10n.telegram(key), trailingView: SettingsTrailingView {
-            let label = UILabel()
-            label.attributedText = text
-            return label
-        })
+        let hasDelta: (TDNativeStatisticalValue) -> Bool = { $0.value != $0.previousValue }
+        let hasMessages = statistics.meanMessageViewCount.value > 0 || hasDelta(statistics.meanMessageViewCount)
+        let hasStories = statistics.meanStoryViewCount.value > 0 || hasDelta(statistics.meanStoryViewCount)
+        var items = [Int: StatisticsOverviewCell.Item]()
+        if hasMessages {
+            items[0] = item(statistics.meanMessageViewCount, "Stats.ViewsPerPost")
+            items[hasStories ? 2 : 1] = item(statistics.meanMessageShareCount, "Stats.SharesPerPost")
+        }
+        if statistics.meanMessageReactionCount.value > 0 || hasDelta(statistics.meanMessageReactionCount) {
+            items[hasStories ? 4 : 2] = item(statistics.meanMessageReactionCount, "Stats.ReactionsPerPost")
+        }
+        if hasStories {
+            items[items[0] == nil ? 0 : 1] = item(statistics.meanStoryViewCount, "Stats.ViewsPerStory")
+            items[items[1] == nil ? 1 : 3] = item(statistics.meanStoryShareCount, "Stats.SharesPerStory")
+            items[items[3] == nil ? 2 : 5] = item(statistics.meanStoryReactionCount, "Stats.ReactionsPerStory")
+        }
+        return [
+            item(statistics.memberCount, "Stats.Followers"),
+            StatisticsOverviewCell.Item(
+                value: String(format: "%.02f%%", statistics.enabledNotificationsPercentage),
+                title: L10n.telegram("Stats.EnabledNotifications"),
+                delta: nil,
+            ),
+        ] + items.keys.sorted().compactMap { items[$0] }
+    }
+}
+
+// MARK: - StatisticsOverviewCell
+
+/// StatsOverviewItemNode: the values two to a row, each in semibold with its change after it and its title under it
+/// in the header colour, 14 pt from the top and bottom and 18 pt between rows; the second column starts at the middle
+/// or after the widest left value.
+private final class StatisticsOverviewCell: UITableViewCell {
+    struct Item {
+        let value: String
+        let title: String
+        let delta: (String, UIColor)?
+    }
+
+    private struct ItemViews {
+        let value = UILabel()
+        let title = UILabel()
+        let delta = UILabel()
+    }
+
+    private static let valueFont = UIFont.systemFont(ofSize: 17, weight: .semibold)
+    private static let smallFont = UIFont.systemFont(ofSize: 13)
+    private static let itemHeight = ceil(valueFont.lineHeight) + ceil(smallFont.lineHeight)
+
+    var items = [Item]() {
+        didSet {
+            for views in itemViews {
+                [views.value, views.title, views.delta].forEach { $0.removeFromSuperview() }
+            }
+            itemViews = items.map { item in
+                let views = ItemViews()
+                views.value.font = Self.valueFont
+                views.value.text = item.value
+                views.title.font = Self.smallFont
+                views.title.textColor = .secondaryLabel
+                views.title.text = item.title
+                views.delta.font = Self.smallFont
+                views.delta.text = item.delta?.0
+                views.delta.textColor = item.delta?
+                    .1
+                [views.value, views.title, views.delta]
+                    .forEach { contentView.addSubview($0) }
+                return views
+            }
+            setNeedsLayout()
+        }
+    }
+
+    private var itemViews = [ItemViews]()
+
+    init() {
+        super.init(style: .default, reuseIdentifier: nil)
+        selectionStyle = .none
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let firstX: CGFloat = 16
+        let maxLeftWidth = itemViews.enumerated().filter { $0.offset % 2 == 0 }.map { width(of: $0.element) }.max() ?? 0
+        let secondX = max(contentView.bounds.width / 2, firstX + maxLeftWidth + 4)
+        let lineHeight = ceil(Self.smallFont.lineHeight)
+        for (index, views) in itemViews.enumerated() {
+            let x = index % 2 == 0 ? firstX : secondX
+            let y = 14 + CGFloat(index / 2) * (Self.itemHeight + 18)
+            let valueWidth = views.value.sizeThatFits(.zero).width
+            views.value.frame = CGRect(x: x, y: y, width: valueWidth, height: ceil(Self.valueFont.lineHeight))
+            views.title.frame = CGRect(
+                x: x,
+                y: views.value.frame.maxY,
+                width: views.title.sizeThatFits(.zero).width,
+                height: lineHeight,
+            )
+            views.delta.frame = CGRect(
+                x: views.value.frame.maxX + 4,
+                y: views.value.frame.maxY - lineHeight - 2,
+                width: views.delta.sizeThatFits(.zero).width,
+                height: lineHeight,
+            )
+        }
+    }
+
+    static func height(itemCount: Int) -> CGFloat {
+        let rows = CGFloat((itemCount + 1) / 2)
+        return 14 * 2 + itemHeight * rows + 18 * max(0, rows - 1)
+    }
+
+    private func width(of views: ItemViews) -> CGFloat {
+        let delta = views.delta.text == nil ? 0 : views.delta.sizeThatFits(.zero).width + 4
+        return max(views.value.sizeThatFits(.zero).width + delta, views.title.sizeThatFits(.zero).width)
     }
 }
 
