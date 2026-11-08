@@ -53,6 +53,25 @@ final class BusinessSetupViewController: SettingsListViewController {
                         [weak self] in
                         self?.navigationController?.pushViewController(QuickRepliesViewController(), animated: true)
                     },
+                    feature(
+                        "Business.GreetingMessages",
+                        "Business.GreetingMessagesInfo",
+                        symbol: "hand.raised",
+                        tint: .systemYellow,
+                    ) {
+                        [weak self] in
+                        self?.navigationController?.pushViewController(
+                            BusinessMessageViewController(kind: .greeting),
+                            animated: true,
+                        )
+                    },
+                    feature("Business.AwayMessages", "Business.AwayMessagesInfo", symbol: "moon", tint: .systemPurple) {
+                        [weak self] in
+                        self?.navigationController?.pushViewController(
+                            BusinessMessageViewController(kind: .away),
+                            animated: true,
+                        )
+                    },
                     feature("Business.Links", "Business.LinksInfo", symbol: "link", tint: .systemBlue) {
                         [weak self] in
                         self?.navigationController?.pushViewController(

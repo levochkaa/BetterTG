@@ -6,32 +6,10 @@ import UIKit
 // MARK: - ChatbotSetupViewController
 
 /// ChatbotSetupScreen: a bot found by its username or t.me link is added with ADD (if it can connect to Business) and
-/// removed with its cross; the added bot then gets CHATS ACCESSIBLE FOR THE BOT (All 1-to-1 Chats Except… or Only
-/// Selected Chats, with chat categories and people) and BOT PERMISSIONS. Leaving the screen saves what changed
+/// removed with its cross; the added bot then gets CHATS ACCESSIBLE FOR THE BOT (`BusinessRecipientsEditor`) and BOT
+/// PERMISSIONS. Leaving the screen saves what changed
 /// (setBusinessConnectedBot, or deleteBusinessConnectedBot for a removed bot).
 final class ChatbotSetupViewController: SettingsListViewController {
-    enum Category: CaseIterable {
-        case existingChats, newChats, contacts, nonContacts
-
-        var title: String {
-            switch self {
-            case .existingChats: L10n.telegram("BusinessMessageSetup.Recipients.CategoryExistingChats")
-            case .newChats: L10n.telegram("BusinessMessageSetup.Recipients.CategoryNewChats")
-            case .contacts: L10n.telegram("BusinessMessageSetup.Recipients.CategoryContacts")
-            case .nonContacts: L10n.telegram("BusinessMessageSetup.Recipients.CategoryNonContacts")
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .existingChats: "bubble.left.and.bubble.right.fill"
-            case .newChats: "bubble.left.fill"
-            case .contacts: "person.crop.circle.fill"
-            case .nonContacts: "person.crop.circle.badge.questionmark.fill"
-            }
-        }
-    }
-
     /// TelegramBusinessBotRights, in BusinessBotRights' order.
     enum Right: Int, CaseIterable {
         case reply, readMessages, deleteSentMessages, deleteAllMessages, editName, editBio, editProfilePhoto,
@@ -61,10 +39,7 @@ final class ChatbotSetupViewController: SettingsListViewController {
     /// What the screen saves, compared with what it loaded so a visit alone changes nothing.
     private struct Setup: Equatable {
         var botID: Int64?
-        var excludesSelected = true
-        var categories = Set<Category>()
-        var chatIDs = [Int64]()
-        var excludedChatIDs = [Int64]()
+        var recipients = BusinessRecipients()
         var rights: Set<Right> = [.reply, .readMessages, .deleteSentMessages, .deleteAllMessages]
     }
 
@@ -93,7 +68,21 @@ final class ChatbotSetupViewController: SettingsListViewController {
     private var query = ""
     private var search: Search?
     private var searchTask: Task<Void, Never>?
-    private var peers = [Int64: SettingsPeer]()
+    private lazy var recipientsEditor: BusinessRecipientsEditor = {
+        let editor = BusinessRecipientsEditor(
+            screen: self,
+            header: L10n.telegram("ChatbotSetup.RecipientsSectionHeader"),
+            includedFooter: L10n.telegram("ChatbotSetup.Recipients.IncludedSectionFooter"),
+            excludedFooter: L10n.telegram("ChatbotSetup.Recipients.ExcludedSectionFooter"),
+            listsExcludedPeople: true,
+        )
+        editor.onChange = { [weak self, weak editor] in
+            guard let self, let editor else { return }
+            setup.recipients = editor.recipients
+            reload()
+        }
+        return editor
+    }()
 
     /// ChatbotSearchResultItemComponent: searching, Chatbot not found, or the bot with ADD or its cross.
     private var searchRows: [SettingsRow] {
@@ -114,7 +103,7 @@ final class ChatbotSetupViewController: SettingsListViewController {
         case .found(let user):
             let isInstalled = setup.botID == user.id
             let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
-            let peer = peers[user.id] ?? SettingsPeer(
+            let peer = SettingsPeer(
                 id: user.id,
                 title: name,
                 file: user.profilePhoto?.small,
@@ -152,23 +141,6 @@ final class ChatbotSetupViewController: SettingsListViewController {
         }
     }
 
-    /// With Only Selected Chats, the people the bot never reaches although a category includes them.
-    private var excludedChatsSection: SettingsSection {
-        var rows = [SettingsRow(
-            title: L10n.telegram("BusinessMessageSetup.Recipients.AddExclude"),
-            style: .action(destructive: false),
-            symbol: "minus",
-        ) { [weak self] in self?.pickPeople(excluding: true) }]
-        rows += peerRows(setup.excludedChatIDs) { [weak self] id in
-            self?.setup.excludedChatIDs.removeAll { $0 == id }
-        }
-        return SettingsSection(
-            header: L10n.telegram("BusinessMessageSetup.Recipients.ExcludedSectionHeader"),
-            footer: L10n.telegram("ChatbotSetup.Recipients.ExcludedSectionFooter").withoutTelegramMarkup,
-            rows: rows,
-        )
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("ChatbotSetup.TitleItem")
@@ -197,17 +169,7 @@ final class ChatbotSetupViewController: SettingsListViewController {
             SettingsSection(footer: L10n.telegram("ChatbotSetup.BotSectionFooter"), rows: searchRows),
         ]
         guard setup.botID != nil else { return sections }
-        sections.append(SettingsSection(
-            header: L10n.telegram("ChatbotSetup.RecipientsSectionHeader"),
-            rows: [
-                modeRow("BusinessMessageSetup.RecipientsOptionAllExcept", excludes: true),
-                modeRow("BusinessMessageSetup.RecipientsOptionOnly", excludes: false),
-            ],
-        ))
-        sections.append(chatsSection(isExcluded: setup.excludesSelected))
-        if !setup.excludesSelected {
-            sections.append(excludedChatsSection)
-        }
+        sections += recipientsEditor.sections(at: sections.count)
         for (index, group) in Self.groups.enumerated() {
             sections.append(SettingsSection(
                 header: index == 0 ? L10n.telegram("ChatbotSetup.PermissionsSectionHeader") : nil,
@@ -226,15 +188,8 @@ final class ChatbotSetupViewController: SettingsListViewController {
             var bot: User?
             if let connected = info?.bot {
                 bot = try? await client.getUser(userId: connected.botUserId)
-                let recipients = connected.recipients
                 setup.botID = connected.botUserId
-                setup.excludesSelected = recipients.excludeSelected
-                setup.chatIDs = recipients.chatIds
-                setup.excludedChatIDs = recipients.excludedChatIds
-                if recipients.selectExistingChats { setup.categories.insert(.existingChats) }
-                if recipients.selectNewChats { setup.categories.insert(.newChats) }
-                if recipients.selectContacts { setup.categories.insert(.contacts) }
-                if recipients.selectNonContacts { setup.categories.insert(.nonContacts) }
+                setup.recipients = BusinessRecipients(connected.recipients)
                 let rights = connected.rights
                 let values: [Right: Bool] = [
                     .reply: rights.canReply, .readMessages: rights.canReadMessages,
@@ -251,76 +206,13 @@ final class ChatbotSetupViewController: SettingsListViewController {
             guard let self, contextIsCurrent else { return }
             loaded = setup
             self.setup = setup
+            recipientsEditor.recipients = setup.recipients
             self.bot = bot
             if let bot {
                 query = bot.usernames?.activeUsernames.first ?? ""
                 search = .found(bot)
             }
             reload()
-            resolvePeers()
-        }
-    }
-
-    private func modeRow(_ key: String, excludes: Bool) -> SettingsRow {
-        SettingsRow(
-            title: L10n.telegram(key),
-            accessory: setup.excludesSelected == excludes ? .checkmark : .none,
-        ) { [weak self] in
-            guard let self, setup.excludesSelected != excludes else { return }
-            setup.excludesSelected = excludes
-            // The chosen chats change meaning with the mode, as Telegram resets them.
-            setup.categories = []
-            setup.chatIDs = []
-            setup.excludedChatIDs = []
-            reload()
-        }
-    }
-
-    /// The included chats (Only Selected Chats) or the excluded ones (All 1-to-1 Chats Except…): Include Chats… or
-    /// Exclude Chats…, then the categories and the people, each removed by swiping.
-    private func chatsSection(isExcluded: Bool) -> SettingsSection {
-        var rows = [SettingsRow(
-            title: L10n.telegram(isExcluded
-                ? "BusinessMessageSetup.Recipients.AddExclude"
-                : "BusinessMessageSetup.Recipients.AddInclude"),
-            style: .action(destructive: false),
-            symbol: "plus",
-        ) { [weak self] in self?.addChats() }]
-        for category in Category.allCases where setup.categories.contains(category) {
-            rows.append(SettingsRow(
-                title: category.title,
-                symbol: category.symbol,
-                symbolTint: .systemBlue,
-                swipeAction: (L10n.telegram("Common.Delete"), { [weak self] in
-                    self?.setup.categories.remove(category)
-                    self?.reload()
-                }),
-            ))
-        }
-        rows += peerRows(setup.chatIDs) { [weak self] id in self?.setup.chatIDs.removeAll { $0 == id } }
-        return SettingsSection(
-            header: L10n.telegram(isExcluded
-                ? "BusinessMessageSetup.Recipients.ExcludedSectionHeader"
-                : "BusinessMessageSetup.Recipients.IncludedSectionHeader"),
-            footer: L10n.telegram(isExcluded
-                ? "ChatbotSetup.Recipients.ExcludedSectionFooter"
-                : "ChatbotSetup.Recipients.IncludedSectionFooter")
-                .withoutTelegramMarkup,
-            rows: rows,
-        )
-    }
-
-    private func peerRows(_ ids: [Int64], remove: @escaping (Int64) -> Void) -> [SettingsRow] {
-        ids.compactMap { id in
-            guard let peer = peers[id] else { return nil }
-            return SettingsRow(
-                title: peer.title,
-                style: .peer(peer),
-                swipeAction: (L10n.telegram("Common.Delete"), { [weak self] in
-                    remove(id)
-                    self?.reload()
-                }),
-            )
         }
     }
 
@@ -427,45 +319,6 @@ final class ChatbotSetupViewController: SettingsListViewController {
         reload()
     }
 
-    /// The categories not chosen yet, then the people.
-    private func addChats() {
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        for category in Category.allCases where !setup.categories.contains(category) {
-            sheet.addAction(UIAlertAction(title: category.title, style: .default) { [weak self] _ in
-                self?.setup.categories.insert(category)
-                self?.reload()
-            })
-        }
-        sheet.addAction(UIAlertAction(title: L10n.telegram("ChatbotSetup.Recipients.AddUsers"), style: .default) {
-            [weak self] _ in self?.pickPeople(excluding: false)
-        })
-        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        sheet.popoverPresentationController?.sourceView =
-            tableView.cellForRow(at: IndexPath(row: 0, section: 3)) ?? view
-        present(sheet, animated: true)
-    }
-
-    /// People only: a business bot reaches private chats.
-    private func pickPeople(excluding: Bool) {
-        guard presentedViewController == nil else { return }
-        let chosen = Set(setup.chatIDs + setup.excludedChatIDs)
-        let picker = SettingsPeerPickerViewController(excludedUserIDs: chosen, excludedChatIDs: [])
-        picker.listsOnlyPeople = true
-        picker.pickerTitle = L10n.telegram(excluding || setup.excludesSelected
-            ? "BusinessMessageSetup.Recipients.ExcludeSearchTitle"
-            : "BusinessMessageSetup.Recipients.IncludeSearchTitle")
-        picker.onDone = { [weak self] users, _ in
-            guard let self else { return }
-            if excluding {
-                setup.excludedChatIDs += users
-            } else {
-                setup.chatIDs += users
-            }
-            resolvePeers()
-        }
-        present(UINavigationController(rootViewController: picker), animated: true)
-    }
-
     /// presentStarGiftsWarningIfNeeded: rights that give away gifts, stars or the username ask first.
     private func setRights(_ rights: Set<Right>, isOn: Bool) {
         let risky = rights.intersection([.transferAndUpgradeGifts, .transferStars, .editUsername])
@@ -504,20 +357,6 @@ final class ChatbotSetupViewController: SettingsListViewController {
         refreshRowsInPlace()
     }
 
-    private func resolvePeers() {
-        let client = client
-        let missing = (setup.chatIDs + setup.excludedChatIDs).filter { peers[$0] == nil }
-        Task { [weak self] in
-            var resolved = [Int64: SettingsPeer]()
-            for id in missing {
-                if let peer = await SettingsPeer.user(id, client: client) { resolved[id] = peer }
-            }
-            guard let self, contextIsCurrent else { return }
-            peers.merge(resolved) { $1 }
-            reload()
-        }
-    }
-
     // MARK: Saving
 
     private func save() {
@@ -531,22 +370,11 @@ final class ChatbotSetupViewController: SettingsListViewController {
                 }
                 return
             }
-            // The chats must be known to TDLib before they can be named.
-            for id in setup.chatIDs + setup.excludedChatIDs {
-                _ = try? await client.createPrivateChat(force: false, userId: id)
-            }
+            await BusinessRecipients.prepareChats(setup.recipients.peerIDs, client: client)
             let rights = setup.rights
             let connected = TDNativeBusinessConnectedBot(
                 botUserId: botID,
-                recipients: TDNativeBusinessRecipients(
-                    chatIds: setup.chatIDs,
-                    excludedChatIds: setup.excludesSelected ? [] : setup.excludedChatIDs,
-                    selectExistingChats: setup.categories.contains(.existingChats),
-                    selectNewChats: setup.categories.contains(.newChats),
-                    selectContacts: setup.categories.contains(.contacts),
-                    selectNonContacts: setup.categories.contains(.nonContacts),
-                    excludeSelected: setup.excludesSelected,
-                ),
+                recipients: setup.recipients.native,
                 rights: TDNativeBusinessBotRights(
                     canReply: rights.contains(.reply),
                     canReadMessages: rights.contains(.readMessages),

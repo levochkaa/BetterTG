@@ -257,6 +257,7 @@ final class QuickRepliesViewController: SettingsListViewController {
 /// (addQuickReplyShortcutMessage), creating it with the first one.
 final class QuickReplyEditViewController: SettingsListViewController {
     private let name: String
+    private let displayTitle: String?
     private var shortcutID: Int?
     private var draft = ""
     private var cancellable: AnyCancellable?
@@ -266,9 +267,11 @@ final class QuickReplyEditViewController: SettingsListViewController {
             ?? []
     }
 
-    init(name: String, shortcutID: Int?) {
+    /// `displayTitle` names the greeting and away messages, which live in the hello and away shortcuts.
+    init(name: String, shortcutID: Int?, displayTitle: String? = nil) {
         self.name = name
         self.shortcutID = shortcutID
+        self.displayTitle = displayTitle
         super.init()
     }
 
@@ -278,7 +281,7 @@ final class QuickReplyEditViewController: SettingsListViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "/" + name
+        title = displayTitle ?? "/" + name
         cancellable = QuickReplyStore.shared
             .changes
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
