@@ -196,6 +196,11 @@ ClientRestorableNavigationEntry {
     private let expandedVideoLayer = AVPlayerLayer()
     private var expandedVideoLooper: AVPlayerLooper?
     private var expandedVideoTask: Task<Void, Never>?
+    /// PeerInfoAvatarTransformContainerNode's video: the round photo plays its animation muted and looping.
+    private let headerVideoLayer = AVPlayerLayer()
+    private var headerVideoLooper: AVPlayerLooper?
+    private var headerVideoTask: Task<Void, Never>?
+    private var headerVideoFileID: Int?
     /// The name and status over the expanded photo's bottom edge, on a darkening gradient.
     private let expandedNameView = ProfileExpandedNameView()
     /// PeerInfoAvatarListContainerNode's photos and its strip of segments, paged in place by tapping the sides.
@@ -1484,6 +1489,56 @@ ClientRestorableNavigationEntry {
             expandedPhotoIndex = 0
             expandedPhotoIndicator.configure(count: payload.items.count, current: 0)
             playExpandedVideo(payload.items.first)
+        }
+    }
+
+    /// The full photo's animation when it is the photo shown (a user's personal or public photo isn't), under Autoplay
+    /// Videos; it downloads and loops muted over the still from its main frame.
+    private func updateHeaderVideo() {
+        var animation = currentProfilePhoto?.animation
+        if let shown = currentUserProfilePhoto, shown.id != currentProfilePhoto?.id { animation = nil }
+        if !EnergyUsage.shared.allows(.autoplayVideo) { animation = nil }
+        guard animation?.file.id != headerVideoFileID else { return }
+        headerVideoTask?.cancel()
+        headerVideoLooper?.disableLooping()
+        headerVideoLooper = nil
+        headerVideoLayer.player = nil
+        headerVideoLayer.isHidden = true
+        headerVideoFileID = animation?.file.id
+        guard let animation else { return }
+        if headerVideoLayer.superlayer == nil {
+            headerVideoLayer.videoGravity = .resizeAspectFill
+            avatarView.layer.addSublayer(headerVideoLayer)
+        }
+        let client = client
+        let fileID = animation.file.id
+        headerVideoTask = Task { [weak self] in
+            guard let file = try? await client.downloadFile(
+                fileId: fileID,
+                priority: 8,
+                offset: 0,
+                limit: 0,
+                synchronous: true,
+            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty,
+                  let self, !Task.isCancelled, headerVideoFileID == fileID
+            else { return }
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            headerVideoLooper = AVPlayerLooper(
+                player: player,
+                templateItem: AVPlayerItem(url: URL(filePath: file.local.path)),
+            )
+            if animation.mainFrameTimestamp > 0 {
+                await player.seek(to: CMTime(seconds: animation.mainFrameTimestamp, preferredTimescale: 600))
+            }
+            guard !Task.isCancelled, headerVideoFileID == fileID else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            headerVideoLayer.frame = avatarView.bounds
+            CATransaction.commit()
+            headerVideoLayer.player = player
+            headerVideoLayer.isHidden = false
+            player.play()
         }
     }
 
@@ -4655,6 +4710,7 @@ ClientRestorableNavigationEntry {
         renderedAvatarItemID = displayedAvatarItemID
         renderedAvatarFileID = displayedAvatarFile?.id
         avatarView.accessibilityLabel = L10n.betterTG("Accessibility.ProfilePhotoOf", profileTitle())
+        updateHeaderVideo()
         updateStoryRing()
         updateActionAvailability()
         view.setNeedsLayout()
