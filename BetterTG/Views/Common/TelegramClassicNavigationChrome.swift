@@ -247,6 +247,7 @@ final class TelegramSideColumnView: UIView {
     private var rowTopOffset: CGFloat = 0
 
     private let background = TelegramBarBackgroundView(edge: .top)
+
     /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
     private let promptLabel = UILabel()
     private let titleLabel = UILabel()
@@ -267,6 +268,13 @@ final class TelegramSideColumnView: UIView {
     private var searchEndSubscription: AnyCancellable?
     private var searchBeginSubscription: AnyCancellable?
     private var searchActive = false
+
+    /// How much of the bar's background shows: a profile's colour cover fills the bar itself while it reaches the top,
+    /// as PeerInfoHeaderNode's navigation background does.
+    var backgroundAlpha: CGFloat {
+        get { background.alpha }
+        set { background.alpha = newValue }
+    }
 
     var contentHeight: CGFloat {
         // An open search takes the row in its place, so the bar keeps the row's height.

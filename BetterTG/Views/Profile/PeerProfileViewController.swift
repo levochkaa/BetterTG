@@ -179,6 +179,11 @@ ClientRestorableNavigationEntry {
     private let accountUserID: Int64?
     private let client: TDLibClient
     private let customChat: CustomChat
+    /// The peer's profile colour (updateChatAccentColors), which colours the header as PeerInfoCoverComponent does.
+    private var profileAccentColorID: Int
+    private let profileCoverView = ProfileCoverView()
+    /// The cover's colour over the bar, above the list, while the cover is at the list's top edge.
+    private let profileCoverTopFill = UIView()
     private let isSelfProfile: Bool
     /// PeerInfoScreen's `isMyProfile`: the account's own profile from Settings' My Profile, under the account's name
     /// and online, with no action buttons. The account's chat with itself is Saved Messages otherwise.
@@ -749,6 +754,7 @@ ClientRestorableNavigationEntry {
         isMyProfile: Bool = false,
     ) {
         self.customChat = customChat
+        self.profileAccentColorID = customChat.chat.profileAccentColorId
         self.topic = topic
         self.client = client
         self.accountID = accountID
@@ -825,6 +831,7 @@ ClientRestorableNavigationEntry {
         view.backgroundColor = .systemBackground
         configureHeader()
         configureCollectionView()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in self.applyProfileColor() }
         configureDataSource()
         configureSharedMessageRefresh()
         observeAccount()
@@ -1369,6 +1376,7 @@ ClientRestorableNavigationEntry {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateProfileCoverTopFill()
         // PeerInfoVisualMediaPaneNode's panes (media, files, music, voice) and PeerInfoStoryPaneNode's grids have the
         // scroller; only Media opens the calendar from it.
         if [.media, .files, .audio, .voice].contains(currentSharedTab) || currentSharedTab.isStories {
@@ -2769,6 +2777,68 @@ ClientRestorableNavigationEntry {
 
     /// Telegram 13's PeerInfoHeaderButtonNode without a profile colour: the list's block background, 16 pt corners, the
     /// accent icon and an 11 pt lowercased title.
+    /// PeerInfoCoverComponent behind the header down to the buttons, from 1000 pt above it so a pull keeps it.
+    private func layoutProfileCover() {
+        guard !profileCoverView.isHidden else { return }
+        profileHeaderView.layoutIfNeeded()
+        let header = profileHeaderView.frame
+        // Down past the lowest of the title, status, bio, Open App, details and buttons that shows.
+        let anchor = [actionStack, detailsLabel, openAppButton, bioLabel, statusLabel]
+            .first { !$0.isHidden } ?? titleRow
+        let bottom = anchor.convert(anchor.bounds, to: collectionView).maxY + 16
+        let top = header.minY - 1000
+        profileCoverView.frame = CGRect(x: 0, y: top, width: collectionView.bounds.width, height: max(0, bottom - top))
+        profileCoverView.gradientHeight = bottom - header.minY + view.safeAreaInsets.top
+        updateProfileCoverTopFill()
+    }
+
+    /// The bar's strip keeps the cover's top colour while the cover reaches the list's top edge and fades over the
+    /// last 24 pt as it scrolls away, where the bar's own background shows.
+    private func updateProfileCoverTopFill() {
+        let chrome = view.subviews.lazy.compactMap { $0 as? TelegramClassicNavigationChrome }.first
+        guard !profileCoverView.isHidden else {
+            profileCoverTopFill.isHidden = true
+            chrome?.backgroundAlpha = 1
+            return
+        }
+        let remaining = profileCoverView.frame.maxY - collectionView.contentOffset.y
+        let fill = min(1, max(0, remaining / 24))
+        profileCoverTopFill.isHidden = fill == 0
+        profileCoverTopFill.alpha = fill
+        chrome?.backgroundAlpha = 1 - fill
+    }
+
+    /// PeerInfoHeaderNode over a profile colour: white title and secondary text, and the buttons on translucent white
+    /// (translucent black in the dark theme) in place of the list's blocks.
+    private func applyProfileColor() {
+        let colors = profileAccentColorID >= 0
+            ? AvatarColorPalette.shared.profileColors(id: profileAccentColorID)?.background ?? []
+            : []
+        let hasCover = !colors.isEmpty
+        profileCoverView.isHidden = !hasCover
+        if hasCover {
+            let main = colors[0].resolvedColor(with: traitCollection)
+            let secondary = (colors[safe: 1] ?? colors[0]).resolvedColor(with: traitCollection)
+            profileCoverView.configure(main: main, secondary: secondary)
+            profileCoverTopFill.backgroundColor = secondary
+        }
+        profileHeaderView.backgroundColor = hasCover ? .clear : .systemBackground
+        titleLabel.textColor = hasCover ? .white : .label
+        let secondaryText = UIColor.white.withAlphaComponent(0.75)
+        statusLabel.textColor = hasCover ? secondaryText : currentStatusIsOnline ? .systemGreen : .secondaryLabel
+        bioLabel.textColor = hasCover ? .white : .label
+        detailsLabel.textColor = hasCover ? secondaryText : .secondaryLabel
+        let buttonBackground = UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(white: 0, alpha: 0.25)
+            : UIColor(white: 1, alpha: 0.25)
+        }
+        for case let button as UIButton in actionStack.arrangedSubviews {
+            button.configuration?.baseBackgroundColor = hasCover ? buttonBackground : .secondarySystemGroupedBackground
+            button.configuration?.baseForegroundColor = hasCover ? .white : .tintColor
+        }
+        layoutProfileCover()
+    }
+
     private func profileButton(title: String, symbol: String, action: Selector) -> UIButton {
         var configuration = UIButton.Configuration.filled()
         configuration.baseBackgroundColor = .secondarySystemGroupedBackground
@@ -2833,6 +2903,7 @@ ClientRestorableNavigationEntry {
             forCellWithReuseIdentifier: SharedMemberRowCell.reuseIdentifier,
         )
         view.addSubview(collectionView)
+        collectionView.addSubview(profileCoverView)
         collectionView.addSubview(profileHeaderView)
         scrollingArea.translatesAutoresizingMaskIntoConstraints = false
         scrollingArea.scrollView = collectionView
@@ -2846,7 +2917,15 @@ ClientRestorableNavigationEntry {
             scrollingArea.onTooltipShown = { UserDefaults.standard.set(true, forKey: tooltipKey) }
         }
         view.addSubview(scrollingArea)
+        profileCoverTopFill.translatesAutoresizingMaskIntoConstraints = false
+        profileCoverTopFill.isUserInteractionEnabled = false
+        profileCoverTopFill.isHidden = true
+        view.insertSubview(profileCoverTopFill, belowSubview: collectionView)
         NSLayoutConstraint.activate([
+            profileCoverTopFill.topAnchor.constraint(equalTo: view.topAnchor),
+            profileCoverTopFill.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            profileCoverTopFill.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            profileCoverTopFill.bottomAnchor.constraint(equalTo: collectionView.topAnchor),
             collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -2878,6 +2957,7 @@ ClientRestorableNavigationEntry {
         let height = ceil(size.height)
         guard height > 0 else { return }
         profileHeaderView.frame = CGRect(x: sideInsets.left, y: -height, width: width, height: height)
+        layoutProfileCover()
         #if DEBUG
             ProfileHeaderLayoutProbe.recordIfRequested(
                 header: profileHeaderView, avatar: avatarView,
@@ -3329,6 +3409,12 @@ ClientRestorableNavigationEntry {
     private func observeAccount() {
         nc.publisher(&cancellables, for: .updateChatTitle) { [weak self] update in
             self?.handleChatTitleUpdate(update)
+        }
+        nc.publisher(&cancellables, for: .updateChatAccentColors) { [weak self] update in
+            guard let self, contextIsCurrent, update.chatId == customChat.id else { return }
+            profileAccentColorID = update.profileAccentColorId
+            applyProfileColor()
+            updateProfileHeaderLayout()
         }
         nc.publisher(&cancellables, for: .updateChatPhoto) { [weak self] update in
             self?.handleChatPhotoUpdate(update)
@@ -4274,10 +4360,10 @@ ClientRestorableNavigationEntry {
         statusLabel.textColor = currentStatusIsOnline ? .systemGreen : .secondaryLabel
         statusLabel.isHidden = currentStatusText.isEmpty
         bioLabel.text = currentBioText
-        bioLabel.textColor = .label
         bioLabel.isHidden = currentBioText.isEmpty
         detailsLabel.text = currentDetailTexts.joined(separator: " · ")
         detailsLabel.isHidden = currentDetailTexts.isEmpty
+        applyProfileColor()
         avatarView.configure(
             file: displayedAvatarFile,
             minithumbnail: displayedAvatarMinithumbnail,
@@ -7561,9 +7647,49 @@ func profileDateString(_ timestamp: Int) -> String {
     Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(ProfileDateFormatting.style)
 }
 
+/// A collection's background that lays its one view out below a top inset, as a header row leaves room for.
+// MARK: - ProfileCoverView
+
+/// PeerInfoCoverComponent's background for a profile colour: the secondary colour above, then a gradient from it down
+/// to the main colour at the header's bottom.
+private final class ProfileCoverView: UIView {
+    /// The gradient's height, measured up from the bottom.
+    var gradientHeight: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
+
+    private let gradient = CAGradientLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isHidden = true
+        gradient.startPoint = CGPoint(x: 0.5, y: 1)
+        gradient.endPoint = CGPoint(x: 0.5, y: 0)
+        layer.addSublayer(gradient)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let height = min(bounds.height, max(0, gradientHeight))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = CGRect(x: 0, y: bounds.height - height, width: bounds.width, height: height)
+        CATransaction.commit()
+    }
+
+    func configure(main: UIColor, secondary: UIColor) {
+        backgroundColor = secondary
+        gradient.colors = [main.cgColor, secondary.cgColor]
+    }
+}
+
 // MARK: - TopInsetBackgroundView
 
-/// A collection's background that lays its one view out below a top inset, as a header row leaves room for.
 private final class TopInsetBackgroundView: UIView {
     private let content: UIView
     private let topInset: CGFloat
