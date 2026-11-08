@@ -28,6 +28,8 @@ import UIKit
         case topPeers
         case recentPeer(Int64)
         case app(Int64)
+        /// ChatListSearchListPaneNode's footer under the popular apps (ChatList.Search.TopAppsInfo).
+        case appsInfo
         case channel(Int64)
         case localPeer(Int64)
         case globalPeer(Int64)
@@ -251,6 +253,13 @@ import UIKit
         }
     }
 
+    /// "Which apps are included here? [Learn >]()": the sentence and its link's words.
+    private static func splitLink(_ text: String) -> (String, String) {
+        guard let open = text.range(of: "["), let close = text.range(of: "]", range: open.upperBound..<text.endIndex)
+        else { return (text, "") }
+        return (String(text[..<open.lowerBound]), String(text[open.upperBound..<close.lowerBound]))
+    }
+
     /// Results coming into view start at their top, under the bar as it is now: hidden, they didn't follow it.
     func restAtTop() {
         view.setNeedsLayout()
@@ -306,6 +315,8 @@ import UIKit
         case .message(let key):
             guard let chat = chatsByID[key.chatID] else { return }
             NavigationStorage.shared.push(.customChat(chat, targetMessageID: key.messageID), fromList: true)
+        case .appsInfo:
+            presentTopAppsInfo()
         case .messagesLoading:
             return
         }
@@ -320,6 +331,7 @@ import UIKit
              .localPeer,
              .recentPeer: Self.peerRowHeight
         case .message: Self.messageRowHeight
+        case .appsInfo: UITableView.automaticDimension
         case .messagesLoading,
              nil: Self.loadingRowHeight
         }
@@ -440,6 +452,16 @@ import UIKit
               indexPath.row >= dataSource.snapshot().numberOfItems(inSection: .messages) - 5
         else { return }
         loadMoreMessages()
+    }
+
+    private func presentTopAppsInfo() {
+        let alert = UIAlertController(
+            title: L10n.telegram("TopApps.Info.Title"),
+            message: L10n.telegram("TopApps.Info.Text").withoutTelegramLinks,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("TopApps.Info.Done"), style: .default))
+        present(alert, animated: true)
     }
 
     /// openMessagesFilter: All Chats, Private Chats, Group Chats or Channels, the current one checked; a choice
@@ -737,6 +759,25 @@ import UIKit
             else { return UITableViewCell() }
             cell.usesCardStyle = false
             cell.configure(chat: chat, isMuted: false, showsAvatarBadges: false, client: client)
+            return cell
+        case .appsInfo:
+            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+            let (question, link) = Self.splitLink(L10n.telegram("ChatList.Search.TopAppsInfo"))
+            let text = NSMutableAttributedString(string: question, attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .footnote),
+                .foregroundColor: UIColor.secondaryLabel,
+            ])
+            text.append(NSAttributedString(string: link, attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .footnote),
+                .foregroundColor: UIColor.tintColor,
+            ]))
+            var content = cell.defaultContentConfiguration()
+            content.attributedText = text
+            content.textProperties.numberOfLines = 0
+            cell.contentConfiguration = content
+            cell.backgroundColor = .clear
+            cell.selectionStyle = .none
+            cell.separatorInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: .greatestFiniteMagnitude)
             return cell
         case .messagesLoading:
             return table.dequeueReusableCell(withIdentifier: ChatListSearchLoadingCell.reuseIdentifier, for: indexPath)
@@ -1393,7 +1434,7 @@ import UIKit
             let popular = popularAppIDs.filter { !recent.contains($0) }
             if !popular.isEmpty {
                 snapshot.appendSections([.popularApps])
-                snapshot.appendItems(popular.map(Item.app))
+                snapshot.appendItems(popular.map(Item.app) + [.appsInfo])
             }
         } else if query.isEmpty, filter == .channels {
             let joined = isLocalChannelsExpanded
