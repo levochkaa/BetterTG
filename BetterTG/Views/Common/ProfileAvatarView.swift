@@ -547,3 +547,23 @@ private extension String {
         }
     }
 }
+
+// MARK: - TelegramAvatarPlaceholder + Image
+
+@MainActor extension TelegramAvatarPlaceholder {
+    /// The placeholder as a round picture `side` points across, for a list row's image: the peer's gradient and
+    /// letters, as ProfileAvatarView draws them.
+    func image(side: CGFloat) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: side, height: side)
+        let view = TelegramAvatarPlaceholderView(frame: rect)
+        view.configure(
+            colors: AvatarColorPalette.shared.gradient(for: self, icon: .none),
+            letters: letters,
+            icon: .none,
+        )
+        return UIGraphicsImageRenderer(size: rect.size).image { _ in
+            UIBezierPath(ovalIn: rect).addClip()
+            view.draw(rect)
+        }
+    }
+}

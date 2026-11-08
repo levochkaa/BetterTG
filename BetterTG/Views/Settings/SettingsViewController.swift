@@ -13,6 +13,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     private static let sectionGap: CGFloat = 20
     private static let blankIcon = UIGraphicsImageRenderer(size: CGSize(width: 25, height: 25)).image { _ in }
 
+    /// The app's own icon for the BetterTG row, from the bundle's primary icon.
+    private static let appIcon: UIImage? = {
+        let icons = Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any]
+        let primary = icons?["CFBundlePrimaryIcon"] as? [String: Any]
+        let name = (primary?["CFBundleIconFiles"] as? [String])?.last ?? "AppIcon"
+        return UIImage(named: name)?.withRenderingMode(.alwaysOriginal)
+    }()
+
     // MARK: Private
 
     private var cancellables = Set<AnyCancellable>()
@@ -211,6 +219,12 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         configuration.image = UIImage(systemName: row.symbolName)
         configuration.imageProperties.tintColor = row.tintColor
         configuration.imageProperties.maximumSize = CGSize(width: 25, height: 25)
+        if let account = row.account {
+            configuration.image = Self.accountIcon(account)
+        } else if row == .betterTG, let icon = Self.appIcon {
+            configuration.image = icon
+            configuration.imageProperties.cornerRadius = 25 * 0.225
+        }
         configuration.textProperties.color = row.isDestructive ? .systemRed : .label
         configuration.secondaryTextProperties.color = .secondaryLabel
         cell.contentConfiguration = configuration
@@ -334,6 +348,38 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             with: "$1",
             options: .regularExpression,
         )
+    }
+
+    /// Telegram's account rows lead with the account's photo: the one cached on disk, since only the active account
+    /// has a client, else its colour and first letter.
+    private static func accountIcon(_ account: TelegramAccount) -> UIImage {
+        let side: CGFloat = 25
+        let rect = CGRect(x: 0, y: 0, width: side, height: side)
+        guard let photo = TelegramAccountAvatarCache.photo(for: account.id) else {
+            let userID = account.userID ?? 0
+            return TelegramAvatarPlaceholder(
+                peerID: userID,
+                accentColorID: Int(userID % 7),
+                upgradedGiftColors: nil,
+                letters: account.localizedTitle.telegramAvatarFirstLetter.map { [$0] } ?? [],
+                isDeleted: false,
+            )
+            .image(side: side)
+            .withRenderingMode(.alwaysOriginal)
+        }
+        let scale = max(side / photo.size.width, side / photo.size.height)
+        let size = CGSize(width: photo.size.width * scale, height: photo.size.height * scale)
+        return UIGraphicsImageRenderer(size: rect.size)
+            .image { _ in
+                UIBezierPath(ovalIn: rect).addClip()
+                photo.draw(in: CGRect(
+                    x: (side - size.width) / 2,
+                    y: (side - size.height) / 2,
+                    width: size.width,
+                    height: size.height,
+                ))
+            }
+            .withRenderingMode(.alwaysOriginal)
     }
 
     func updateSearchResults(for search: UISearchController) {
@@ -737,7 +783,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             return isPremium ? [.stars, .business] : [.stars]
         case .support:
             return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
-        case .media:
+        case .betterTG:
             return [.betterTG]
         case .about:
             return [.version, .licenses, .privacyPolicy, .termsOfService]
@@ -931,6 +977,8 @@ extension SettingsViewController {
         /// PeerInfoSettingsItems' `.phone` section: the server's phone number or password reminder.
         case suggestion
         case accounts
+        /// BetterTG's own options, under the accounts as Swiftgram's entry leads its settings.
+        case betterTG
         case myProfile
         case proxy
         case apps
@@ -940,7 +988,6 @@ extension SettingsViewController {
         /// neither).
         case payment
         case support
-        case media
         case about
         case accountActions
 
@@ -953,8 +1000,8 @@ extension SettingsViewController {
             case .accountActions,
                  .appearance,
                  .apps,
+                 .betterTG,
                  .edit,
-                 .media,
                  .myProfile,
                  .payment,
                  .profile,
