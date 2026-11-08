@@ -27,6 +27,13 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         }
     }
 
+    // MARK: Internal
+
+    /// A square photo, such as a profile's expanded avatar, instead of the circle.
+    var isSquare = false {
+        didSet { setNeedsLayout() }
+    }
+
     // MARK: Private
 
     private lazy var contextMenuGesture = ContextMenuPressGestureRecognizer(
@@ -101,12 +108,10 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
-
     override func layoutSubviews() {
         super.layoutSubviews()
         guard extractedContentView.superview === self else { return }
-        extractedContentView.layer.cornerRadius = bounds.width / 2
+        extractedContentView.layer.cornerRadius = isSquare ? 0 : bounds.width / 2
     }
 
     func configure(

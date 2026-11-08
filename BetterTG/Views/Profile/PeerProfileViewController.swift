@@ -166,6 +166,8 @@ ClientRestorableNavigationEntry {
     /// stargifts_pinned_to_top_limit's default.
     private static let giftPinLimit = 6
 
+    private static let avatarExpandPullDistance: CGFloat = 80
+
     var onOpenMessage: ((Int64) -> Void)?
     var onPrepareGalleryReturn: ((Int64) async -> Bool)?
     var onGalleryReturnCompleted: ((Int64) -> Void)?
@@ -184,6 +186,11 @@ ClientRestorableNavigationEntry {
     private let profileCoverView = ProfileCoverView()
     /// PeerInfoHeaderNode's photo scale as the header collapses under the bar.
     private var headerCollapseScale: CGFloat = 1
+    /// PeerInfoHeaderNode's expanded avatar: a pull past the threshold opens the photo across the width above the
+    /// header, where the round photo had been; scrolling back into the list closes it.
+    private let expandedAvatarView = ProfileAvatarView()
+    private var isAvatarExpanded = false
+    private var avatarSizeConstraints = [NSLayoutConstraint]()
     /// The cover's colour over the bar, above the list, while the cover is at the list's top edge.
     private let profileCoverTopFill = UIView()
     private let isSelfProfile: Bool
@@ -1166,8 +1173,15 @@ ClientRestorableNavigationEntry {
         if hadPendingViewport, restoration?.shouldResumePage == true { loadMore() }
     }
 
-    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate { retryClientRestoration() }
+        // A pull past the threshold opens the photo, as PeerInfoScreen's header expands on release.
+        let pull = -(scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
+        if pull > Self.avatarExpandPullDistance, !isAvatarExpanded, avatarGalleryIsAvailable,
+           storyRingView.style == nil
+        {
+            setAvatarExpanded(true)
+        }
     }
 
     func scrollViewDidEndDecelerating(_: UIScrollView) { retryClientRestoration() }
@@ -1382,6 +1396,12 @@ ClientRestorableNavigationEntry {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         updateProfileCoverTopFill()
         updateHeaderCollapse()
+        // Scrolling into the list closes the expanded photo.
+        if isAvatarExpanded, scrollView.isDragging,
+           scrollView.contentOffset.y + scrollView.adjustedContentInset.top > expandedAvatarView.bounds.height * 0.5
+        {
+            setAvatarExpanded(false)
+        }
         // PeerInfoVisualMediaPaneNode's panes (media, files, music, voice) and PeerInfoStoryPaneNode's grids have the
         // scroller; only Media opens the calendar from it.
         if [.media, .files, .audio, .voice].contains(currentSharedTab) || currentSharedTab.isStories {
@@ -1437,6 +1457,30 @@ ClientRestorableNavigationEntry {
             item: min(max(proposed.item, range.lowerBound), range.upperBound - 1),
             section: proposed.section,
         )
+    }
+
+    private func setAvatarExpanded(_ expanded: Bool) {
+        guard isAvatarExpanded != expanded else { return }
+        isAvatarExpanded = expanded
+        if expanded {
+            expandedAvatarView.configure(
+                file: displayedAvatarFile,
+                minithumbnail: displayedAvatarMinithumbnail,
+                placeholder: customChat.telegramAvatarPlaceholder,
+                usesPeerPhotoForSavedMessages: isSelfProfile,
+                accountID: accountID,
+                accountUserID: accountUserID,
+                client: client,
+            )
+        }
+        for constraint in avatarSizeConstraints {
+            constraint.constant = expanded ? 0 : 96
+        }
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+            self.expandedAvatarView.alpha = expanded ? 1 : 0
+            self.profileHeaderView.layoutIfNeeded()
+            self.updateProfileHeaderLayout()
+        }
     }
 
     /// addGiftsToCollection: AddGiftsScreen over the profile's gifts, then the picked ones join the collection.
@@ -2577,6 +2621,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func configureHeader() {
+        avatarSizeConstraints = [
+            avatarView.widthAnchor.constraint(equalToConstant: 96),
+            avatarView.heightAnchor.constraint(equalToConstant: 96),
+        ]
         profileHeaderView.backgroundColor = .systemBackground
         let headerStack = UIStackView()
         headerStack.translatesAutoresizingMaskIntoConstraints = false
@@ -2757,8 +2805,8 @@ ClientRestorableNavigationEntry {
             headerStack.topAnchor.constraint(equalTo: profileHeaderView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor, constant: 20),
             headerStack.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -20),
-            avatarView.widthAnchor.constraint(equalToConstant: 96),
-            avatarView.heightAnchor.constraint(equalToConstant: 96),
+            avatarSizeConstraints[0],
+            avatarSizeConstraints[1],
             storyRingView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             storyRingView.widthAnchor.constraint(equalTo: avatarView.widthAnchor),
@@ -2954,6 +3002,12 @@ ClientRestorableNavigationEntry {
         view.addSubview(collectionView)
         collectionView.addSubview(profileCoverView)
         collectionView.addSubview(profileHeaderView)
+        expandedAvatarView.alpha = 0
+        expandedAvatarView.isSquare = true
+        expandedAvatarView.clipsToBounds = true
+        expandedAvatarView.isUserInteractionEnabled = true
+        expandedAvatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(avatarPressed)))
+        collectionView.addSubview(expandedAvatarView)
         scrollingArea.translatesAutoresizingMaskIntoConstraints = false
         scrollingArea.scrollView = collectionView
         scrollingArea.currentDate = { [weak self] in self?.topMediaMonth() }
@@ -3003,9 +3057,18 @@ ClientRestorableNavigationEntry {
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel,
         )
-        let height = ceil(size.height)
-        guard height > 0 else { return }
-        profileHeaderView.frame = CGRect(x: sideInsets.left, y: -height, width: width, height: height)
+        let headerHeight = ceil(size.height)
+        guard headerHeight > 0 else { return }
+        profileHeaderView.frame = CGRect(x: sideInsets.left, y: -headerHeight, width: width, height: headerHeight)
+        // The expanded photo is square across the header's width, above it.
+        let expandedSide = isAvatarExpanded ? width : 0
+        expandedAvatarView.frame = CGRect(
+            x: sideInsets.left,
+            y: -headerHeight - expandedSide,
+            width: width,
+            height: width,
+        )
+        let height = headerHeight + expandedSide
         layoutProfileCover()
         #if DEBUG
             ProfileHeaderLayoutProbe.recordIfRequested(
