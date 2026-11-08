@@ -4150,3 +4150,12 @@
 "Group.AdminLog.EmptyText" = "No service actions were taken by the group's members and admins in the last 48 hours.";
 "Broadcast.AdminLog.EmptyText" = "No service actions were taken by the channel's admins in the last 48 hours.";
 "AuthSessions.AddedDeviceTerminate" = "Terminate";
+"GroupInfo.WelcomeMessages" = "Welcome Message";
+"WelcomeMessages.Title" = "Welcome Message";
+"WelcomeMessages.EmptyTitle" = "Create a Welcome Message";
+"WelcomeMessages.EmptyText" = "Automatically greet new members when they join.";
+"WelcomeMessages.Off" = "Off";
+"WelcomeMessages.ServiceHeader1" = "New members will see this message when they join";
+"WelcomeMessages.ServiceHeader2" = "Touch and hold it to delete it";
+"WelcomeMessages.MessageLimitReachedText_1" = "Limit of %@ message reached";
+"WelcomeMessages.MessageLimitReachedText_any" = "Limit of %@ messages reached";

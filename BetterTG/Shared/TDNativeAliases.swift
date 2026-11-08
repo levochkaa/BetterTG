@@ -277,3 +277,4 @@ public typealias VideoNote = TDNativeVideoNote
 public typealias VoiceNote = TDNativeVoiceNote
 public typealias WebApp = TDNativeWebApp
 public typealias WebBrowserSettings = TDNativeWebBrowserSettings
+public typealias WelcomeMessage = TDNativeWelcomeMessage

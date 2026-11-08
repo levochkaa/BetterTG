@@ -33,6 +33,8 @@ final class ChatManagementViewController: SettingsListViewController {
 
     /// The reactions as last chosen here, ahead of the chat TDLib sent.
     private var availableReactions: TDNativeChatAvailableReactions?
+    /// The group's welcome messages once loaded, for the row's label.
+    private var welcomeMessages: [WelcomeMessage]?
 
     private var canChangeInfo: Bool {
         target?.rights?.canChangeInfo == true
@@ -70,6 +72,13 @@ final class ChatManagementViewController: SettingsListViewController {
         session.publisher
             .sink { [weak self] _ in self?.updateDoneButton() }
             .store(in: &cancellables)
+        let source = TDLib.shared.activeUpdateSource
+        let chatID = chatID
+        nc.scopedPublisher(&cancellables, for: .updateChatWelcomeMessages) { [weak self] event in
+            guard let self, event.source == source, event.value.chatId == chatID else { return }
+            welcomeMessages = event.value.messages
+            reload()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -205,6 +214,17 @@ final class ChatManagementViewController: SettingsListViewController {
                     self?.reload()
                 }
                 push(screen)
+            })
+        }
+        // PeerInfoProfileItems' Welcome Message for a group's admin with the right, after Reactions.
+        if !isChannel, target.supergroupID != nil, target.rights?.canSendWelcomeMessages == true {
+            rows.append(disclosure(
+                L10n.telegram("GroupInfo.WelcomeMessages"),
+                symbol: "hand.wave",
+                value: ChatWelcomeMessagesViewController.label(welcomeMessages),
+            ) { [weak self] in
+                guard let self else { return }
+                push(ChatWelcomeMessagesViewController(chatID: target.chat.id, messages: welcomeMessages))
             })
         }
         return rows
@@ -376,6 +396,9 @@ final class ChatManagementViewController: SettingsListViewController {
             let linkedChatID = target?.supergroupInfo?.linkedChatId ?? 0
             var linkedTitle: String?
             if linkedChatID != 0 { linkedTitle = await (try? client.getChat(chatId: linkedChatID))?.title }
+            if target?.rights?.canSendWelcomeMessages == true, target?.supergroupID != nil {
+                _ = try? await client.send(TDNativeRequests.loadChatWelcomeMessages(chatId: chatID))
+            }
             guard let self, !Task.isCancelled else { return }
             loadTask = nil
             guard contextIsCurrent, let target else { return }
