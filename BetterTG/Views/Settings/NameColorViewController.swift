@@ -223,6 +223,23 @@ final class NameColorViewController: UIViewController, UITableViewDataSource, UI
 /// The preview message: the name in the colour, a reply quote to the account with the colour's bar and tint, the
 /// text, and a link preview tinted the same way.
 private final class NameColorPreviewCell: UITableViewCell {
+    /// The preview's wording: the account's, or a channel's (ChannelAppearanceScreen's examples).
+    struct Texts {
+        static let channel = Texts(
+            reply: L10n.telegram("Channel.Appearance.ExampleReplyText"),
+            message: L10n.telegram("Channel.Appearance.ExampleText"),
+            linkSite: L10n.telegram("Channel.Appearance.ExampleLinkWebsite"),
+            linkTitle: L10n.telegram("Channel.Appearance.ExampleLinkTitle"),
+            linkText: L10n.telegram("Channel.Appearance.ExampleLinkText"),
+        )
+
+        var reply = L10n.telegram("NameColor.ChatPreview.ReplyText.Account")
+        var message = L10n.telegram("NameColor.ChatPreview.MessageText.Account")
+        var linkSite = L10n.telegram("NameColor.ChatPreview.LinkSite")
+        var linkTitle = L10n.telegram("NameColor.ChatPreview.LinkTitle")
+        var linkText = L10n.telegram("NameColor.ChatPreview.LinkText")
+    }
+
     static let reuseIdentifier = "NameColorPreviewCell"
 
     private let bubble = UIView()
@@ -267,20 +284,15 @@ private final class NameColorPreviewCell: UITableViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(name: String, colors: [UIColor]) {
+    func configure(name: String, colors: [UIColor], texts: Texts = Texts()) {
         let color = colors.first ?? .systemBlue
         nameLabel.text = name
         nameLabel.textColor = color
-        reply.configure(
-            title: name,
-            text: L10n.telegram("NameColor.ChatPreview.ReplyText.Account"),
-            colors: colors,
-            boldText: false,
-        )
+        textLabelView.text = texts.message
+        reply.configure(title: name, text: texts.reply, colors: colors, boldText: false)
         link.configure(
-            title: L10n.telegram("NameColor.ChatPreview.LinkSite"),
-            text: L10n.telegram("NameColor.ChatPreview.LinkTitle") + "\n"
-                + L10n.telegram("NameColor.ChatPreview.LinkText"),
+            title: texts.linkSite,
+            text: texts.linkTitle + "\n" + texts.linkText,
             colors: colors,
             boldText: true,
         )
@@ -449,7 +461,12 @@ private final class NameColorGridCell: UITableViewCell {
         }
     }
 
-    func configure(colors: [(id: Int, colors: [UIColor])], selected: Int, onSelect: @escaping (Int) -> Void) {
+    func configure(
+        colors: [(id: Int, colors: [UIColor])],
+        selected: Int,
+        locked: Set<Int> = [],
+        onSelect: @escaping (Int) -> Void,
+    ) {
         self.onSelect = onSelect
         grid.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let perRow = 7
@@ -460,6 +477,20 @@ private final class NameColorGridCell: UITableViewCell {
             for (id, circleColors) in colors[start..<min(start + perRow, colors.count)] {
                 let button = UIButton(type: .custom)
                 button.setImage(Self.circle(circleColors, isSelected: id == selected), for: .normal)
+                if locked.contains(id) {
+                    // PeerNameColorItem's lock on a colour the channel's level doesn't reach yet.
+                    let lock = UIImageView(image: UIImage(
+                        systemName: "lock.fill",
+                        withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold),
+                    ))
+                    lock.tintColor = .white
+                    lock.translatesAutoresizingMaskIntoConstraints = false
+                    button.addSubview(lock)
+                    NSLayoutConstraint.activate([
+                        lock.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                        lock.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                    ])
+                }
                 button.accessibilityTraits = id == selected ? [.button, .selected] : .button
                 button.addAction(UIAction { [weak self] _ in self?.onSelect?(id) }, for: .touchUpInside)
                 button.translatesAutoresizingMaskIntoConstraints = false
@@ -536,6 +567,22 @@ private final class ProfileColorPreviewCell: UITableViewCell {
             accountUserID: user.id,
             client: client,
         )
+        apply(name: name, status: L10n.telegram("Presence.online"), background: background)
+    }
+
+    func configure(chat: Chat, status: String, background: [UIColor]?, client: TDLibClient) {
+        let peer = SettingsPeer(chat: chat)
+        avatarView.configure(
+            file: peer.file,
+            minithumbnail: peer.minithumbnail,
+            placeholder: peer.placeholder,
+            client: client,
+        )
+        apply(name: chat.title, status: status, background: background)
+    }
+
+    private func apply(name: String, status: String, background: [UIColor]?) {
+        statusLabel.text = status
         nameLabel.text = name
         if let background, !background.isEmpty {
             let colors = background.count == 1 ? [background[0], background[0]] : background
@@ -548,5 +595,226 @@ private final class ProfileColorPreviewCell: UITableViewCell {
             nameLabel.textColor = .label
             statusLabel.textColor = .systemBlue
         }
+    }
+}
+
+// MARK: - ChannelAppearanceViewController
+
+/// ChannelAppearanceScreen: the channel's preview message in its name colour, the name colours with
+/// NameColorFooter, PROFILE PAGE COLOR with the channel's header and the profile colours, Reset Profile Color, and
+/// Apply Changes. Colours above the channel's boost level are locked; with one chosen, Apply Changes names the level
+/// it needs and opens the boost screen instead (setChatAccentColor, setChatProfileAccentColor).
+final class ChannelAppearanceViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+    private let client: TDLibClient
+    private let chat: Chat
+    private let statusText: String
+    private var colorID: Int
+    private var profileColorID: Int
+    private var boostLevel = 0
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let applyButton = UIButton(configuration: .prominentGlass())
+
+    /// The level the chosen colours need.
+    private var requiredLevel: Int {
+        max(
+            AvatarColorPalette.shared.nameColorChannelLevel(colorID),
+            profileColorID >= 0 ? AvatarColorPalette.shared.profileColorChannelLevel(profileColorID) : 0,
+        )
+    }
+
+    init(chat: Chat, statusText: String, client: TDLibClient) {
+        self.chat = chat
+        self.statusText = statusText
+        self.client = client
+        self.colorID = chat.accentColorId
+        self.profileColorID = chat.profileAccentColorId
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.telegram("Channel.Appearance.Title")
+        view.backgroundColor = .systemGroupedBackground
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(NameColorPreviewCell.self, forCellReuseIdentifier: NameColorPreviewCell.reuseIdentifier)
+        tableView.register(NameColorGridCell.self, forCellReuseIdentifier: NameColorGridCell.reuseIdentifier)
+        tableView.register(
+            ProfileColorPreviewCell.self,
+            forCellReuseIdentifier: ProfileColorPreviewCell.reuseIdentifier,
+        )
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ResetCell")
+        view.addSubview(tableView)
+        applyButton.translatesAutoresizingMaskIntoConstraints = false
+        applyButton.addAction(UIAction { [weak self] _ in self?.apply() }, for: .touchUpInside)
+        view.addSubview(applyButton)
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: applyButton.topAnchor, constant: -8),
+            applyButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            applyButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            applyButton.heightAnchor.constraint(equalToConstant: 50),
+            applyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+        ])
+        updateApplyButton()
+        let client = client
+        let chatID = chat.id
+        Task { [weak self] in
+            let status = try? await client.send(TDNativeRequests.getChatBoostStatus(chatId: chatID))
+            guard let self, let status else { return }
+            boostLevel = status.level
+            tableView.reloadData()
+            updateApplyButton()
+        }
+    }
+
+    func numberOfSections(in _: UITableView) -> Int {
+        profileColorID >= 0 ? 4 : 3
+    }
+
+    func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        section == 2 ? 2 : 1
+    }
+
+    func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
+        section == 2 ? L10n.telegram("Channel.Appearance.ProfileHeader") : nil
+    }
+
+    func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        switch section {
+        case 1: L10n.telegram("Channel.Appearance.NameColorFooter")
+        case 2: L10n.telegram("Channel.Appearance.ProfileFooter")
+        default: nil
+        }
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let palette = AvatarColorPalette.shared
+        switch (indexPath.section, indexPath.row) {
+        case (0, _):
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NameColorPreviewCell.reuseIdentifier,
+                for: indexPath,
+            )
+            (cell as? NameColorPreviewCell)?.configure(
+                name: chat.title,
+                colors: palette.nameColors(accentColorID: colorID),
+                texts: .channel,
+            )
+            return cell
+        case (1, _):
+            let cell = tableView.dequeueReusableCell(withIdentifier: NameColorGridCell.reuseIdentifier, for: indexPath)
+            let ids = palette.availableAccentColorIDs
+            (cell as? NameColorGridCell)?.configure(
+                colors: ids.map { (id: $0, colors: palette.nameColors(accentColorID: $0)) },
+                selected: colorID,
+                locked: Set(ids.filter { palette.nameColorChannelLevel($0) > boostLevel }),
+            ) { [weak self] id in
+                self?.colorID = id
+                self?.refresh()
+            }
+            return cell
+        case (2, 0):
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: ProfileColorPreviewCell.reuseIdentifier,
+                for: indexPath,
+            )
+            (cell as? ProfileColorPreviewCell)?.configure(
+                chat: chat,
+                status: statusText,
+                background: profileColorID >= 0 ? palette.profileColors(id: profileColorID)?.background : nil,
+                client: client,
+            )
+            return cell
+        case (2, _):
+            let cell = tableView.dequeueReusableCell(withIdentifier: NameColorGridCell.reuseIdentifier, for: indexPath)
+            let ids = palette.availableProfileAccentColorIDs
+            (cell as? NameColorGridCell)?.configure(
+                colors: ids.compactMap { id in palette.profileColors(id: id).map { (id: id, colors: $0.palette) } },
+                selected: profileColorID,
+                locked: Set(ids.filter { palette.profileColorChannelLevel($0) > boostLevel }),
+            ) { [weak self] id in
+                self?.profileColorID = id
+                self?.refresh()
+            }
+            return cell
+        default:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ResetCell", for: indexPath)
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = L10n.telegram("Channel.Appearance.ResetProfileColor")
+            configuration.textProperties.color = .systemBlue
+            cell.contentConfiguration = configuration
+            return cell
+        }
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section == 3 else { return }
+        profileColorID = -1
+        refresh()
+    }
+
+    private func refresh() {
+        tableView.reloadData()
+        updateApplyButton()
+    }
+
+    /// Apply Changes, with Level N beside it while the chosen colours need a level the channel hasn't reached.
+    private func updateApplyButton() {
+        var title = AttributedString(L10n.telegram("Channel.Appearance.ApplyButton"))
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        if requiredLevel > boostLevel {
+            var level = AttributedString("  🔒 " + L10n.telegram("Channel.Appearance.BoostLevel", "\(requiredLevel)"))
+            level.font = .systemFont(ofSize: 15, weight: .medium)
+            title += level
+        }
+        applyButton.configuration?.attributedTitle = title
+    }
+
+    private func apply() {
+        guard requiredLevel <= boostLevel else {
+            navigationController?.pushViewController(
+                BoostLevelsViewController(chat: chat, isAdmin: true, client: client),
+                animated: true,
+            )
+            return
+        }
+        let client = client
+        let chat = chat
+        let colorID = colorID
+        let profileColorID = profileColorID
+        Task {
+            if colorID != chat.accentColorId {
+                _ = try? await client.send(TDNativeRequests.setChatAccentColor(
+                    chatId: chat.id,
+                    accentColorId: colorID,
+                    backgroundCustomEmojiId: chat.backgroundCustomEmojiId,
+                ))
+            }
+            if profileColorID != chat.profileAccentColorId {
+                _ = try? await client.send(TDNativeRequests.setChatProfileAccentColor(
+                    chatId: chat.id,
+                    profileAccentColorId: profileColorID,
+                    profileBackgroundCustomEmojiId: chat.profileBackgroundCustomEmojiId,
+                ))
+            }
+        }
+        if let host = navigationController?.view {
+            TelegramUndoToast.show(
+                text: L10n.telegram("Channel.Appearance.ToastAppliedText"),
+                in: host,
+                bottomInset: 12,
+                undo: nil,
+            )
+        }
+        navigationController?.popViewController(animated: true)
     }
 }

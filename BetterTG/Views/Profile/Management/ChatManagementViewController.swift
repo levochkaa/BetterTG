@@ -197,6 +197,20 @@ final class ChatManagementViewController: SettingsListViewController {
                     : "GroupInfo.GroupHistoryHidden"),
             ) { [weak self] in self?.presentHistoryMenu(rowTitle: title, isVisible: info.isAllHistoryAvailable) })
         }
+        // ChannelAppearanceScreen for a channel's admins who may change its info.
+        if isChannel, target.rights?.canChangeInfo == true {
+            rows.append(disclosure(L10n.telegram("Channel.Appearance.Title"), symbol: "paintpalette") { [weak self] in
+                guard let self else { return }
+                push(ChannelAppearanceViewController(
+                    chat: target.chat,
+                    statusText: L10n.telegramPlural(
+                        "Conversation.StatusSubscribers",
+                        count: target.supergroup?.memberCount ?? 0,
+                    ),
+                    client: client,
+                ))
+            })
+        }
         // PeerInfoProfileItems' Reactions for whoever may change the chat's info.
         if target.rights?.canChangeInfo == true {
             let available = availableReactions ?? target.chat.availableReactions

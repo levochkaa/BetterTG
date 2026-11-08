@@ -149,6 +149,16 @@ struct TelegramAvatarPlaceholder {
         }
     }
 
+    /// The channel boost level a name colour needs; the built-in seven need none.
+    func nameColorChannelLevel(_ id: Int) -> Int {
+        serverColors[id]?.minChannelChatBoostLevel ?? 0
+    }
+
+    /// The channel boost level a profile colour needs.
+    func profileColorChannelLevel(_ id: Int) -> Int {
+        profileAccentColors[id]?.minChannelChatBoostLevel ?? 0
+    }
+
     /// PeerNameColors.getProfile: the profile colour's palette (one or two colours) and its header gradient.
     func profileColors(id: Int) -> (palette: [UIColor], background: [UIColor])? {
         guard let color = profileAccentColors[id] else { return nil }

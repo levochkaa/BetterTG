@@ -4465,3 +4465,16 @@
 "ChannelBoost.MoreBoosts.Title" = "More Boosts Needed";
 "ChannelBoost.MoreBoosts.Text" = "To boost **%1$@** again, gift **Telegram Premium** to a friend and get **%2$@** additional boosts.";
 "ChannelBoost.BoostLinkCopied" = "Boost link copied to clipboard";
+"Channel.Appearance.Title" = "Appearance";
+"Channel.Appearance.ToastAppliedText" = "Appearance settings have been updated.";
+"Channel.Appearance.ExampleReplyText" = "Reply to your channel";
+"Channel.Appearance.ExampleText" = "The color you select will be used for the channel's name";
+"Channel.Appearance.ExampleLinkWebsite" = "Telegram";
+"Channel.Appearance.ExampleLinkTitle" = "Link Preview";
+"Channel.Appearance.ExampleLinkText" = "This preview will also be tinted.";
+"Channel.Appearance.NameColorFooter" = "Choose a color for the name of your channel, the link it sends, and replies to its messages.";
+"Channel.Appearance.ProfileHeader" = "PROFILE PAGE COLOR";
+"Channel.Appearance.ProfileFooter" = "Choose a color and a logo for the channel's profile.";
+"Channel.Appearance.ResetProfileColor" = "Reset Profile Color";
+"Channel.Appearance.ApplyButton" = "Apply Changes";
+"Channel.Appearance.BoostLevel" = "Level %@";
