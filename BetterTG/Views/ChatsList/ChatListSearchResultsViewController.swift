@@ -13,6 +13,9 @@ import UIKit
         /// The empty search's People row and recently found chats (ChatListSearchListPaneNode with no query).
         case topPeers
         case recent
+        /// The Apps tab with no query: the account's apps, then the popular ones.
+        case recentApps
+        case popularApps
         case localPeers
         case globalPeers
         case messages
@@ -21,6 +24,7 @@ import UIKit
     private enum Item: Hashable {
         case topPeers
         case recentPeer(Int64)
+        case app(Int64)
         case localPeer(Int64)
         case globalPeer(Int64)
         case message(MessageKey)
@@ -34,6 +38,8 @@ import UIKit
 
     /// Telegram collapses global results above this count behind Show More.
     private static let collapsedGlobalCount = 3
+    /// ChatListSearchListPaneNode shows five of the apps the account uses until Show More.
+    private static let collapsedRecentAppCount = 5
     /// Remote requests wait for typing to pause; TDLib cannot cancel a request it has sent.
     private static let remoteSearchDelay = Duration.milliseconds(400)
     private static let messagesFirstPageLimit = 50
@@ -99,6 +105,11 @@ import UIKit
     /// TDLib's top chats with people and recently found chats, shown before a query is typed.
     private var topPeerIDs = [Int64]()
     private var recentChatIDs = [Int64]()
+    private var recentAppIDs = [Int64]()
+    private var popularAppIDs = [Int64]()
+    private var popularAppsOffset = ""
+    private var popularAppsTask: Task<Void, Never>?
+    private var isRecentAppsExpanded = false
     private var emptyStateTask: Task<Void, Never>?
 
     /// ChatListSearchPaneContainerNode's tabs: Downloads only while the download list has files.
@@ -272,6 +283,14 @@ import UIKit
         case .recentPeer(let chatID):
             guard let chat = chatsByID[chatID] else { return }
             openFoundChat(chat)
+        case .app(let chatID):
+            guard let chat = chatsByID[chatID] else { return }
+            // A popular app opens on its profile (peerSelected's `.info`), one the account uses as its chat.
+            if dataSource.sectionIdentifier(for: indexPath.section) == .popularApps {
+                openAppProfile(chat)
+            } else {
+                openFoundChat(chat)
+            }
         case .globalPeer(let chatID),
              .localPeer(let chatID):
             guard let chat = chatsByID[chatID] else { return }
@@ -287,7 +306,8 @@ import UIKit
     func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch dataSource.itemIdentifier(for: indexPath) {
         case .topPeers: ChatListSearchTopPeersCell.height
-        case .globalPeer,
+        case .app,
+             .globalPeer,
              .localPeer,
              .recentPeer: Self.peerRowHeight
         case .message: Self.messageRowHeight
@@ -341,6 +361,20 @@ import UIKit
                 actionInGlass: true,
                 action: { [weak self] source in self?.confirmClearingRecent(from: source) },
             )
+        case .recentApps:
+            let actionTitle: String? =
+                if recentAppIDs.count > Self.collapsedRecentAppCount {
+                    L10n.telegram(isRecentAppsExpanded ? "ChatList.Search.ShowLess" : "ChatList.Search.ShowMore")
+                } else {
+                    nil
+                }
+            header.configure(
+                title: L10n.telegram("ChatList.Search.SectionRecentApps"),
+                actionTitle: actionTitle,
+                action: { [weak self] in self?.toggleRecentAppsExpansion() },
+            )
+        case .popularApps:
+            header.configure(title: L10n.telegram("ChatList.Search.SectionPopularApps"), actionTitle: nil, action: nil)
         case .localPeers:
             header.configure(title: L10n.telegram("DialogList.SearchSectionDialogs"), actionTitle: nil, action: nil)
         case .globalPeers:
@@ -369,6 +403,12 @@ import UIKit
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+        if dataSource.sectionIdentifier(for: indexPath.section) == .popularApps,
+           indexPath.row >= dataSource.snapshot().numberOfItems(inSection: .popularApps) - 5
+        {
+            loadMorePopularApps()
+            return
+        }
         guard dataSource.sectionIdentifier(for: indexPath.section) == .messages,
               indexPath.row >= dataSource.snapshot().numberOfItems(inSection: .messages) - 5
         else { return }
@@ -596,6 +636,22 @@ import UIKit
                 subtitle: Self.subtitle(for: chat, isGlobal: false),
                 unreadCount: chat.unreadCount,
                 isMuted: rootVM.isMuted(chat),
+                client: client,
+            )
+            return cell
+        case .app(let chatID):
+            guard let chat = chatsByID[chatID],
+                  let cell = table.dequeueReusableCell(
+                      withIdentifier: ChatListSearchPeerCell.reuseIdentifier,
+                      for: indexPath,
+                  ) as? ChatListSearchPeerCell
+            else { return UITableViewCell() }
+            // peerMode `.app`: the bot's monthly users under its name.
+            cell.configure(
+                chat: chat,
+                subtitle: Self.subtitle(for: chat, isGlobal: true),
+                unreadCount: 0,
+                isMuted: false,
                 client: client,
             )
             return cell
@@ -896,9 +952,14 @@ import UIKit
         return true
     }
 
-    /// ChatListSearchContainerNode before a query: TDLib's top people and the chats found recently.
+    /// ChatListSearchContainerNode before a query: TDLib's top people and the chats found recently; on the Apps tab
+    /// the apps the account uses (TopChatCategory web app bots) and the popular ones.
     private func loadEmptyState() {
         emptyStateTask?.cancel()
+        guard filter != .apps else {
+            loadAppsEmptyState()
+            return
+        }
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         let requestGeneration = generation
@@ -920,6 +981,75 @@ import UIKit
             recentChatIDs = hydratedRecent
             applySnapshot(reloadingSections: [.topPeers])
         }
+    }
+
+    private func loadAppsEmptyState() {
+        popularAppsTask?.cancel()
+        popularAppsTask = nil
+        popularAppIDs = []
+        popularAppsOffset = ""
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let requestGeneration = generation
+        emptyStateTask = Task { [weak self] in
+            let recentIDs = await (try? client.getTopChats(category: .topChatCategoryWebAppBots, limit: 30))?
+                .chatIds ?? []
+            guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
+                  let hydrated = await hydrate(recentIDs, generation: requestGeneration, scope: scope, client: client)
+            else { return }
+            recentAppIDs = hydrated
+            applySnapshot()
+            loadMorePopularApps()
+        }
+    }
+
+    /// bots.getPopularAppBots a page at a time, leaving out the apps already listed.
+    private func loadMorePopularApps() {
+        guard filter == .apps, query.isEmpty, popularAppsTask == nil, popularAppsOffset != "-" else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let requestGeneration = generation
+        let offset = popularAppsOffset
+        popularAppsTask = Task { [weak self] in
+            let found = try? await client.send(TDNativeRequests.getGrossingWebAppBots(offset: offset, limit: 20))
+            var chatIDs = [Int64]()
+            for userID in found?.userIds ?? [] {
+                if let chat = try? await client.createPrivateChat(force: false, userId: userID) {
+                    chatIDs.append(chat.id)
+                }
+            }
+            guard let self, isCurrent(requestGeneration, scope), query.isEmpty, filter == .apps else { return }
+            popularAppsTask = nil
+            guard let found else { return }
+            let known = Set(recentAppIDs + popularAppIDs)
+            guard let hydrated = await hydrate(
+                chatIDs.filter { !known.contains($0) },
+                generation: requestGeneration,
+                scope: scope,
+                client: client,
+            ) else { return }
+            popularAppIDs += hydrated
+            popularAppsOffset = found.nextOffset.isEmpty ? "-" : found.nextOffset
+            applySnapshot()
+        }
+    }
+
+    private func toggleRecentAppsExpansion() {
+        isRecentAppsExpanded.toggle()
+        applySnapshot(reloadingSections: [.recentApps])
+    }
+
+    /// A popular app's profile, as Telegram opens it from the list.
+    private func openAppProfile(_ chat: CustomChat) {
+        guard let accountID = TDLib.shared.activeAccountID else { return }
+        view.window?.endEditing(true)
+        let profile = PeerProfileViewController(
+            customChat: chat,
+            topic: nil,
+            client: actionAuthority.client,
+            accountID: accountID,
+        )
+        NavigationStorage.shared.activeNavigationController.pushViewController(profile, animated: true)
     }
 
     /// The chat under `point` in the table: a found chat's row or a person in the People row.
@@ -1159,7 +1289,18 @@ import UIKit
     private func applySnapshot(reloadingSections: [Section] = []) {
         guard isViewLoaded else { return }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
-        if query.isEmpty {
+        if query.isEmpty, filter == .apps {
+            let recent = isRecentAppsExpanded ? recentAppIDs : Array(recentAppIDs.prefix(Self.collapsedRecentAppCount))
+            if !recent.isEmpty {
+                snapshot.appendSections([.recentApps])
+                snapshot.appendItems(recent.map(Item.app))
+            }
+            let popular = popularAppIDs.filter { !recent.contains($0) }
+            if !popular.isEmpty {
+                snapshot.appendSections([.popularApps])
+                snapshot.appendItems(popular.map(Item.app))
+            }
+        } else if query.isEmpty {
             if !topPeerIDs.isEmpty {
                 snapshot.appendSections([.topPeers])
                 snapshot.appendItems([.topPeers])
