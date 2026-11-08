@@ -64,6 +64,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private var publicShareCount: Int?
     private var publicShares = [PublicShare]()
     private var publicSharesSection: Int?
+    /// getMessagePublicForwards' next offset; empty when every share is listed.
+    private var publicSharesOffset = ""
+    private var loadsPublicShares = false
     private var failed = false
     /// StatsOverviewItem's values, in reading order.
     private var overviewItems = [StatisticsOverviewCell.Item]()
@@ -199,6 +202,17 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         navigationController?.pushViewController(controller, animated: true)
     }
 
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath,
+    ) {
+        super.tableView(tableView, willDisplay: cell, forRowAt: indexPath)
+        if indexPath.section == publicSharesSection, indexPath.row >= publicShares.count - 5 {
+            loadMorePublicShares()
+        }
+    }
+
     /// compactNumericCountString: 1234 reads 1.2K, under a thousand the whole number.
     private static func compact(_ value: Double) -> String {
         if value >= 1000 {
@@ -224,6 +238,31 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         let percentage = String(format: "%.02f%%", abs(change / value.previousValue) * 100)
         let sign = change > 0 ? "+" : "-"
         return ("\(sign)\(compact(Double(abs(Int(change))))) (\(percentage))", change > 0 ? .systemGreen : .systemRed)
+    }
+
+    /// MessageStatsContext with ChannelStatsPublicForwardsContext's first page: the post's graphs, then the public
+    /// shares and the channels they're in.
+    /// A page of getMessagePublicForwards with each share's channel; story shares aren't listed yet.
+    private static func publicShares(
+        chatID: Int64,
+        messageID: Int64,
+        offset: String,
+        client: TDLibClient,
+    ) async -> (totalCount: Int, shares: [PublicShare], nextOffset: String)? {
+        guard let page = try? await client.send(TDNativeRequests.getMessagePublicForwards(
+            chatId: chatID,
+            messageId: messageID,
+            offset: offset,
+            limit: 50,
+        )) else { return nil }
+        var shares = [PublicShare]()
+        for forward in page.forwards {
+            guard case .publicForwardMessage(let item) = forward,
+                  let chat = try? await client.getChat(chatId: item.message.chatId)
+            else { continue }
+            shares.append(PublicShare(message: item.message, chat: chat))
+        }
+        return (page.totalCount, shares, page.nextOffset)
     }
 
     private func appendGraphSections(to sections: inout [SettingsSection]) {
@@ -280,7 +319,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                             ? L10n.telegram("Stats.MessageViews.NoViews")
                             : L10n.telegramPlural("Stats.MessageViews", count: views),
                         style: .peer(SettingsPeer(chat: share.chat)),
-                    )
+                    ) { [weak self] in self?.openPublicShare(share) }
                 },
             ))
         }
@@ -397,8 +436,34 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
     }
 
-    /// MessageStatsContext with ChannelStatsPublicForwardsContext's first page: the post's graphs, then the public
-    /// shares and the channels they're in.
+    /// navigateToMessage: a public share opens its channel at the shared post.
+    private func openPublicShare(_ share: PublicShare) {
+        let client = client
+        Task {
+            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: share.chat.id, client: client)
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: share.message.id))
+        }
+    }
+
+    /// ChannelStatsPublicForwardsContext.loadMore: the next page once the list's end comes into view.
+    private func loadMorePublicShares() {
+        guard let message, !publicSharesOffset.isEmpty, !loadsPublicShares else { return }
+        loadsPublicShares = true
+        let client = client
+        let chatID = chat.id
+        let offset = publicSharesOffset
+        Task { [weak self] in
+            let page = await Self.publicShares(chatID: chatID, messageID: message.id, offset: offset, client: client)
+            guard let self, contextIsCurrent else { return }
+            loadsPublicShares = false
+            guard let page else { return }
+            publicShares += page.shares
+            publicSharesOffset = page.nextOffset
+            reload()
+        }
+    }
+
     private func loadMessage() {
         guard let message else { return }
         let client = client
@@ -410,27 +475,16 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 messageId: message.id,
                 isDark: isDark,
             ))
-            async let forwards = try? client.send(TDNativeRequests.getMessagePublicForwards(
-                chatId: chatID,
-                messageId: message.id,
-                offset: "",
-                limit: 50,
-            ))
+            async let forwards = Self.publicShares(chatID: chatID, messageID: message.id, offset: "", client: client)
             let (result, shares) = await (statistics, forwards)
-            var resolved = [PublicShare]()
-            for forward in shares?.forwards ?? [] {
-                guard case .publicForwardMessage(let item) = forward,
-                      let chat = try? await client.getChat(chatId: item.message.chatId)
-                else { continue }
-                resolved.append(PublicShare(message: item.message, chat: chat))
-            }
             guard let self, contextIsCurrent else { return }
             if let result {
                 messageLoaded = true
                 setGraph(result.messageInteractionGraph, at: 0)
                 setGraph(result.messageReactionGraph, at: 1)
                 publicShareCount = shares?.totalCount
-                publicShares = resolved
+                publicShares = shares?.shares ?? []
+                publicSharesOffset = shares?.nextOffset ?? ""
             } else {
                 failed = true
             }
