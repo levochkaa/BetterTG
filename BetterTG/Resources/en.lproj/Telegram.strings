@@ -4688,3 +4688,11 @@
 "Stats.StoryInteractionsTitle" = "STORIES INTERACTIONS";
 "Stats.StoryReactionsByEmotionTitle" = "STORIES REACTIONS BY EMOTION";
 "Stats.Total" = "Total";
+"Stats.PostsTitle" = "RECENT POSTS";
+"Stats.MessageViews.NoViews" = "No views";
+"Stats.MessageViews_0" = "%@ views";
+"Stats.MessageViews_1" = "%@ view";
+"Stats.MessageViews_2" = "%@ views";
+"Stats.MessageViews_3_10" = "%@ views";
+"Stats.MessageViews_many" = "%@ views";
+"Stats.MessageViews_any" = "%@ views";
