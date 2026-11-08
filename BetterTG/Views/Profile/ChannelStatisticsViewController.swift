@@ -70,6 +70,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     /// Each graph's state by its entry; a graph with no data or error text has none and no section.
     private var graphStates = [Int: StatisticsGraphView.State]()
     private var graphViews = [Int: StatisticsGraphView]()
+    private var zoomTokens = [Int: String]()
     /// The entry each graph section shows.
     private var graphSections = [Int: Int]()
     /// RECENT POSTS: the channel's recent messages with their interactions, newest first.
@@ -292,6 +293,20 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
         guard let state = graphStates[index] else { return nil }
         let view = StatisticsGraphView(kind: graphEntries[index].kind, state: state)
+        // loadDetailedGraph: a graph with a zoom token loads a day's hours by the day's milliseconds.
+        if let token = zoomTokens[index], !token.isEmpty {
+            let client = client
+            let chatID = chat.id
+            view.zoomLoader = { date in
+                let graph = try? await client.send(TDNativeRequests.getStatisticalGraph(
+                    chatId: chatID,
+                    token: token,
+                    x: Int64(date * 1000),
+                ))
+                guard case .statisticalGraphData(let data)? = graph else { return nil }
+                return StatisticsChartData(json: data.jsonData)
+            }
+        }
         graphViews[index] = view
         return view
     }
@@ -303,6 +318,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         switch graph {
         case .statisticalGraphData(let data):
             graphStates[index] = StatisticsChartData(json: data.jsonData).map { .loaded($0) }
+            zoomTokens[index] = data.zoomToken
         case .statisticalGraphAsync(let async):
             graphStates[index] = .loading
             loadGraph(token: async.token, at: index)

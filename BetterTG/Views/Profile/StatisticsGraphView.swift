@@ -175,14 +175,26 @@ private final class StatisticsPlotView: UIView {
     /// The point the details show: its line and bullets, or its bar at full colour with the rest dimmed.
     var selectedIndex: Int? { didSet { setNeedsDisplay() } }
 
+    /// A zoomable graph's details offer the day's hours (zoomToken); a zoomed one reads times.
+    var onZoom: ((Double) -> Void)?
+    var isZoomed = false
+
     /// LineBulletsRenderer's bullets for the selected point, gathered while the series draw.
     private var bullets = [(CGPoint, UIColor)]()
 
     private var ignoresTouch = false
     private let feedback = UISelectionFeedbackGenerator()
+    private var isLoadingZoom = false
+
     private lazy var detailsView: StatisticsDetailsView = {
         let view = StatisticsDetailsView()
         view.onTap = { [weak self] in self?.hideDetails() }
+        view.onZoom = { [weak self] in
+            guard let self, let selectedIndex else { return }
+            isLoadingZoom = true
+            showDetails(selectedIndex)
+            onZoom?(data.x[selectedIndex])
+        }
         addSubview(view)
         return view
     }()
@@ -339,6 +351,7 @@ private final class StatisticsPlotView: UIView {
     }
 
     func hideDetails() {
+        isLoadingZoom = false
         guard selectedIndex != nil else { return }
         selectedIndex = nil
         UIView.animate(withDuration: 0.2) { self.detailsView.alpha = 0 }
@@ -408,9 +421,11 @@ private final class StatisticsPlotView: UIView {
             return
         }
         let date = data.x[index]
+        // chartDetailsViewModel: the time once zoomed, otherwise the day.
         let title = date <= 24
             ? "\(Int(date)):00"
-            : Self.detailsDateFormatter.string(from: Date(timeIntervalSince1970: date))
+            : (isZoomed ? Self.timeFormatter : Self.detailsDateFormatter)
+                .string(from: Date(timeIntervalSince1970: date))
         let rows = data.series.enumerated().filter { visible[$0.offset] }.map { _, line in
             (line.name, Self.detailsText(line.values[index]), line.color)
         }
@@ -419,7 +434,13 @@ private final class StatisticsPlotView: UIView {
             let sum = data.series.enumerated().filter { visible[$0.offset] }.reduce(0) { $0 + $1.element.values[index] }
             total = Self.detailsText(sum)
         }
-        detailsView.configure(title: title, rows: rows, total: total)
+        detailsView.configure(
+            title: title,
+            rows: rows,
+            total: total,
+            showsArrow: onZoom != nil && !isZoomed,
+            isLoading: isLoadingZoom,
+        )
         let size = detailsView.size
         let position = xPosition(date)
         let x = size.width + 8 > position
@@ -797,16 +818,25 @@ private final class StatisticsPlotView: UIView {
 // MARK: - StatisticsDetailsView
 
 /// GraphUI's ChartDetailsView: the day in bold, then each series' name and its value in the series' colour, and
-/// Total for stacked bars, on PresentationThemeChart's details colour with 5 pt corners. A tap hides it.
+/// Total for stacked bars, on PresentationThemeChart's details colour with 5 pt corners. A tap hides it; with the
+/// arrow of a zoomable graph a tap zooms into the day instead, the arrow turning into an activity indicator meanwhile.
 private final class StatisticsDetailsView: UIView {
     private static let background = UIColor { $0.userInterfaceStyle == .dark ? .black : UIColor(rgb: 0xF5F5FB) }
     private static let text = UIColor { $0.userInterfaceStyle == .dark ? .white : UIColor(rgb: 0x6D6D72) }
+    private static let arrowColor = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(rgb: 0xD8D8D8)
+        : UIColor(rgb: 0xC5C7CD)
+    }
 
     var onTap: (() -> Void)?
+    var onZoom: (() -> Void)?
     private(set) var size = CGSize.zero
 
     private let titleLabel = UILabel()
     private var labels = [UILabel]()
+    private let arrowView = UIImageView()
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private var showsArrow = false
 
     init() {
         super.init(frame: .zero)
@@ -816,6 +846,27 @@ private final class StatisticsDetailsView: UIView {
         titleLabel.font = .systemFont(ofSize: 12, weight: .bold)
         titleLabel.textColor = Self.text
         addSubview(titleLabel)
+        // Chart/arrow_right: a 6 by 10 pt chevron.
+        arrowView.image = UIGraphicsImageRenderer(size: CGSize(width: 6, height: 10))
+            .image { context in
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: 1, y: 1))
+                path.addLine(to: CGPoint(x: 5, y: 5))
+                path.addLine(to: CGPoint(x: 1, y: 9))
+                path.lineWidth = 1.5
+                path.lineCapStyle = .round
+                path.lineJoinStyle = .round
+                UIColor.black.setStroke()
+                path.stroke()
+                _ = context
+            }
+            .withRenderingMode(.alwaysTemplate)
+        arrowView.tintColor = Self.arrowColor
+        addSubview(arrowView)
+        activityIndicator.color = Self.arrowColor
+        activityIndicator.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
+        activityIndicator.hidesWhenStopped = true
+        addSubview(activityIndicator)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
     }
 
@@ -824,10 +875,26 @@ private final class StatisticsDetailsView: UIView {
     }
 
     /// ChartDetailsView.setup: 10 pt margins, 110 pt for a name and 70 pt for its value, 18 pt rows.
-    func configure(title: String, rows: [(String, String, UIColor)], total: String?) {
+    func configure(
+        title: String,
+        rows: [(String, String, UIColor)],
+        total: String?,
+        showsArrow: Bool = false,
+        isLoading: Bool = false,
+    ) {
         labels.forEach { $0.removeFromSuperview() }
         labels = []
         let width: CGFloat = 10 * 2 + 110 + 70
+        self.showsArrow = showsArrow && !isLoading
+        arrowView.isHidden = !self.showsArrow
+        arrowView.frame = CGRect(x: width - 6 - 10, y: 10 + 2, width: 6, height: 10)
+        activityIndicator.center = CGPoint(x: width - 3 - 10, y: 16)
+        if isLoading {
+            activityIndicator.startAnimating()
+        } else {
+            activityIndicator.stopAnimating()
+        }
+        isUserInteractionEnabled = !isLoading
         titleLabel.text = title
         titleLabel.isHidden = title.isEmpty
         titleLabel.frame = CGRect(x: 10, y: 8, width: width, height: 18)
@@ -868,7 +935,11 @@ private final class StatisticsDetailsView: UIView {
     }
 
     @objc private func handleTap() {
-        onTap?()
+        if showsArrow {
+            onZoom?()
+        } else {
+            onTap?()
+        }
     }
 }
 
@@ -1060,9 +1131,9 @@ private final class StatisticsVisibilityView: UIView {
     private let series: [StatisticsChartData.Series]
     private var buttons = [UIButton]()
 
-    init(series: [StatisticsChartData.Series]) {
+    init(series: [StatisticsChartData.Series], selection: [Bool]? = nil) {
         self.series = series
-        self.selection = series.map { _ in true }
+        self.selection = selection ?? series.map { _ in true }
         super.init(frame: .zero)
         for (index, _) in series.enumerated() {
             let button = UIButton(type: .custom)
@@ -1169,13 +1240,29 @@ final class StatisticsGraphView: UIView {
         case loaded(StatisticsChartData)
     }
 
+    /// getStatisticalGraph with the graph's zoomToken: the hours around a day, for a two-axis graph.
+    var zoomLoader: ((Double) async -> StatisticsChartData?)? {
+        didSet {
+            if kind == .twoAxisStep, case .loaded(let data) = state {
+                setUp(data)
+            }
+        }
+    }
+
     private let kind: StatisticsGraphKind
     private let state: State
     private let titleLabel = UILabel()
+    /// ChartStackSection's back button: Zoom Out with a chevron, the title moving 36 pt aside for it.
+    private let zoomOutButton = UIButton(type: .system)
+    private var zoomedOutFraction: ClosedRange<CGFloat>?
+    private var selection: [Bool]?
     private var plot: StatisticsPlotView?
     private var rangeView: StatisticsRangeView?
     private var visibilityView: StatisticsVisibilityView?
     private var totalRange: ClosedRange<Double> = 0...1
+
+    /// The data the graph shows now: the zoomed hours or the original days.
+    private var currentData: StatisticsChartData?
 
     private var displaysRange: Bool {
         kind != .hourlyStep
@@ -1214,7 +1301,9 @@ final class StatisticsGraphView: UIView {
         super.layoutSubviews()
         let width = bounds.width
         let top: CGFloat = kind == .hourlyStep ? -32 : 8
-        titleLabel.frame = CGRect(x: 0, y: top + 5, width: width, height: 28)
+        let titleInset: CGFloat = zoomOutButton.isHidden ? 0 : 36
+        titleLabel.frame = CGRect(x: titleInset, y: top + 5, width: width - titleInset, height: 28)
+        zoomOutButton.frame = CGRect(x: 8, y: top, width: 96, height: 38)
         plot?.frame = CGRect(x: 0, y: top, width: width, height: 310)
         rangeView?.frame = CGRect(x: 0, y: top + 310, width: width, height: 42)
         visibilityView?.frame = CGRect(
@@ -1242,20 +1331,69 @@ final class StatisticsGraphView: UIView {
         ])
     }
 
-    private func setUp(_ data: StatisticsChartData) {
+    private func setUp(_ data: StatisticsChartData, zoomedRange: ClosedRange<Double>? = nil) {
+        plot?.removeFromSuperview()
+        rangeView?.removeFromSuperview()
+        visibilityView?.removeFromSuperview()
+        rangeView = nil
+        visibilityView = nil
         let lower = kind.isBar ? data.x[0] - data.step : data.x[0]
         totalRange = lower...max(lower + data.step, data.x[data.x.count - 1])
-        let initial: ClosedRange<CGFloat> = displaysRange ? 0.8...1 : 0...1
+        var initial: ClosedRange<CGFloat> = displaysRange ? zoomedOutFraction ?? 0.8...1 : 0...1
+        if let zoomedRange {
+            let distance = totalRange.upperBound - totalRange.lowerBound
+            let lowerFraction = CGFloat((zoomedRange.lowerBound - totalRange.lowerBound) / distance)
+            let upperFraction = CGFloat((zoomedRange.upperBound - totalRange.lowerBound) / distance)
+            initial = max(0, min(lowerFraction, 1))...max(0, min(max(upperFraction, lowerFraction), 1))
+        }
         let plot = StatisticsPlotView(data: data, kind: kind, range: range(for: initial), isPreview: false)
-        addSubview(plot)
+        plot.isZoomed = zoomedRange != nil
+        if let zoomLoader, zoomedRange == nil {
+            plot.onZoom = { [weak self] date in
+                Task { @MainActor [weak self] in
+                    guard let zoomed = await zoomLoader(date), let self else {
+                        self?.plot?.hideDetails()
+                        return
+                    }
+                    zoomIn(zoomed, date: date)
+                }
+            }
+        }
+        if let selection {
+            plot.visible = selection
+        }
+        insertSubview(plot, at: 0)
         self.plot = plot
         titleLabel.font = .systemFont(ofSize: 14, weight: .bold)
         titleLabel.textAlignment = .center
         titleLabel.textColor = .label
         titleLabel.isHidden = !displaysRange
         addSubview(titleLabel)
+        zoomOutButton.isHidden = zoomedRange == nil
+        if zoomOutButton.superview == nil {
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = L10n.telegram("Stats.ZoomOut")
+            configuration.image = UIImage(
+                systemName: "chevron.left",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold),
+            )
+            configuration.imagePadding = 3
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 0)
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var attributes = attributes
+                attributes.font = .systemFont(ofSize: 14)
+                return attributes
+            }
+            zoomOutButton.configuration = configuration
+            zoomOutButton.contentHorizontalAlignment = .leading
+            zoomOutButton.addAction(UIAction { [weak self] _ in self?.zoomOut() }, for: .touchUpInside)
+            addSubview(zoomOutButton)
+        }
         if displaysRange {
             let preview = StatisticsPlotView(data: data, kind: kind, range: totalRange, isPreview: true)
+            if let selection {
+                preview.visible = selection
+            }
             let step = CGFloat(data.step / (totalRange.upperBound - totalRange.lowerBound))
             let rangeView = StatisticsRangeView(preview: preview, minimumDistance: max(0.1, step))
             rangeView.fraction = initial
@@ -1264,8 +1402,9 @@ final class StatisticsGraphView: UIView {
             self.rangeView = rangeView
         }
         if data.series.count > 1 {
-            let visibilityView = StatisticsVisibilityView(series: data.series)
+            let visibilityView = StatisticsVisibilityView(series: data.series, selection: selection)
             visibilityView.onChange = { [weak self] selection in
+                self?.selection = selection
                 self?.plot?.visible = selection
                 self?.plot?.updateDetails()
                 self?.rangeView?.preview.visible = selection
@@ -1273,7 +1412,25 @@ final class StatisticsGraphView: UIView {
             addSubview(visibilityView)
             self.visibilityView = visibilityView
         }
+        currentData = data
         updateTitle()
+        setNeedsLayout()
+    }
+
+    /// BaseLinesChartController.didTapZoomIn: the loaded hours from the day's start to its last hour.
+    private func zoomIn(_ zoomed: StatisticsChartData, date: Double) {
+        guard case .loaded = state, let rangeView, zoomedOutFraction == nil else { return }
+        zoomedOutFraction = rangeView.fraction
+        let start = max(date, zoomed.x.first ?? date)
+        let end = min(date + 86400 - 3600, zoomed.x.last ?? date)
+        setUp(zoomed, zoomedRange: (kind.isBar ? start - zoomed.step : start)...max(start, end))
+    }
+
+    /// didTapZoomOut: back to the days at the range they showed.
+    private func zoomOut() {
+        guard case .loaded(let data) = state, zoomedOutFraction != nil else { return }
+        setUp(data)
+        zoomedOutFraction = nil
     }
 
     private func range(for fraction: ClosedRange<CGFloat>) -> ClosedRange<Double> {
@@ -1297,7 +1454,7 @@ final class StatisticsGraphView: UIView {
     /// GeneralChartComponentController.updateChartRangeTitle: the first and last visible days in the medium style, or
     /// one day in the full style. A bar's day is its point, and a pie counts the days after the range's start.
     private func updateTitle() {
-        guard let plot, case .loaded(let data) = state else { return }
+        guard let plot, let data = currentData else { return }
         let from = Date(timeIntervalSince1970: plot.range.lowerBound + (kind.isBar || kind == .pie ? data.step : 0) + 1)
         let to = Date(timeIntervalSince1970: plot.range.upperBound)
         let formatter = DateFormatter()
