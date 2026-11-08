@@ -3075,11 +3075,18 @@ ClientRestorableNavigationEntry {
         }
         avatarView.alpha = 1 - progress
         storyRingView.alpha = 1 - progress
-        // The name crossfades from the header into the bar while it passes under the bar's bottom edge.
-        let titleFrame = titleRow.convert(titleRow.bounds, to: view)
-        let titleProgress = titleFrame.height > 0
-            ? min(1, max(0, (barBottom - titleFrame.minY) / titleFrame.height))
-            : 0
+        // The name shrinks toward the bar title's size over the 48 pt before the bar, then crossfades into the bar
+        // while it passes under its bottom edge. The frame is measured without the shrink, which scales about the
+        // centre.
+        let titleCenter = titleRow.superview?.convert(titleRow.center, to: view) ?? .zero
+        let titleHeight = titleRow.bounds.height
+        let titleTop = titleCenter.y - titleHeight / 2
+        let titleProgress = titleHeight > 0 ? min(1, max(0, (barBottom - titleTop) / titleHeight)) : 0
+        let approach = min(1, max(0, (barBottom + 48 - titleTop) / 48))
+        let barTitleSize = UIFont.preferredFont(forTextStyle: .headline).pointSize
+        let shrink = 1 - approach * (1 - barTitleSize / max(1, titleLabel.font.pointSize))
+        let titleTransform = CGAffineTransform(scaleX: shrink, y: shrink)
+        if titleRow.transform != titleTransform { titleRow.transform = titleTransform }
         titleRow.alpha = 1 - titleProgress
         let statusFrame = statusLabel.convert(statusLabel.bounds, to: view)
         statusLabel.alpha = statusFrame.height > 0
