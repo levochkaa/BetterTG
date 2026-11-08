@@ -62,6 +62,12 @@ final class CommunityViewController: SettingsListViewController {
             guard let self, event.source == source, event.value.communityId == communityID else { return }
             load()
         }
+        nc.scopedPublisher(&cancellables, for: .updateCommunity) { [weak self] event in
+            guard let self, event.source == source, event.value.community.id == communityID else { return }
+            title = event.value.community.name
+            updateEditButton(event.value.community)
+        }
+        updateEditButton(TelegramChatListStore.shared.community(communityID, clientID: client.id))
         load()
     }
 
@@ -118,6 +124,30 @@ final class CommunityViewController: SettingsListViewController {
             // A bot: joined once the account has a chat with it, as Telegram counts a bot with a preview.
             return Row(chat: chat, section: chat.lastMessage != nil ? .joined : .requestable, detail: nil)
         }
+    }
+
+    /// CommunityViewScreen's Edit for whoever may change the community.
+    private func updateEditButton(_ community: Community?) {
+        guard let community, CommunityEditViewController.canEdit(community) else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+        navigationItem.rightBarButtonItem = .telegramEdit(primaryAction: UIAction { [weak self] _ in
+            guard let self, contextIsCurrent,
+                  let current = TelegramChatListStore.shared.community(communityID, clientID: client.id)
+            else { return }
+            let edit = CommunityEditViewController(community: current)
+            edit.onDeleted = { [weak self] in
+                guard let self, let navigationController,
+                      let index = navigationController.viewControllers.firstIndex(of: self), index > 0
+                else { return }
+                navigationController.popToViewController(
+                    navigationController.viewControllers[index - 1],
+                    animated: true,
+                )
+            }
+            navigationController?.pushViewController(edit, animated: true)
+        })
     }
 
     private func load() {
@@ -226,5 +256,162 @@ final class ProfileCommunityView: UIControl {
             ),
             client: client,
         )
+    }
+}
+
+// MARK: - CommunityEditViewController
+
+/// Telegram 13's CommunityEditScreen for a community's owner or an admin who may change it, from what TDLib offers:
+/// its name (setCommunityName on Done), Who Can Add Chats — All Members or Only Admins with their notes
+/// (setCommunityPermissions) — and, for the owner, Delete Community after its question (deleteCommunity). The photo,
+/// chats, admins, removed users and join requests wait for TDLib.
+final class CommunityEditViewController: SettingsListViewController {
+    var onDeleted: (() -> Void)?
+
+    private let community: Community
+    private var name: String
+    private var membersCanAddChats: Bool
+    private var isSaving = false
+
+    private var isOwner: Bool {
+        if case .communityMemberStatusCreator = community.status {
+            true
+        } else {
+            false
+        }
+    }
+
+    init(community: Community) {
+        self.community = community
+        self.name = community.name
+        self.membersCanAddChats = community.permissions.canEditChatList
+        super.init()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.telegram("Common.Edit")
+        navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
+    }
+
+    override func makeSections() -> [SettingsSection] {
+        var sections = [
+            SettingsSection(rows: [SettingsRow(title: "", style: .input(SettingsTextInput(
+                text: name,
+                placeholder: L10n.telegram("Community.Edit.CommunityNamePlaceholder"),
+                maxLength: 128,
+            ) { [weak self] text in self?.name = text }))]),
+            SettingsSection(
+                header: L10n.telegram("Community.Edit.WhoCanAddChats"),
+                rows: [true, false].map { allMembers in
+                    SettingsRow(
+                        title: L10n.telegram(allMembers
+                            ? "Community.Edit.PermissionAllMembers"
+                            : "Community.Edit.PermissionOnlyAdmins"),
+                        detail: L10n.telegram(allMembers
+                            ? "Community.Edit.PermissionAllMembersInfo"
+                            : "Community.Edit.PermissionOnlyAdminsInfo"),
+                        style: .subtitle,
+                        accessory: membersCanAddChats == allMembers ? .checkmark : .none,
+                        isEnabled: !isSaving,
+                    ) { [weak self] in self?.setMembersCanAddChats(allMembers) }
+                },
+            ),
+        ]
+        if isOwner {
+            sections.append(SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram("Community.Edit.DeleteCommunity"),
+                style: .action(destructive: true),
+                isEnabled: !isSaving,
+            ) { [weak self] in self?.confirmDelete() }]))
+        }
+        return sections
+    }
+
+    /// The account may edit a community it owns or administers with the right to change its info.
+    static func canEdit(_ community: Community) -> Bool {
+        switch community.status {
+        case .communityMemberStatusCreator: true
+        case .communityMemberStatusAdministrator(let administrator): administrator.rights.canChangeInfo
+        default: false
+        }
+    }
+
+    private func setMembersCanAddChats(_ value: Bool) {
+        guard value != membersCanAddChats, !isSaving, contextIsCurrent else { return }
+        let previous = membersCanAddChats
+        membersCanAddChats = value
+        reload()
+        let client = client
+        let communityID = community.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setCommunityPermissions(
+                    communityId: communityID,
+                    permissions: TDNativeCommunityPermissions(canEditChatList: value),
+                ))
+            } catch {
+                guard let self else { return }
+                membersCanAddChats = previous
+                reload()
+                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+            }
+        }
+    }
+
+    @objc private func donePressed() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isSaving, contextIsCurrent else { return }
+        guard trimmed != community.name, !trimmed.isEmpty else {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        isSaving = true
+        reload()
+        let client = client
+        let communityID = community.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setCommunityName(communityId: communityID, name: trimmed))
+                guard let self, contextIsCurrent else { return }
+                navigationController?.popViewController(animated: true)
+            } catch {
+                guard let self else { return }
+                isSaving = false
+                reload()
+                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+            }
+        }
+    }
+
+    /// confirmDeleteCommunity: Delete Community with its question, then out of the community's screens.
+    private func confirmDelete() {
+        confirm(
+            title: L10n.telegram("Community.Edit.DeleteCommunity"),
+            message: L10n.telegram("Community.Edit.DeleteConfirmationText"),
+            actionTitle: L10n.telegram("Common.Delete"),
+        ) { [weak self] in
+            guard let self, !isSaving else { return }
+            isSaving = true
+            reload()
+            let client = client
+            let communityID = community.id
+            Task { [weak self] in
+                do {
+                    _ = try await client.send(TDNativeRequests.deleteCommunity(communityId: communityID))
+                    guard let self, contextIsCurrent else { return }
+                    onDeleted?()
+                } catch {
+                    guard let self else { return }
+                    isSaving = false
+                    reload()
+                    if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+                }
+            }
+        }
     }
 }

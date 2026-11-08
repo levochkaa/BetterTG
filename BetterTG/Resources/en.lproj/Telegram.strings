@@ -4166,3 +4166,11 @@
 "Community.View.SectionVisible" = "CHATS YOU CAN VIEW";
 "Community.View.SectionRequestable" = "CHATS YOU CAN REQUEST TO JOIN";
 "Community.View.SectionHidden" = "HIDDEN CHATS";
+"Community.Edit.DeleteCommunity" = "Delete Community";
+"Community.Edit.DeleteConfirmationText" = "Are you sure you want to delete this community?";
+"Community.Edit.CommunityNamePlaceholder" = "Community Name";
+"Community.Edit.WhoCanAddChats" = "WHO CAN ADD CHATS";
+"Community.Edit.PermissionAllMembers" = "All Members";
+"Community.Edit.PermissionAllMembersInfo" = "Allow members to add their groups and channels to the community.";
+"Community.Edit.PermissionOnlyAdmins" = "Only Admins";
+"Community.Edit.PermissionOnlyAdminsInfo" = "Chats suggested by community members require admin approval.";
