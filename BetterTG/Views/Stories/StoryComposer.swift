@@ -456,6 +456,46 @@ UIColorPickerViewControllerDelegate {
             self?.entitiesView.insertText()
         },
     )
+    /// DrawingScreen: the tools under the story, the colour swatch beside them, the chosen tool, its colour and size.
+    private let drawingTools = StoryDrawingToolsView()
+    private let drawingSwatch = StoryColorSwatchButton()
+    private var drawingTool = StoryDrawingTool.pen
+    private var drawingColors = StoryDrawingTool.allCases.reduce(into: [StoryDrawingTool: UIColor]()) {
+        $0[$1] = $1.initialColor
+    }
+
+    private var drawingSizes = StoryDrawingTool.allCases.reduce(into: [StoryDrawingTool: CGFloat]()) {
+        $0[$1] = $1.initialSize
+    }
+
+    private var isDrawing = false
+    /// The strokes when drawing began, which Cancel goes back to.
+    private var drawingStrokeCount = 0
+    /// The editor's draw button, as its bottom panel's Pencil.
+    private lazy var drawItem = UIBarButtonItem(
+        image: UIImage(systemName: "pencil.tip"),
+        primaryAction: UIAction { [weak self] _ in self?.setDrawing(true) },
+    )
+    private lazy var drawingCancelItem = UIBarButtonItem(
+        title: L10n.telegram("Common.Cancel"),
+        primaryAction: UIAction { [weak self] _ in
+            guard let self else { return }
+            entitiesView.drawingView.restore(strokeCount: drawingStrokeCount)
+            setDrawing(false)
+        },
+    )
+    private lazy var drawingDoneItem = UIBarButtonItem(
+        title: L10n.telegram("Common.Done"),
+        primaryAction: UIAction { [weak self] _ in self?.setDrawing(false) },
+    )
+    private lazy var undoItem = UIBarButtonItem(
+        image: UIImage(systemName: "arrow.uturn.backward"),
+        primaryAction: UIAction { [weak self] _ in self?.entitiesView.drawingView.undo() },
+    )
+    private lazy var clearItem = UIBarButtonItem(
+        title: L10n.telegram("Paint.Clear"),
+        primaryAction: UIAction { [weak self] _ in self?.entitiesView.drawingView.clear() },
+    )
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
 
@@ -528,7 +568,23 @@ UIColorPickerViewControllerDelegate {
         }
 
         textItem.accessibilityLabel = L10n.telegram("Paint.Text")
-        navigationItem.rightBarButtonItems = [nextItem, textItem]
+        drawItem.accessibilityLabel = L10n.telegram("Paint.Draw")
+        navigationItem.rightBarButtonItems = [nextItem, textItem, drawItem]
+        drawingTools.alpha = 0
+        drawingSwatch.alpha = 0
+        view.addSubview(drawingTools)
+        view.addSubview(drawingSwatch)
+        drawingTools.onSelect = { [weak self] tool in
+            self?.drawingTool = tool
+            self?.applyDrawingTool()
+        }
+        drawingTools.onResize = { [weak self] size in
+            guard let self else { return }
+            drawingSizes[drawingTool] = size
+            applyDrawingTool()
+        }
+        drawingSwatch.addAction(UIAction { [weak self] _ in self?.presentColorPicker() }, for: .touchUpInside)
+        entitiesView.drawingView.onStrokesChange = { [weak self] in self?.updateUndo() }
         imageView.isUserInteractionEnabled = true
         imageView.addSubview(entitiesView)
         // A tap while the caption is edited only ends that, as MediaEditorScreen's tap does with the keyboard up.
@@ -558,7 +614,13 @@ UIColorPickerViewControllerDelegate {
         sizeSlider.alpha = 0
         view.addSubview(sizeSlider)
         sizeSlider.onChange = { [weak self] value in
-            guard let self, let entity = entitiesView.editingEntity else { return }
+            guard let self else { return }
+            if isDrawing {
+                drawingSizes[drawingTool] = value
+                applyDrawingTool()
+                return
+            }
+            guard let entity = entitiesView.editingEntity else { return }
             entity.fontSize = value
             entity.update()
             entitiesView.updateEditingPosition()
@@ -568,7 +630,7 @@ UIColorPickerViewControllerDelegate {
             guard let self else { return }
             if isEditing, let entity = entitiesView.editingEntity { sizeSlider.value = entity.fontSize }
             UIView.animate(withDuration: 0.2) { self.sizeSlider.alpha = isEditing ? 1 : 0 }
-            navigationItem.rightBarButtonItems = isEditing ? [doneItem] : [nextItem, textItem]
+            navigationItem.rightBarButtonItems = isEditing ? [doneItem] : [nextItem, textItem, drawItem]
             navigationItem.leftBarButtonItem = isEditing ? nil : closeItem
             UIView.animate(withDuration: 0.2) {
                 self.captionView.alpha = isEditing ? 0 : 1
@@ -620,6 +682,7 @@ UIColorPickerViewControllerDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutSizeSlider()
+        layoutDrawingTools()
         // The entities' story points scaled onto the story.
         let scale = imageView.bounds.width / StoryEntitiesView.size.width
         entitiesView.transform = CGAffineTransform(scaleX: scale, y: scale)
@@ -635,6 +698,11 @@ UIColorPickerViewControllerDelegate {
         didSelect color: UIColor,
         continuously _: Bool,
     ) {
+        if isDrawing {
+            drawingColors[drawingTool] = color
+            applyDrawingTool()
+            return
+        }
         guard let entity = entitiesView.editingEntity else { return }
         entity.color = color
         entity.update()
@@ -691,6 +759,13 @@ UIColorPickerViewControllerDelegate {
     }
 
     /// The slider's place: the leading edge, centred between the top inset and the keyboard or the bottom inset.
+    /// The tools 120 pt tall along the story's bottom, the swatch at its leading corner.
+    private func layoutDrawingTools() {
+        let story = imageView.frame
+        drawingTools.frame = CGRect(x: story.minX + 56, y: story.maxY - 120, width: story.width - 112, height: 120)
+        drawingSwatch.frame = CGRect(x: story.minX + 8, y: story.maxY - 56, width: 44, height: 44)
+    }
+
     private func layoutSizeSlider() {
         let top = view.safeAreaInsets.top
         let bottom = min(view.bounds.height - view.safeAreaInsets.bottom, keyboardTop)
@@ -704,15 +779,59 @@ UIColorPickerViewControllerDelegate {
 
     /// presentColorPicker, as the system's colour picker: editing pauses while it is up.
     private func presentColorPicker() {
-        guard let entity = entitiesView.editingEntity else { return }
         let picker = UIColorPickerViewController()
         picker.supportsAlpha = false
         // The editor's dark ColorPickerScreen.
         picker.overrideUserInterfaceStyle = .dark
-        picker.selectedColor = entity.color
         picker.delegate = self
-        entity.suspendEditing()
+        if isDrawing {
+            guard let color = drawingColors[drawingTool] else { return }
+            picker.selectedColor = color
+        } else {
+            guard let entity = entitiesView.editingEntity else { return }
+            picker.selectedColor = entity.color
+            entity.suspendEditing()
+        }
         present(picker, animated: true)
+    }
+
+    /// DrawingScreen in and out: the tools, the swatch and the size slider come in place of the caption and the
+    /// timer, and the bar offers Cancel and Undo, Clear All and Done.
+    private func setDrawing(_ on: Bool) {
+        captionView.resignFirstResponder()
+        isDrawing = on
+        entitiesView.isDrawing = on
+        if on {
+            drawingStrokeCount = entitiesView.drawingView.strokes.count
+            applyDrawingTool()
+            updateUndo()
+        }
+        navigationItem.leftBarButtonItems = on ? [drawingCancelItem, undoItem] : [closeItem]
+        navigationItem.rightBarButtonItems = on ? [drawingDoneItem, clearItem] : [nextItem, textItem, drawItem]
+        UIView.animate(withDuration: 0.2) {
+            self.captionView.alpha = on ? 0 : 1
+            self.timerButton.alpha = on ? 0 : 1
+            self.drawingTools.alpha = on ? 1 : 0
+            self.drawingSwatch.alpha = on ? 1 : 0
+            self.sizeSlider.alpha = on ? 1 : 0
+        }
+    }
+
+    private func applyDrawingTool() {
+        let drawing = entitiesView.drawingView
+        drawing.tool = drawingTool
+        drawing.size = drawingSizes[drawingTool] ?? 0.5
+        if let color = drawingColors[drawingTool] { drawing.color = color }
+        drawingTools.update(selected: drawingTool, colors: drawingColors, sizes: drawingSizes)
+        drawingSwatch.color = drawingColors[drawingTool] ?? drawingSwatch.color
+        drawingSwatch.isEnabled = drawingColors[drawingTool] != nil
+        sizeSlider.value = drawing.size
+    }
+
+    private func updateUndo() {
+        let hasStrokes = !entitiesView.drawingView.strokes.isEmpty
+        undoItem.isEnabled = hasStrokes
+        clearItem.isEnabled = hasStrokes
     }
 
     private func next() {

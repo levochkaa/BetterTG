@@ -21,6 +21,18 @@ final class StoryEntitiesView: UIView, UIGestureRecognizerDelegate {
     private(set) var editingEntity: StoryTextEntityView?
     /// TextSettingsComponent over the keyboard while a text is edited.
     let settingsBar = StoryTextSettingsBar()
+    /// MediaEditorScreen's DrawingView, under the entities.
+    let drawingView = StoryDrawingView(frame: CGRect(origin: .zero, size: StoryEntitiesView.size))
+
+    /// DrawingScreen on: a finger draws, and the entities hold still.
+    var isDrawing = false {
+        didSet {
+            drawingView.isUserInteractionEnabled = isDrawing
+            for recognizer in gestureRecognizers ?? [] {
+                recognizer.isEnabled = !isDrawing
+            }
+        }
+    }
 
     private let fadeView = UIView()
     private var gestureEntity: StoryTextEntityView?
@@ -49,6 +61,8 @@ final class StoryEntitiesView: UIView, UIGestureRecognizerDelegate {
         fadeView.frame = bounds
         fadeView.alpha = 0
         fadeView.isUserInteractionEnabled = false
+        drawingView.isUserInteractionEnabled = false
+        addSubview(drawingView)
         addSubview(fadeView)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
@@ -93,7 +107,7 @@ final class StoryEntitiesView: UIView, UIGestureRecognizerDelegate {
 
     /// The entities alone on a clear 1080 by 1920 image, or nil without any.
     func renderOverlay() -> UIImage? {
-        guard !textEntities.isEmpty else { return nil }
+        guard !textEntities.isEmpty || !drawingView.strokes.isEmpty else { return nil }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
