@@ -116,7 +116,14 @@ import VideoToolbox
         generator.appliesPreferredTrackTransform = true
         guard let frame = try? await generator.image(at: .zero).image else { return nil }
         let image = UIImage(cgImage: frame)
-        return .video(url, firstFrame: image, canvas: canvas(image), duration: min(duration, 60), overlay: nil)
+        return .video(
+            url,
+            firstFrame: image,
+            canvas: canvas(image),
+            assetDuration: duration,
+            range: 0...min(duration, 60),
+            overlay: nil,
+        )
     }
 
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -189,12 +196,20 @@ import VideoToolbox
 private enum StoryDraft {
     case photo(UIImage)
     /// `overlay`: the editor's entities on a clear 1080 by 1920 image, drawn over every frame.
-    case video(URL, firstFrame: UIImage, canvas: UIImage, duration: Double, overlay: UIImage?)
+    /// `range`: the trimmed part of the video, at most storyMaxVideoDuration's 60 seconds.
+    case video(
+        URL,
+        firstFrame: UIImage,
+        canvas: UIImage,
+        assetDuration: Double,
+        range: ClosedRange<Double>,
+        overlay: UIImage?,
+    )
 
     var canvas: UIImage {
         switch self {
         case .photo(let image): image
-        case .video(_, _, let canvas, _, _): canvas
+        case .video(_, _, let canvas, _, _, _): canvas
         }
     }
 
@@ -210,9 +225,31 @@ private enum StoryDraft {
                 image.draw(in: CGRect(origin: .zero, size: size))
                 overlay.draw(in: CGRect(origin: .zero, size: size))
             })
-        case .video(let url, let firstFrame, let canvas, let duration, _):
-            return .video(url, firstFrame: firstFrame, canvas: canvas, duration: duration, overlay: overlay)
+        case .video(let url, let firstFrame, let canvas, let assetDuration, let range, _):
+            return .video(
+                url,
+                firstFrame: firstFrame,
+                canvas: canvas,
+                assetDuration: assetDuration,
+                range: range,
+                overlay: overlay,
+            )
         }
+    }
+
+    /// The video trimmed to `range`.
+    func withRange(_ range: ClosedRange<Double>) -> StoryDraft {
+        guard case .video(let url, let firstFrame, let canvas, let assetDuration, _, let overlay) = self else {
+            return self
+        }
+        return .video(
+            url,
+            firstFrame: firstFrame,
+            canvas: canvas,
+            assetDuration: assetDuration,
+            range: range,
+            overlay: overlay,
+        )
     }
 
     /// postStory's content: the photo as a JPEG, or the video exported for a story.
@@ -228,11 +265,12 @@ private enum StoryDraft {
                 photo: .inputFileLocal(InputFileLocal(path: url.path)),
                 addedStickerFileIds: [],
             ))
-        case .video(let url, let firstFrame, _, let duration, let overlay):
+        case .video(let url, let firstFrame, _, _, let range, let overlay):
+            let duration = range.upperBound - range.lowerBound
             let (output, hasAudio) = try await StoryVideoExport.export(
                 url,
                 firstFrame: firstFrame,
-                duration: duration,
+                range: range,
                 overlay: overlay,
             )
             return .inputStoryContentVideo(TDNativeInputStoryContentVideo(
@@ -272,17 +310,36 @@ private enum StoryVideoExport {
     static func export(
         _ source: URL,
         firstFrame: UIImage,
-        duration: Double,
+        range: ClosedRange<Double>,
         overlay: UIImage?,
     ) async throws -> (URL, Bool) {
-        let asset = AVURLAsset(url: source)
-        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure() }
-        let hasAudio = try await !asset.loadTracks(withMediaType: .audio).isEmpty
-        let (transform, frameRate, assetDuration) = try await (
-            track.load(.preferredTransform),
-            track.load(.nominalFrameRate),
-            asset.load(.duration),
+        let source = AVURLAsset(url: source)
+        guard let sourceTrack = try await source.loadTracks(withMediaType: .video).first else { throw Failure() }
+        let sourceAudio = try await source.loadTracks(withMediaType: .audio)
+        let hasAudio = !sourceAudio.isEmpty
+        let (transform, frameRate) = try await (
+            sourceTrack.load(.preferredTransform),
+            sourceTrack.load(.nominalFrameRate),
         )
+        // The trimmed part from zero, as MediaEditorVideoExport's composition takes the trim range.
+        let duration = range.upperBound - range.lowerBound
+        let trim = CMTimeRange(
+            start: CMTime(seconds: range.lowerBound, preferredTimescale: 600),
+            duration: CMTime(seconds: duration, preferredTimescale: 600),
+        )
+        let asset = AVMutableComposition()
+        guard let track = asset.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { throw Failure() }
+        try track.insertTimeRange(trim, of: sourceTrack, at: .zero)
+        track.preferredTransform = transform
+        for audio in sourceAudio {
+            let audioTrack = asset.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid,
+            )
+            try audioTrack?.insertTimeRange(trim, of: audio, at: .zero)
+        }
+        let assetDuration = trim.duration
         let renderSize = CGSize(width: 720, height: 1280)
         let (top, bottom) = StoryComposer.edgeColors(firstFrame)
         let gradient = CIFilter.linearGradient()
@@ -312,13 +369,13 @@ private enum StoryVideoExport {
         let output = FileManager.default
             .temporaryDirectory
             .appendingPathComponent("bettertg-story-\(UUID().uuidString).mp4")
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let audioTracks = asset.tracks(withMediaType: .audio)
         try await StoryVideoWriter.write(
             asset: asset,
             videoTrack: track,
             audioTracks: audioTracks,
             composition: composition,
-            timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600)),
+            timeRange: CMTimeRange(start: .zero, duration: assetDuration),
             videoSettings: videoSettings(duration: duration, size: renderSize),
             to: output,
         )
@@ -460,7 +517,7 @@ private final class StoryPlayerView: UIView {
 /// field over the story's bottom (Add a caption...); Next goes on to Share Story.
 private final class StoryPreviewViewController: UIViewController, UITextViewDelegate,
 UIColorPickerViewControllerDelegate {
-    private let media: StoryDraft
+    private var media: StoryDraft
     private let client: TDLibClient
     private let accountID: UUID?
     private let imageView = UIImageView()
@@ -542,6 +599,9 @@ UIColorPickerViewControllerDelegate {
     )
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
+    /// MediaScrubberComponent over the caption: the video's trimmed part.
+    private var scrubber: StoryVideoScrubber?
+    private var timeObserver: Any?
 
     init(media: StoryDraft, client: TDLibClient, accountID: UUID?) {
         self.media = media
@@ -566,20 +626,26 @@ UIColorPickerViewControllerDelegate {
         imageView.layer.cornerCurve = .continuous
         imageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(imageView)
-        if case .video(let url, _, _, let duration, _) = media {
+        if case .video(let url, _, _, let assetDuration, let range, _) = media {
             let player = AVQueuePlayer()
-            looper = AVPlayerLooper(
-                player: player,
-                templateItem: AVPlayerItem(url: url),
-                timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600)),
-            )
+            self.player = player
+            loop(url, over: range)
             playerView.playerLayer.player = player
             playerView.playerLayer.videoGravity = .resizeAspect
             playerView.isUserInteractionEnabled = false
             playerView.frame = imageView.bounds
             playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             imageView.addSubview(playerView)
-            self.player = player
+            let scrubber = StoryVideoScrubber(asset: AVURLAsset(url: url), duration: assetDuration, range: range)
+            scrubber.onTrim = { [weak self] range, edge, ended in self?.trim(to: range, edge: edge, ended: ended) }
+            view.addSubview(scrubber)
+            self.scrubber = scrubber
+            timeObserver = player.addPeriodicTimeObserver(
+                forInterval: CMTime(value: 1, timescale: 30),
+                queue: .main,
+            ) { [weak self] time in
+                MainActor.assumeIsolated { self?.scrubber?.setPosition(time.seconds) }
+            }
         }
 
         captionView.backgroundColor = UIColor.black.withAlphaComponent(0.35)
@@ -683,6 +749,7 @@ UIColorPickerViewControllerDelegate {
             navigationItem.leftBarButtonItem = isEditing ? nil : closeItem
             UIView.animate(withDuration: 0.2) {
                 self.captionView.alpha = isEditing ? 0 : 1
+                self.scrubber?.alpha = isEditing ? 0 : 1
                 self.timerButton.alpha = isEditing ? 0 : 1
             }
         }
@@ -731,6 +798,15 @@ UIColorPickerViewControllerDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutSizeSlider()
+        if let scrubber {
+            let story = imageView.frame
+            scrubber.frame = CGRect(
+                x: story.minX + 12,
+                y: captionView.frame.minY - 8 - StoryVideoScrubber.height,
+                width: story.width - 24,
+                height: StoryVideoScrubber.height,
+            )
+        }
         layoutDrawingTools()
         // The entities' story points scaled onto the story.
         let scale = imageView.bounds.width / StoryEntitiesView.size.width
@@ -808,6 +884,40 @@ UIColorPickerViewControllerDelegate {
     }
 
     /// The slider's place: the leading edge, centred between the top inset and the keyboard or the bottom inset.
+    /// The video looping over its trimmed part.
+    private func loop(_ url: URL, over range: ClosedRange<Double>) {
+        guard let player else { return }
+        looper?.disableLooping()
+        player.removeAllItems()
+        looper = AVPlayerLooper(
+            player: player,
+            templateItem: AVPlayerItem(url: url),
+            timeRange: CMTimeRange(
+                start: CMTime(seconds: range.lowerBound, preferredTimescale: 600),
+                duration: CMTime(seconds: range.upperBound - range.lowerBound, preferredTimescale: 600),
+            ),
+        )
+    }
+
+    /// MediaEditor's trim: while a handle moves the video stops on that edge's frame, and the loop starts over the
+    /// new part once it is let go.
+    private func trim(to range: ClosedRange<Double>, edge: Bool?, ended: Bool) {
+        media = media.withRange(range)
+        guard let player, case .video(let url, _, _, _, _, _) = media else { return }
+        if ended {
+            loop(url, over: range)
+            player.play()
+        } else {
+            player.pause()
+            let time = edge == false ? range.upperBound : range.lowerBound
+            player.seek(
+                to: CMTime(seconds: time, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero,
+            )
+        }
+    }
+
     /// The tools 120 pt tall along the story's bottom, the swatch at its leading corner.
     private func layoutDrawingTools() {
         let story = imageView.frame
@@ -859,6 +969,7 @@ UIColorPickerViewControllerDelegate {
         navigationItem.rightBarButtonItems = on ? [drawingDoneItem, clearItem] : [nextItem, textItem, drawItem]
         UIView.animate(withDuration: 0.2) {
             self.captionView.alpha = on ? 0 : 1
+            self.scrubber?.alpha = on ? 0 : 1
             self.timerButton.alpha = on ? 0 : 1
             self.drawingTools.alpha = on ? 1 : 0
             self.drawingSwatch.alpha = on ? 1 : 0
