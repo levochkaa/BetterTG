@@ -4293,3 +4293,10 @@
 "Privacy.SavedMusic" = "Saved Music";
 "Privacy.SavedMusic.WhoCanSeeMyMusic" = "WHO CAN SEE MY SAVED MUSIC";
 "Privacy.SavedMusic.CustomHelp" = "You can restrict who can see your saved music with granular precision.";
+"MediaPlayer.PlaylistTitle" = "%@'s Playlist";
+"MediaPlayer.PlaylistYourTitle" = "Your Playlist";
+"MediaPlayer.SavedMusic.AddToProfile" = "Add to Profile";
+"MediaPlayer.SavedMusic.RemoveFromProfileShort" = "Remove from Profile";
+"MediaPlayer.SavedMusic.AddedToProfile" = "Audio added to your profile.";
+"MediaPlayer.SavedMusic.AddedToProfile.View" = "View";
+"MediaPlayer.SavedMusic.RemovedFromProfile" = "Audio removed from your profile.";

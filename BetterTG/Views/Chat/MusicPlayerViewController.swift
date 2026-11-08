@@ -53,6 +53,15 @@ final class MusicPlayerViewController: UIViewController {
     private let separator = UIView()
     private let controlsView = MusicPlayerControlsView()
     private let closeButton = UIButton(type: .close)
+    /// The Add to Profile or Remove from Profile button under the controls.
+    private let profileButton = UIButton(configuration: .filled())
+    private var controlsToSafeArea: NSLayoutConstraint!
+    private var controlsToProfileButton: NSLayoutConstraint!
+    /// isProfileAudio's answers by file ID.
+    private var savedFiles = [Int: Bool]()
+    private var savedChecks = Set<Int>()
+    /// The playing track's place in the account's profile music; nil hides the button.
+    private var isSaved: Bool?
     private var albumArtOverlay: UIVisualEffectView?
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -125,7 +134,9 @@ final class MusicPlayerViewController: UIViewController {
     private func sheetDetents() -> [UISheetPresentationController.Detent] {
         // The 1 pt is the separator over the controls.
         let listHeight = (hasList ? Self.rowHeight * Self.visibleRows : 0) + 1
-        let height = headerHeight + listHeight + MusicPlayerControlsView.panelHeight
+        // heightForLayout adds the 52 pt profile button with its insets while it shows.
+        let buttonHeight: CGFloat = isSaved == nil ? 0 : 52 + 16
+        let height = headerHeight + listHeight + MusicPlayerControlsView.panelHeight + buttonHeight
         let compact = UISheetPresentationController.Detent.custom(identifier: Self.compactDetent) { context in
             min(height, context.maximumDetentValue)
         }
@@ -187,8 +198,153 @@ final class MusicPlayerViewController: UIViewController {
             controlsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlsView.heightAnchor.constraint(equalToConstant: MusicPlayerControlsView.panelHeight),
-            controlsView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
+        configureProfileButton()
+    }
+
+    /// OverlayAudioPlayerControlsNode's profileAudio button: a 52 pt glass capsule 30 pt from the sides.
+    private func configureProfileButton() {
+        profileButton.translatesAutoresizingMaskIntoConstraints = false
+        profileButton.isHidden = true
+        profileButton.configuration?.cornerStyle = .capsule
+        profileButton.configuration?.imagePadding = 8
+        profileButton.addTarget(self, action: #selector(profileButtonTapped), for: .touchUpInside)
+        view.addSubview(profileButton)
+        controlsToSafeArea = controlsView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        controlsToProfileButton = controlsView.bottomAnchor.constraint(equalTo: profileButton.topAnchor, constant: -8)
+        NSLayoutConstraint.activate([
+            controlsToSafeArea,
+            profileButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 30),
+            profileButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -30),
+            profileButton.heightAnchor.constraint(equalToConstant: 52),
+            profileButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+        ])
+    }
+
+    /// The playing track's audio, and its message for a chat's track.
+    private func currentAudio() -> (audio: Audio, message: Message?)? {
+        guard let currentItem else { return nil }
+        if currentItem.isProfileAudio {
+            return ProfileMusicPlaylist.shared.audio(for: currentItem).map { ($0, nil) }
+        }
+        guard let message = tracks[currentItem.messageID], case .messageAudio(let content) = message.content
+        else { return nil }
+        return (content.audio, message)
+    }
+
+    /// The node's isSaved: none for a protected chat's track; the account's own playlist holds only saved tracks;
+    /// otherwise isProfileAudio answers once per file.
+    private func updateProfileButton() {
+        var saved: Bool?
+        if let (audio, message) = currentAudio(), message?.canBeSaved != false {
+            let fileID = audio.audio.id
+            if isProfile, chatID == TDLib.shared.activeAccount?.userID {
+                saved = savedFiles[fileID] ?? true
+            } else if let known = savedFiles[fileID] {
+                saved = known
+            } else {
+                checkSaved(fileID)
+            }
+        }
+        guard saved != isSaved else { return }
+        isSaved = saved
+        profileButton.isHidden = saved == nil
+        controlsToSafeArea.isActive = saved == nil
+        controlsToProfileButton.isActive = saved != nil
+        if let saved {
+            var configuration = profileButton.configuration ?? .filled()
+            var title = AttributedString(L10n.telegram(saved
+                    ? "MediaPlayer.SavedMusic.RemoveFromProfileShort"
+                    : "MediaPlayer.SavedMusic.AddToProfile"))
+            title.font = .systemFont(ofSize: 17, weight: .semibold)
+            configuration.attributedTitle = title
+            configuration.image = saved ? nil : UIImage(systemName: "music.note.list")
+            configuration.baseBackgroundColor = saved ? .tertiarySystemFill : view.tintColor
+            configuration.baseForegroundColor = saved ? .label : .white
+            profileButton.configuration = configuration
+        }
+        guard let sheet = sheetPresentationController else { return }
+        sheet.animateChanges { sheet.detents = sheetDetents() }
+    }
+
+    private func checkSaved(_ fileID: Int) {
+        guard !savedChecks.contains(fileID), TDLib.shared.activeAccountID == accountID else { return }
+        savedChecks.insert(fileID)
+        let client = TDLib.shared.activeClient
+        Task { [weak self] in
+            // isProfileAudio answers 404 for a file outside the profile music.
+            let saved = await (try? client.isProfileAudio(fileId: fileID)) != nil
+            guard let self else { return }
+            savedFiles[fileID] = saved
+            updateProfileButton()
+        }
+    }
+
+    /// requestSaveToProfile and requestRemoveFromProfile: the toast, then addProfileAudio or removeProfileAudio. The
+    /// own playlist's last track leaves with the player, which stops.
+    @objc private func profileButtonTapped() {
+        guard let (audio, _) = currentAudio(), let saved = isSaved, TDLib.shared.activeAccountID == accountID
+        else { return }
+        let client = TDLib.shared.activeClient
+        let fileID = audio.audio.id
+        let ownUserID = TDLib.shared.activeAccount?.userID
+        let isOwnPlaylist = isProfile && chatID == ownUserID
+        let ownerToReload = ProfileMusicPlaylist.shared.owner.flatMap { $0.userID == ownUserID ? $0 : nil }
+        savedFiles[fileID] = !saved
+        if saved {
+            let text = L10n.telegram("MediaPlayer.SavedMusic.RemovedFromProfile")
+            if isOwnPlaylist, ProfileMusicPlaylist.shared.audios.count == 1, let host = presentingViewController?.view {
+                Media.shared.close()
+                dismiss(animated: true) {
+                    TelegramUndoToast.show(text: text, in: host, bottomInset: 80, undo: nil)
+                }
+            } else {
+                TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: nil)
+                updateProfileButton()
+            }
+            Task {
+                _ = try? await client.removeProfileAudio(fileId: fileID)
+                if let ownerToReload { await ProfileMusicPlaylist.shared.reload(ownerToReload, client: client) }
+            }
+            return
+        }
+        // The View action opens My Profile, except over the account's own playlist.
+        TelegramUndoToast.show(
+            text: L10n.telegram("MediaPlayer.SavedMusic.AddedToProfile"),
+            in: view,
+            bottomInset: 8,
+            actionTitle: isOwnPlaylist ? nil : L10n.telegram("MediaPlayer.SavedMusic.AddedToProfile.View"),
+            undo: isOwnPlaylist ? nil : { [weak self] in self?.openMyProfile() },
+        )
+        updateProfileButton()
+        Task {
+            _ = try? await client.addProfileAudio(audio: InputAudio(
+                albumCoverThumbnail: nil,
+                audio: .inputFileId(InputFileId(id: fileID)),
+                duration: audio.duration,
+                performer: audio.performer,
+                title: audio.title,
+            ))
+            if let ownerToReload { await ProfileMusicPlaylist.shared.reload(ownerToReload, client: client) }
+        }
+    }
+
+    private func openMyProfile() {
+        let accountID = accountID
+        guard TDLib.shared.activeAccountID == accountID else { return }
+        let client = TDLib.shared.activeClient
+        dismiss(animated: true)
+        Task {
+            guard let me = try? await client.getMe(),
+                  let chat = try? await client.createPrivateChat(force: false, userId: me.id),
+                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
+                  TDLib.shared.activeAccountID == accountID
+            else { return }
+            let profile = PeerProfileViewController(
+                customChat: customChat, topic: nil, client: client, accountID: accountID, isMyProfile: true,
+            )
+            NavigationStorage.shared.activeNavigationController.pushViewController(profile, animated: true)
+        }
     }
 
     private func configureCloseButton() {
@@ -307,6 +463,7 @@ final class MusicPlayerViewController: UIViewController {
         controlsView.setAlbumArt(albumArt)
         if albumArt == nil { hideAlbumArt() }
         refreshRowStates()
+        updateProfileButton()
     }
 
     /// A track the playlist moved to: the list loads around it unless it already holds it; another chat's track
@@ -483,6 +640,8 @@ final class MusicPlayerViewController: UIViewController {
         let anchor = messageID == nil ? visibleAnchor() : nil
         updateListPresence()
         rows = orderedRows()
+        // A paused track's audio arrives with the list, after Media last published.
+        updateProfileButton()
         tableView.reloadData()
         tableView.layoutIfNeeded()
         stackRowsFromBottom()

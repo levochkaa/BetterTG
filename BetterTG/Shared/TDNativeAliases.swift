@@ -92,6 +92,7 @@ public typealias ImportedContact = TDNativeImportedContact
 public typealias InlineKeyboardButton = TDNativeInlineKeyboardButton
 public typealias InlineKeyboardButtonTypeUrl = TDNativeInlineKeyboardButtonTypeUrl
 public typealias InputAnimation = TDNativeInputAnimation
+public typealias InputAudio = TDNativeInputAudio
 public typealias InputChecklistTask = TDNativeInputChecklistTask
 public typealias InputDocument = TDNativeInputDocument
 public typealias InputFile = TDNativeInputFile

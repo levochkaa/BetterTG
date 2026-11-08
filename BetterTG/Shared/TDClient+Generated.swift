@@ -44,6 +44,10 @@ extension TDClient {
         ))
     }
 
+    func addProfileAudio(audio: TDNativeInputAudio) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.addProfileAudio(audio: audio))
+    }
+
     func addRecentlyFoundChat(chatId: Int64) async throws -> TDNativeOk {
         try await send(TDNativeRequests.addRecentlyFoundChat(chatId: chatId))
     }
@@ -930,6 +934,10 @@ extension TDClient {
         try await send(TDNativeRequests.getWebAppUrl(botUserId: botUserId, url: url, parameters: parameters))
     }
 
+    func isProfileAudio(fileId: Int) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.isProfileAudio(fileId: fileId))
+    }
+
     func joinChat(chatId: Int64) async throws -> TDNativeChatJoinResult {
         try await send(TDNativeRequests.joinChat(chatId: chatId))
     }
@@ -1058,6 +1066,10 @@ extension TDClient {
             messageId: messageId,
             reactionType: reactionType,
         ))
+    }
+
+    func removeProfileAudio(fileId: Int) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.removeProfileAudio(fileId: fileId))
     }
 
     func removeRecentlyFoundChat(chatId: Int64) async throws -> TDNativeOk {

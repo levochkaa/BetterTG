@@ -379,6 +379,24 @@ extension TDNativeInputAnimation {
     }
 }
 
+extension TDNativeInputAudio {
+    init(
+        albumCoverThumbnail: TDNativeInputThumbnail?,
+        audio: TDNativeInputFile,
+        duration: Int,
+        performer: String,
+        title: String,
+    ) {
+        self.init(
+            audio: audio,
+            albumCoverThumbnail: albumCoverThumbnail,
+            duration: duration,
+            title: title,
+            performer: performer,
+        )
+    }
+}
+
 extension TDNativeInputDocument {
     init(disableContentTypeDetection: Bool, document: TDNativeInputFile, thumbnail: TDNativeInputThumbnail?) {
         self.init(document: document, thumbnail: thumbnail, disableContentTypeDetection: disableContentTypeDetection)
