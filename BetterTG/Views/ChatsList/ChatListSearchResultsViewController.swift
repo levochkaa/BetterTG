@@ -16,6 +16,9 @@ import UIKit
         /// The Apps tab with no query: the account's apps, then the popular ones.
         case recentApps
         case popularApps
+        /// The Channels tab with no query: the channels the account joined, then recommended ones.
+        case localChannels
+        case recommendedChannels
         case localPeers
         case globalPeers
         case messages
@@ -25,6 +28,7 @@ import UIKit
         case topPeers
         case recentPeer(Int64)
         case app(Int64)
+        case channel(Int64)
         case localPeer(Int64)
         case globalPeer(Int64)
         case message(MessageKey)
@@ -38,7 +42,7 @@ import UIKit
 
     /// Telegram collapses global results above this count behind Show More.
     private static let collapsedGlobalCount = 3
-    /// ChatListSearchListPaneNode shows five of the apps the account uses until Show More.
+    /// ChatListSearchListPaneNode shows five of the apps the account uses, or of its channels, until Show More.
     private static let collapsedRecentAppCount = 5
     /// Remote requests wait for typing to pause; TDLib cannot cancel a request it has sent.
     private static let remoteSearchDelay = Duration.milliseconds(400)
@@ -110,6 +114,9 @@ import UIKit
     private var popularAppsOffset = ""
     private var popularAppsTask: Task<Void, Never>?
     private var isRecentAppsExpanded = false
+    private var localChannelIDs = [Int64]()
+    private var recommendedChannelIDs = [Int64]()
+    private var isLocalChannelsExpanded = false
     private var emptyStateTask: Task<Void, Never>?
 
     /// ChatListSearchPaneContainerNode's tabs: Downloads only while the download list has files.
@@ -291,7 +298,8 @@ import UIKit
             } else {
                 openFoundChat(chat)
             }
-        case .globalPeer(let chatID),
+        case .channel(let chatID),
+             .globalPeer(let chatID),
              .localPeer(let chatID):
             guard let chat = chatsByID[chatID] else { return }
             openFoundChat(chat)
@@ -307,6 +315,7 @@ import UIKit
         switch dataSource.itemIdentifier(for: indexPath) {
         case .topPeers: ChatListSearchTopPeersCell.height
         case .app,
+             .channel,
              .globalPeer,
              .localPeer,
              .recentPeer: Self.peerRowHeight
@@ -375,6 +384,24 @@ import UIKit
             )
         case .popularApps:
             header.configure(title: L10n.telegram("ChatList.Search.SectionPopularApps"), actionTitle: nil, action: nil)
+        case .localChannels:
+            let actionTitle: String? =
+                if localChannelIDs.count > Self.collapsedRecentAppCount {
+                    L10n.telegram(isLocalChannelsExpanded ? "ChatList.Search.ShowLess" : "ChatList.Search.ShowMore")
+                } else {
+                    nil
+                }
+            header.configure(
+                title: L10n.telegram("ChatList.Search.SectionLocalChannels"),
+                actionTitle: actionTitle,
+                action: { [weak self] in self?.toggleLocalChannelsExpansion() },
+            )
+        case .recommendedChannels:
+            header.configure(
+                title: L10n.telegram("ChatList.Search.SectionRecommendedChannels"),
+                actionTitle: nil,
+                action: nil,
+            )
         case .localPeers:
             header.configure(title: L10n.telegram("DialogList.SearchSectionDialogs"), actionTitle: nil, action: nil)
         case .globalPeers:
@@ -634,6 +661,29 @@ import UIKit
             cell.configure(
                 chat: chat,
                 subtitle: Self.subtitle(for: chat, isGlobal: false),
+                unreadCount: chat.unreadCount,
+                isMuted: rootVM.isMuted(chat),
+                client: client,
+            )
+            return cell
+        case .channel(let chatID):
+            guard let chat = chatsByID[chatID],
+                  let cell = table.dequeueReusableCell(
+                      withIdentifier: ChatListSearchPeerCell.reuseIdentifier,
+                      for: indexPath,
+                  ) as? ChatListSearchPeerCell
+            else { return UITableViewCell() }
+            // RecentlySearchedPeerSubpeerSummary: the channel's subscribers under its name.
+            let count = chat.supergroup?.memberCount ?? 0
+            cell.configure(
+                chat: chat,
+                subtitle: count > 0
+                    ? L10n.telegramPlural(
+                        "Conversation.StatusSubscribers",
+                        count: count,
+                        formattedCount: count.formatted(.number),
+                    )
+                    : nil,
                 unreadCount: chat.unreadCount,
                 isMuted: rootVM.isMuted(chat),
                 client: client,
@@ -960,6 +1010,10 @@ import UIKit
             loadAppsEmptyState()
             return
         }
+        guard filter != .channels else {
+            loadChannelsEmptyState()
+            return
+        }
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         let requestGeneration = generation
@@ -1032,6 +1086,47 @@ import UIKit
             popularAppsOffset = found.nextOffset.isEmpty ? "-" : found.nextOffset
             applySnapshot()
         }
+    }
+
+    /// getAllLocalChannels and recommendedChannels(peerId: nil): the joined channels in the chat list's order, then
+    /// TDLib's recommended ones the account isn't in.
+    private func loadChannelsEmptyState() {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let requestGeneration = generation
+        let store = TelegramChatListStore.shared
+        let joined = (store.chatIDs(in: .chatListMain) + store.chatIDs(in: .chatListArchive)).filter { id in
+            if case .supergroup(let supergroup)? = store.peerType(chatID: id) {
+                supergroup.isChannel
+            } else {
+                false
+            }
+        }
+        emptyStateTask = Task { [weak self] in
+            let recommended = await (try? client.send(TDNativeRequests.getRecommendedChats()))?.chatIds ?? []
+            guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
+                  let hydratedJoined = await hydrate(
+                      joined,
+                      generation: requestGeneration,
+                      scope: scope,
+                      client: client,
+                  ),
+                  let hydratedRecommended = await hydrate(
+                      recommended.filter { !joined.contains($0) },
+                      generation: requestGeneration,
+                      scope: scope,
+                      client: client,
+                  )
+            else { return }
+            localChannelIDs = hydratedJoined
+            recommendedChannelIDs = hydratedRecommended
+            applySnapshot()
+        }
+    }
+
+    private func toggleLocalChannelsExpansion() {
+        isLocalChannelsExpanded.toggle()
+        applySnapshot(reloadingSections: [.localChannels])
     }
 
     private func toggleRecentAppsExpansion() {
@@ -1299,6 +1394,19 @@ import UIKit
             if !popular.isEmpty {
                 snapshot.appendSections([.popularApps])
                 snapshot.appendItems(popular.map(Item.app))
+            }
+        } else if query.isEmpty, filter == .channels {
+            let joined = isLocalChannelsExpanded
+                ? localChannelIDs
+                : Array(localChannelIDs.prefix(Self.collapsedRecentAppCount))
+            if !joined.isEmpty {
+                snapshot.appendSections([.localChannels])
+                snapshot.appendItems(joined.map(Item.channel))
+            }
+            let recommended = recommendedChannelIDs.filter { !joined.contains($0) }
+            if !recommended.isEmpty {
+                snapshot.appendSections([.recommendedChannels])
+                snapshot.appendItems(recommended.map(Item.channel))
             }
         } else if query.isEmpty {
             if !topPeerIDs.isEmpty {

@@ -4188,3 +4188,7 @@
 "Chat.SavedMessagesModeMenu.ViewAsChats" = "View as Chats";
 "Chat.SavedMessagesModeMenu.ViewAsMessages" = "View as Messages";
 "Chat.SavedMessagesStatusViewAsChats" = "Tap to view as chats";
+"ChatList.Search.SectionRecentApps" = "APPS YOU USE";
+"ChatList.Search.SectionPopularApps" = "POPULAR APPS";
+"ChatList.Search.SectionLocalChannels" = "CHANNELS YOU JOINED";
+"ChatList.Search.SectionRecommendedChannels" = "RECOMMENDED CHANNELS";
