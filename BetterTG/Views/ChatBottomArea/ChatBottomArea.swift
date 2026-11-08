@@ -1631,6 +1631,13 @@ final class ChatComposerView: UIView {
             for: .touchUpInside,
         )
         suggestionsView.onSendCommand = { [weak self] command in self?.chatVM.sendBotCommand(command) }
+        suggestionsView.onSendQuickReply = { [weak self] reply in self?.chatVM.sendQuickReply(reply) }
+        suggestionsView.onEditQuickReplies = {
+            NavigationStorage.shared.activeNavigationController.pushViewController(
+                QuickRepliesViewController(),
+                animated: true,
+            )
+        }
         suggestionsView.onInsertCommand = { [weak self] command in
             guard let self else { return }
             chatVM.insertBotCommand(command)
@@ -2750,6 +2757,8 @@ final class ChatComposerView: UIView {
                 .inline(inline)
             } else if !commands.isEmpty {
                 .commands(commands, showsBotNames: Set(chatVM.botCommands.map(\.botUserID)).count > 1)
+            } else if case let replies = chatVM.quickReplySuggestions, !replies.isEmpty {
+                .quickReplies(replies)
             } else if chatVM.showsBotCommandMenu, chatVM.showsBotMenuButton {
                 .commands(chatVM.botCommands, showsBotNames: false)
             } else {

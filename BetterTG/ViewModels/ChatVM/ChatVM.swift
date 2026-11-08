@@ -1233,6 +1233,22 @@ import UIKit
         return botCommands.filter { $0.command.lowercased().hasPrefix(normalized) }
     }
 
+    /// ChatInterfaceStateContextQueries' `.command` in a chat with a person: the account's quick reply shortcuts
+    /// starting with the "/" word, when no command matches.
+    var quickReplySuggestions: [ChatQuickReplySuggestion] {
+        guard editCustomMessage == nil, !previewing, case .user = customChat.type, commandSuggestions.isEmpty,
+              case .command(let query) = ChatInputQuery.parse(text.string) else { return [] }
+        let normalized = query.lowercased()
+        return QuickReplyStore.shared
+            .shortcuts(for: TDLib.shared.activeUpdateSource)
+            .filter { $0.name.lowercased().hasPrefix(normalized) }
+            .map { ChatQuickReplySuggestion(
+                id: $0.id,
+                name: $0.name,
+                preview: QuickReplyStore.preview($0.firstMessage.content),
+            ) }
+    }
+
     /// inputTextPanelStateForChatPresentationInterfaceState's contextPlaceholder: the resolved inline bot's
     /// placeholder while the input is "@bot " with an empty query.
     var inlineBotPlaceholder: String? {
@@ -4842,6 +4858,22 @@ import UIKit
         showsBotCommandMenu = false
         let messageText = command.messageText(inGroup: sendsCommandsToGroup)
         Task { [weak self] in await self?.sendBotCommandText(messageText) }
+    }
+
+    /// ChatController's sendShortcut: the shortcut's messages go to the chat (sendQuickReplyShortcutMessages) and the
+    /// input is cleared.
+    func sendQuickReply(_ suggestion: ChatQuickReplySuggestion) {
+        Task { [weak self] in
+            await self?.sendClearingComposer(for: .text) { client, context in
+                let sent = try await client.send(TDNativeRequests.sendQuickReplyShortcutMessages(
+                    chatId: context.chatID,
+                    shortcutId: suggestion.id,
+                    sendingId: 0,
+                ))
+                guard let first = sent.messages.first else { throw ChatSendContextError.unexpectedDestination }
+                return first
+            }
+        }
     }
 
     /// CommandChatInputContextPanelNode's insert arrow: "/command " replaces the typed command.

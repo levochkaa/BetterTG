@@ -16,6 +16,8 @@ UICollectionViewDelegateFlowLayout {
     enum Content: Equatable {
         case hidden
         case commands([ChatBotCommand], showsBotNames: Bool)
+        /// The account's quick replies under Edit Quick Replies.
+        case quickReplies([ChatQuickReplySuggestion])
         case mentions([ChatMentionSuggestion])
         case inline(InlineBotQueryState)
         case hashtags(ChatHashtagSuggestions)
@@ -29,6 +31,8 @@ UICollectionViewDelegateFlowLayout {
                 true
             case (.commands(let lhsCommands, let lhsNames), .commands(let rhsCommands, let rhsNames)):
                 lhsCommands == rhsCommands && lhsNames == rhsNames
+            case (.quickReplies(let lhsReplies), .quickReplies(let rhsReplies)):
+                lhsReplies == rhsReplies
             case (.mentions(let lhsMentions), .mentions(let rhsMentions)):
                 lhsMentions == rhsMentions
             case (.inline(let lhsState), .inline(let rhsState)):
@@ -59,6 +63,8 @@ UICollectionViewDelegateFlowLayout {
 
     var onSendCommand: ((ChatBotCommand) -> Void)?
     var onInsertCommand: ((ChatBotCommand) -> Void)?
+    var onSendQuickReply: ((ChatQuickReplySuggestion) -> Void)?
+    var onEditQuickReplies: (() -> Void)?
     var onSelectMention: ((ChatMentionSuggestion) -> Void)?
     var onSelectInlineResult: ((InlineBotResult) -> Void)?
     var onLoadMoreInlineResults: (() -> Void)?
@@ -102,7 +108,8 @@ UICollectionViewDelegateFlowLayout {
         case .commands,
              .hashtags,
              .hidden,
-             .mentions: .list
+             .mentions,
+             .quickReplies: .list
         }
     }
 
@@ -221,7 +228,8 @@ UICollectionViewDelegateFlowLayout {
             switch content {
             case .hidden: 0
             case .commands,
-                 .mentions: min(CGFloat(rows), 4.5) * Self.rowHeight
+                 .mentions,
+                 .quickReplies: min(CGFloat(rows), 4.5) * Self.rowHeight
             case .inline: display == .gallery ? Self.galleryHeight : min(CGFloat(rows), 3.5) * Self.rowHeight
             case .hashtags: min(CGFloat(rows), 4.5) * Self.hashtagRowHeight
             case .emojis(let emoji, _): emoji.isEmpty ? 0 : Self.emojiBubbleHeight
@@ -257,6 +265,7 @@ UICollectionViewDelegateFlowLayout {
              .hidden,
              .stickers: 0
         case .commands(let commands, _): commands.count
+        case .quickReplies(let replies): replies.count + 1
         case .mentions(let mentions): mentions.count
         case .inline(let state):
             state.results.count + (inlineButton == nil ? 0 : 1)
@@ -290,6 +299,13 @@ UICollectionViewDelegateFlowLayout {
             cell.configureCommand(title: "/" + command.command, detail: detail) { [weak self] in
                 self?.onInsertCommand?(command)
             }
+        case .quickReplies(let replies):
+            // VerticalListContextResultsChatInputPanelButtonItem: Edit Quick Replies heads the list.
+            if indexPath.row == 0 {
+                cell.configureButton(L10n.telegram("Chat.CommandList.EditQuickReplies"))
+            } else if let reply = replies[safe: indexPath.row - 1] {
+                cell.configureCommand(title: "/" + reply.name, detail: reply.preview, onInsert: nil)
+            }
         case .mentions(let mentions):
             if let client,
                let mention = mentions[safe: indexPath.row] { cell.configureMention(mention, client: client) }
@@ -318,6 +334,12 @@ UICollectionViewDelegateFlowLayout {
             break
         case .commands(let commands, _):
             if let command = commands[safe: indexPath.row] { onSendCommand?(command) }
+        case .quickReplies(let replies):
+            if indexPath.row == 0 {
+                onEditQuickReplies?()
+            } else if let reply = replies[safe: indexPath.row - 1] {
+                onSendQuickReply?(reply)
+            }
         case .mentions(let mentions):
             if let mention = mentions[safe: indexPath.row] { onSelectMention?(mention) }
         case .inline(let state):
@@ -701,8 +723,9 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         selectionStyle = .default
     }
 
-    func configureCommand(title: String, detail: String, onInsert: @escaping () -> Void) {
-        layout(thumbnail: false, insert: true)
+    /// A command, with the arrow that inserts it; a quick reply has no arrow.
+    func configureCommand(title: String, detail: String, onInsert: (() -> Void)?) {
+        layout(thumbnail: false, insert: onInsert != nil)
         titleLabel.text = title
         titleLabel.textColor = .label
         detailLabel.text = detail

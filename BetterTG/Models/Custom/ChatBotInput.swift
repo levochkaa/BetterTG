@@ -20,6 +20,15 @@ struct ChatBotCommand: Equatable {
     }
 }
 
+// MARK: - ChatQuickReplySuggestion
+
+/// A quick reply shortcut in the "/" list (CommandChatInputPanelItem's `.shortcut`): /name over its first message.
+struct ChatQuickReplySuggestion: Equatable {
+    let id: Int
+    let name: String
+    let preview: String
+}
+
 // MARK: - ChatMentionSuggestion
 
 /// One row of MentionChatInputContextPanelNode: a recently used inline bot or a member matching the "@" word.

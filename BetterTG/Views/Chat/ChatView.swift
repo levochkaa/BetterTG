@@ -4880,6 +4880,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             }
             .store(in: &cancellables)
+        // keepQuickRepliesApproximatelyUpdated: a chat with a person lists the account's quick replies after "/".
+        if case .user = chatVM.customChat.type {
+            let client = chatVM.client
+            Task { _ = try? await client.send(TDNativeRequests.loadQuickReplyShortcuts()) }
+            QuickReplyStore.shared
+                .changes
+                .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+                .sink { [weak self] in
+                    guard let self, showsComposer, !composerAwaitsSentMediaInsertion else { return }
+                    composerView.update(from: chatVM)
+                }
+                .store(in: &cancellables)
+        }
         // A Saved Messages tag's label redraws the tags that show it.
         SavedMessagesTagsStore.shared
             .changes

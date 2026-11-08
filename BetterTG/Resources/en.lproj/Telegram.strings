@@ -4638,3 +4638,4 @@
 "BusinessMessageSetup.TitleGreetingMessage" = "Greeting Message";
 "BusinessMessageSetup.ToggleAwayMessage" = "Send Away Message";
 "BusinessMessageSetup.ToggleGreetingMessage" = "Send Greeting Message";
+"Chat.CommandList.EditQuickReplies" = "Edit Quick Replies";
