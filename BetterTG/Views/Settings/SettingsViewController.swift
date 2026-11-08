@@ -512,11 +512,12 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         }
     }
 
-    /// peerInfoNavigationButtonSets' settings bar: QR Code on the left, then search and Edit on the right; an open
-    /// search takes the row. Pushed, it keeps Back on the left.
+    /// The settings tab's bar as Chats' has it: Edit, then search in a pill of its own, on the left and QR Code on the
+    /// right; an open search takes the row. Pushed, it keeps Back on the left and the rest on the right, as
+    /// peerInfoNavigationButtonSets' settings bar.
     private func updateBarButtons() {
         guard !isSearching else {
-            navigationItem.leftBarButtonItem = nil
+            navigationItem.leftBarButtonItems = nil
             navigationItem.rightBarButtonItems = nil
             return
         }
@@ -526,10 +527,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         )
         qrCode.accessibilityLabel = L10n.telegram("PeerInfo.QRCode.Title")
         // Swiftgram's Settings pushed over Chats while its tab is hidden: Back takes the left, and QR Code stands
-        // beside
-        // the right items.
+        // beside the right items.
         let isPushed = !(parent is MainTabsViewController)
-        navigationItem.leftBarButtonItem = isPushed ? nil : qrCode
         let edit = UIBarButtonItem.telegramEdit(primaryAction: UIAction { [weak self] _ in
             self?.navigationController?.pushViewController(EditProfileViewController(), animated: true)
         })
@@ -538,7 +537,14 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             primaryAction: UIAction { [weak self] _ in self?.openSearch() },
         )
         searchButton.accessibilityLabel = L10n.telegram("Common.Search")
-        navigationItem.rightBarButtonItems = isPushed ? [edit, searchButton, qrCode] : [edit, searchButton]
+        if isPushed {
+            navigationItem.leftBarButtonItems = nil
+            navigationItem.rightBarButtonItems = [edit, searchButton, qrCode]
+        } else {
+            searchButton.sharesBackground = false
+            navigationItem.leftBarButtonItems = [edit, searchButton]
+            navigationItem.rightBarButtonItems = [qrCode]
+        }
     }
 
     /// The search button: the field takes the row with the keyboard up, and the list gives way to the recent items.
