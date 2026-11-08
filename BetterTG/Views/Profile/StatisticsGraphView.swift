@@ -153,11 +153,32 @@ private final class StatisticsPlotView: UIView {
         return formatter
     }()
 
+    private static let detailsDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeZone = .gmt
+        formatter.dateStyle = .medium
+        return formatter
+    }()
+
     let data: StatisticsChartData
     let kind: StatisticsGraphKind
     let isPreview: Bool
     var visible: [Bool] { didSet { setNeedsDisplay() } }
     var range: ClosedRange<Double> { didSet { setNeedsDisplay() } }
+    /// The point the details show: its line and bullets, or its bar at full colour with the rest dimmed.
+    var selectedIndex: Int? { didSet { setNeedsDisplay() } }
+
+    /// LineBulletsRenderer's bullets for the selected point, gathered while the series draw.
+    private var bullets = [(CGPoint, UIColor)]()
+
+    private var ignoresTouch = false
+    private let feedback = UISelectionFeedbackGenerator()
+    private lazy var detailsView: StatisticsDetailsView = {
+        let view = StatisticsDetailsView()
+        view.onTap = { [weak self] in self?.hideDetails() }
+        addSubview(view)
+        return view
+    }()
 
     /// ChartView's chartInsets; the preview fills its frame.
     private var chartFrame: CGRect {
@@ -204,6 +225,7 @@ private final class StatisticsPlotView: UIView {
         guard let context = UIGraphicsGetCurrentContext(), chartFrame.width > 0, chartFrame.height > 0,
               range.upperBound > range.lowerBound
         else { return }
+        bullets = []
         switch kind {
         case .lines:
             drawLines(context)
@@ -222,7 +244,46 @@ private final class StatisticsPlotView: UIView {
         }
         if !isPreview, kind != .pie {
             drawDates()
+            drawSelection(context)
         }
+    }
+
+    // MARK: Details
+
+    /// ChartView's touches: a touch selects the nearest point and a drag follows it, with a tick on each new point;
+    /// a touch while the details show hides them, as does a tap on the details.
+    override func touchesBegan(_ touches: Set<UITouch>, with _: UIEvent?) {
+        guard !isPreview, kind != .pie, let point = touches.first?.location(in: self) else { return }
+        if selectedIndex != nil {
+            hideDetails()
+            ignoresTouch = true
+            return
+        }
+        select(at: point)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with _: UIEvent?) {
+        guard !isPreview, kind != .pie, !ignoresTouch, let point = touches.first?.location(in: self) else { return }
+        select(at: point)
+    }
+
+    override func touchesEnded(_: Set<UITouch>, with _: UIEvent?) {
+        ignoresTouch = false
+    }
+
+    override func touchesCancelled(_: Set<UITouch>, with _: UIEvent?) {
+        ignoresTouch = false
+    }
+
+    /// BaseConstants.detailsNumberFormatter: whole numbers with spaces between thousands.
+    private static func detailsText(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.allowsFloats = false
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = " "
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? ""
     }
 
     /// ScalesNumberFormatter: millions as M and from ten thousand as K, with spaces between thousands.
@@ -236,6 +297,86 @@ private final class StatisticsPlotView: UIView {
         let power = log10(value)
         let (scaled, suffix) = power >= 6 ? (value / 1_000_000, "M") : power >= 4 ? (value / 1000, "K") : (value, "")
         return (formatter.string(from: NSNumber(value: scaled)) ?? "") + suffix
+    }
+
+    /// findClosestDateTo for a touch's horizontal fraction of the chart; a bar answers for its whole step.
+    func closestIndex(toFraction fraction: CGFloat) -> Int? {
+        guard !data.x.isEmpty else { return nil }
+        var value = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
+        if kind.isBar {
+            value += data.step / 2
+        }
+        return data.x.indices.min { abs(data.x[$0] - value) < abs(data.x[$1] - value) }
+    }
+
+    func hideDetails() {
+        guard selectedIndex != nil else { return }
+        selectedIndex = nil
+        UIView.animate(withDuration: 0.2) { self.detailsView.alpha = 0 }
+    }
+
+    /// Refreshes the details for the shown series.
+    func updateDetails() {
+        guard let selectedIndex else { return }
+        showDetails(selectedIndex)
+    }
+
+    /// VerticalLinesRenderer's line through the selected point and LineBulletsRenderer's bullets on it, over the
+    /// scales. Stacked bars show their selection by colour alone.
+    private func drawSelection(_ context: CGContext) {
+        guard let selectedIndex, kind != .bars else { return }
+        let x = xPosition(data.x[selectedIndex])
+        context.setLineWidth(1 / max(1, traitCollection.displayScale))
+        context.setStrokeColor(StatisticsChartColors.lines.cgColor)
+        context.strokeLineSegments(between: [CGPoint(x: x, y: chartFrame.minY), CGPoint(x: x, y: chartFrame.maxY)])
+        context.setLineWidth(2)
+        for (point, color) in bullets {
+            let rect = CGRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)
+            context.setFillColor(UIColor.secondarySystemGroupedBackground.cgColor)
+            context.setStrokeColor(color.cgColor)
+            context.fillEllipse(in: rect)
+            context.strokeEllipse(in: rect)
+        }
+    }
+
+    private func select(at point: CGPoint) {
+        let fraction = (min(max(point.x, 0), bounds.width) - chartFrame.minX) / chartFrame.width
+        guard let index = closestIndex(toFraction: fraction) else { return }
+        if selectedIndex != nil, index != selectedIndex {
+            feedback.selectionChanged()
+        }
+        let wasShown = selectedIndex != nil
+        selectedIndex = index
+        showDetails(index)
+        if !wasShown {
+            detailsView.alpha = 0
+            UIView.animate(withDuration: 0.2) { self.detailsView.alpha = 1 }
+        }
+    }
+
+    /// GeneralChartComponentController.chartDetailsViewModel: the day (or the hour) and each shown series' value in
+    /// its colour, with stacked bars' Total; ChartView.detailsViewPosition puts it 8 pt right of the point, or left of
+    /// it when it would cross the edge, 5 pt under the chart's top.
+    private func showDetails(_ index: Int) {
+        let date = data.x[index]
+        let title = date <= 24
+            ? "\(Int(date)):00"
+            : Self.detailsDateFormatter.string(from: Date(timeIntervalSince1970: date))
+        let rows = data.series.enumerated().filter { visible[$0.offset] }.map { _, line in
+            (line.name, Self.detailsText(line.values[index]), line.color)
+        }
+        var total: String?
+        if kind == .bars, rows.count > 1 {
+            let sum = data.series.enumerated().filter { visible[$0.offset] }.reduce(0) { $0 + $1.element.values[index] }
+            total = Self.detailsText(sum)
+        }
+        detailsView.configure(title: title, rows: rows, total: total)
+        let size = detailsView.size
+        let position = xPosition(date)
+        let x = size.width + 8 > position
+            ? max(8, min(position + 8, bounds.width - size.width - 8))
+            : max(8, min(position - size.width - 8, bounds.width - size.width - 8))
+        detailsView.frame = CGRect(origin: CGPoint(x: x, y: chartFrame.minY + 5), size: size)
     }
 
     // MARK: Transforms
@@ -384,6 +525,13 @@ private final class StatisticsPlotView: UIView {
                 }
             }
             context.strokePath()
+            if !isPreview, let selectedIndex {
+                let point = CGPoint(
+                    x: xPosition(data.x[selectedIndex]),
+                    y: yPosition(line.values[selectedIndex], in: vertical),
+                )
+                bullets.append((point, line.color))
+            }
         }
     }
 
@@ -425,6 +573,13 @@ private final class StatisticsPlotView: UIView {
             context.beginPath()
             context.addLines(between: points)
             context.strokePath()
+            if !isPreview, let selectedIndex {
+                let point = CGPoint(
+                    x: xPosition(data.x[selectedIndex]),
+                    y: yPosition(line.values[selectedIndex], in: vertical),
+                )
+                bullets.append((point, line.color))
+            }
         }
     }
 
@@ -460,6 +615,7 @@ private final class StatisticsPlotView: UIView {
             }
         }
         var rects = series.map { _ in [CGRect]() }
+        var selectedRects = series.map { _ in [CGRect]() }
         for index in drawn {
             let left = xPosition(data.x[index] - data.step)
             let right = xPosition(data.x[index])
@@ -468,12 +624,21 @@ private final class StatisticsPlotView: UIView {
                 let bottom = yPosition(stacked, in: vertical)
                 stacked += line.values[index]
                 let top = yPosition(stacked, in: vertical)
-                rects[component].append(CGRect(x: left, y: top, width: right - left, height: bottom - top))
+                let rect = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+                if !isPreview, index == selectedIndex {
+                    selectedRects[component].append(rect)
+                } else {
+                    rects[component].append(rect)
+                }
             }
         }
+        // generalUnselectedAlpha: the other bars fade to half while one is selected.
+        let alpha: CGFloat = !isPreview && selectedIndex != nil ? 0.5 : 1
         for (component, line) in series.enumerated() {
-            context.setFillColor(line.color.cgColor)
+            context.setFillColor(line.color.withAlphaComponent(alpha).cgColor)
             context.fill(rects[component])
+            context.setFillColor(line.color.cgColor)
+            context.fill(selectedRects[component])
         }
     }
 
@@ -553,6 +718,83 @@ private final class StatisticsPlotView: UIView {
             context.fillPath()
             below = above
         }
+    }
+}
+
+// MARK: - StatisticsDetailsView
+
+/// GraphUI's ChartDetailsView: the day in bold, then each series' name and its value in the series' colour, and
+/// Total for stacked bars, on PresentationThemeChart's details colour with 5 pt corners. A tap hides it.
+private final class StatisticsDetailsView: UIView {
+    private static let background = UIColor { $0.userInterfaceStyle == .dark ? .black : UIColor(rgb: 0xF5F5FB) }
+    private static let text = UIColor { $0.userInterfaceStyle == .dark ? .white : UIColor(rgb: 0x6D6D72) }
+
+    var onTap: (() -> Void)?
+    private(set) var size = CGSize.zero
+
+    private let titleLabel = UILabel()
+    private var labels = [UILabel]()
+
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = Self.background
+        layer.cornerRadius = 5
+        clipsToBounds = true
+        titleLabel.font = .systemFont(ofSize: 12, weight: .bold)
+        titleLabel.textColor = Self.text
+        addSubview(titleLabel)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// ChartDetailsView.setup: 10 pt margins, 110 pt for a name and 70 pt for its value, 18 pt rows.
+    func configure(title: String, rows: [(String, String, UIColor)], total: String?) {
+        labels.forEach { $0.removeFromSuperview() }
+        labels = []
+        let width: CGFloat = 10 * 2 + 110 + 70
+        titleLabel.text = title
+        titleLabel.frame = CGRect(x: 10, y: 8, width: width, height: 18)
+        var y: CGFloat = 8 + 18
+        func addRow(_ name: String, _ value: String, _ color: UIColor, wraps: Bool) {
+            let nameLabel = UILabel()
+            nameLabel.font = .systemFont(ofSize: 12)
+            nameLabel.textColor = Self.text
+            nameLabel.numberOfLines = wraps ? 2 : 1
+            nameLabel.text = name
+            var nameSize = nameLabel.sizeThatFits(CGSize(width: 110, height: CGFloat.greatestFiniteMagnitude))
+            nameSize.height = ceil(wraps ? nameSize.height : 18)
+            nameLabel.frame = CGRect(
+                x: 10,
+                y: y + (wraps ? 2 : 0),
+                width: min(110, nameSize.width),
+                height: nameSize.height,
+            )
+            let valueLabel = UILabel()
+            valueLabel.font = .systemFont(ofSize: 12, weight: .bold)
+            valueLabel.textColor = color
+            valueLabel.textAlignment = .right
+            valueLabel.text = value
+            valueLabel.frame = CGRect(x: 10 + 110, y: y, width: 70, height: 18)
+            for label in [nameLabel, valueLabel] {
+                addSubview(label)
+                labels.append(label)
+            }
+            y += wraps ? nameSize.height + 4 : 18
+        }
+        for (name, value, color) in rows {
+            addRow(name, value, color, wraps: true)
+        }
+        if let total {
+            addRow(L10n.telegram("Stats.Total"), total, Self.text, wraps: false)
+        }
+        size = CGSize(width: width, height: y + 8)
+    }
+
+    @objc private func handleTap() {
+        onTap?()
     }
 }
 
@@ -951,6 +1193,7 @@ final class StatisticsGraphView: UIView {
             let visibilityView = StatisticsVisibilityView(series: data.series)
             visibilityView.onChange = { [weak self] selection in
                 self?.plot?.visible = selection
+                self?.plot?.updateDetails()
                 self?.rangeView?.preview.visible = selection
             }
             addSubview(visibilityView)
@@ -966,6 +1209,8 @@ final class StatisticsGraphView: UIView {
     }
 
     private func updateRange(_ fraction: ClosedRange<CGFloat>) {
+        // updateChartRange cancels the interaction.
+        plot?.hideDetails()
         plot?.range = range(for: fraction)
         updateTitle()
     }
