@@ -4661,3 +4661,5 @@
 "Settings.ChatAutomationOff" = "Off";
 "Checkout.Receipt.Title" = "Receipt";
 "Message.InvoiceLabel" = "INVOICE";
+"Notification.JoinedGroupViaCommunityYou" = "You joined the group via community";
+"Notification.JoinedGroupViaCommunity" = "%@ joined the group via community";

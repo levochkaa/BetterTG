@@ -138,6 +138,11 @@ enum ServiceMessageText {
                 addedMembers(value.memberUserIds, context: context)
             case .messageChatDeleteMember(let value):
                 removedMember(value.userId, context: context)
+            case .messageChatJoinFromCommunity:
+                // joinedViaCommunity.
+                context.isOutgoing
+                    ? telegram("Notification.JoinedGroupViaCommunityYou")
+                    : author.isEmpty ? nil : telegram("Notification.JoinedGroupViaCommunity", author)
             case .messageChatJoinByLink:
                 context.isOutgoing
                     ? telegram("Notification.JoinedGroupByLinkYou")
