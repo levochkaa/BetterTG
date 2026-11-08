@@ -7,15 +7,15 @@ import UIKit
 
 /// MediaScrubberComponent's editor track for a story video: the video's frames along a 39 pt strip with 9 pt corners,
 /// dimmed outside the trimmed part, which white 14 pt handles with dark capsules and a white border mark; a handle or
-/// the border turns 0xffd300 while dragged. The part is 1 to 60 seconds long (storyMaxVideoDuration); dragging inside
-/// it moves it whole. The playback cursor, a 2 by 42 pt white bar with a shadow, follows the player.
+/// the border turns 0xffd300 while dragged. The part is a second to a minute a story long, white lines with #2 and #3
+/// marking where it splits; dragging inside it moves it whole. The playback cursor, a 2 by 42 pt white bar with a
+/// shadow, follows the player.
 final class StoryVideoScrubber: UIView {
     static let height: CGFloat = 39
 
     private static let handleWidth: CGFloat = 14
     private static let borderHeight: CGFloat = 1 + 1 / 3
     private static let minimumDuration: Double = 1
-    private static let maximumDuration: Double = 60
 
     /// The trimmed part changed: its bounds, which edge moved (nil for the whole part), and whether the drag ended.
     var onTrim: ((ClosedRange<Double>, Bool?, Bool) -> Void)?
@@ -23,6 +23,12 @@ final class StoryVideoScrubber: UIView {
     private(set) var range: ClosedRange<Double>
 
     private let duration: Double
+    /// The longest part: a minute a story, as many as the account may post.
+    private let maximumDuration: Double
+    /// storyMaxVideoDuration: where the part splits into stories, marked with #2 and #3.
+    private let segmentDuration: Double
+    private var segmentLines = [UIView]()
+    private var segmentLabels = [UILabel]()
     private let dimmedFrames = UIView()
     private let frames = UIView()
     private let framesMask = CALayer()
@@ -42,9 +48,17 @@ final class StoryVideoScrubber: UIView {
     private var frameImages = [UIImage]()
     private var frameAspect: CGFloat = 9 / 16
 
-    init(asset: AVAsset, duration: Double, range: ClosedRange<Double>) {
+    init(
+        asset: AVAsset,
+        duration: Double,
+        range: ClosedRange<Double>,
+        maximumDuration: Double,
+        segmentDuration: Double,
+    ) {
         self.duration = duration
         self.range = range
+        self.maximumDuration = maximumDuration
+        self.segmentDuration = segmentDuration
         super.init(frame: CGRect(x: 0, y: 0, width: 300, height: Self.height))
         for container in [dimmedFrames, frames] {
             container.clipsToBounds = true
@@ -65,6 +79,24 @@ final class StoryVideoScrubber: UIView {
             capsule.layer.cornerRadius = 1
             handle.addSubview(capsule)
             addSubview(handle)
+        }
+        for index in 0..<2 {
+            let line = UIView()
+            line.backgroundColor = .white
+            line.isUserInteractionEnabled = false
+            let label = UILabel()
+            label.text = "#\(index + 2)"
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = .white
+            label.layer.shadowColor = UIColor.black.cgColor
+            label.layer.shadowOpacity = 0.4
+            label.layer.shadowRadius = 1
+            label.layer.shadowOffset = .zero
+            label.sizeToFit()
+            addSubview(line)
+            addSubview(label)
+            segmentLines.append(line)
+            segmentLabels.append(label)
         }
         border.image = Self.borderImage()
         border.tintColor = .white
@@ -201,6 +233,18 @@ final class StoryVideoScrubber: UIView {
         CATransaction.setDisableActions(true)
         framesMask.frame = CGRect(x: left.minX, y: 0, width: right.maxX - left.minX, height: height)
         CATransaction.commit()
+        // The segments' lines a minute apart from the part's start, labelled when a minute is 30 pt or wider.
+        let segmentCount = Int(ceil((range.upperBound - range.lowerBound) / segmentDuration - 0.001)) - 1
+        let segmentWidth = x(for: segmentDuration) - x(for: 0)
+        for (index, (line, label)) in zip(segmentLines, segmentLabels).enumerated() {
+            let isShown = index < segmentCount
+            line.isHidden = !isShown
+            label.isHidden = !isShown || segmentWidth < 30
+            guard isShown else { continue }
+            let lineX = x(for: range.lowerBound + segmentDuration * Double(index + 1))
+            line.frame = CGRect(x: lineX, y: 0, width: 1, height: height)
+            label.frame.origin = CGPoint(x: lineX + 2, y: 2)
+        }
         let color = isDragging ? UIColor(red: 1, green: 0xD3 / 255, blue: 0, alpha: 1) : .white
         leftHandle.tintColor = color
         rightHandle.tintColor = color
@@ -266,14 +310,14 @@ final class StoryVideoScrubber: UIView {
     @objc private func leftDragged(_ gesture: UILongPressGestureRecognizer) {
         drag(gesture) { start, delta in
             let lower = max(0, min(start.lowerBound + delta, start.upperBound - Self.minimumDuration))
-            return max(lower, start.upperBound - Self.maximumDuration)...start.upperBound
+            return max(lower, start.upperBound - maximumDuration)...start.upperBound
         } edge: { true }
     }
 
     @objc private func rightDragged(_ gesture: UILongPressGestureRecognizer) {
         drag(gesture) { start, delta in
             let upper = min(duration, max(start.upperBound + delta, start.lowerBound + Self.minimumDuration))
-            return start.lowerBound...min(upper, start.lowerBound + Self.maximumDuration)
+            return start.lowerBound...min(upper, start.lowerBound + maximumDuration)
         } edge: { false }
     }
 

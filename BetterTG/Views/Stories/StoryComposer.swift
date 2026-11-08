@@ -181,11 +181,33 @@ import VideoToolbox
             Self.current = nil
             return
         }
-        let preview = StoryPreviewViewController(media: media, client: client, accountID: accountID)
-        let navigation = TelegramNavigationController(rootViewController: preview)
-        navigation.modalPresentationStyle = .fullScreen
-        host.present(navigation, animated: true)
-        Self.current = nil
+        let client = client
+        let accountID = accountID
+        Task { @MainActor in
+            // storyEditor(remainingCount:): a video may run as long as three stories, or as many as the account may
+            // still post (checkStoriesUploadAvailability), a minute each.
+            var remaining = 1
+            if let ownID = TDLib.shared.activeAccount?.userID,
+               case .canPostStoryResultOk(let result)? = try? await client.send(
+                   TDNativeRequests.canPostStory(chatId: ownID),
+               )
+            {
+                remaining = max(1, result.storyCount)
+            }
+            let maxDuration = Double(min(StoryDraft.maxCombinedCount, remaining)) * StoryDraft.maxVideoDuration
+            var media = media
+            if let duration = media.videoDuration { media = media.withRange(0...min(duration, maxDuration)) }
+            let preview = StoryPreviewViewController(
+                media: media,
+                maxVideoDuration: maxDuration,
+                client: client,
+                accountID: accountID,
+            )
+            let navigation = TelegramNavigationController(rootViewController: preview)
+            navigation.modalPresentationStyle = .fullScreen
+            host.present(navigation, animated: true)
+            Self.current = nil
+        }
     }
 }
 
@@ -206,11 +228,35 @@ private enum StoryDraft {
         overlay: UIImage?,
     )
 
+    /// storyMaxVideoDuration and storyMaxCombinedVideoCount.
+    static let maxVideoDuration: Double = 60
+    static let maxCombinedCount = 3
+
     var canvas: UIImage {
         switch self {
         case .photo(let image): image
         case .video(_, _, let canvas, _, _, _): canvas
         }
+    }
+
+    var videoDuration: Double? {
+        if case .video(_, _, _, let duration, _, _) = self {
+            duration
+        } else {
+            nil
+        }
+    }
+
+    /// The stories a long video makes: a minute each from the trimmed part's start, at most three.
+    var segments: [ClosedRange<Double>] {
+        guard case .video(_, _, _, _, let range, _) = self else { return [] }
+        var result = [ClosedRange<Double>]()
+        var start = range.lowerBound
+        while start < range.upperBound - 0.01, result.count < Self.maxCombinedCount {
+            result.append(start...min(range.upperBound, start + Self.maxVideoDuration))
+            start += Self.maxVideoDuration
+        }
+        return result
     }
 
     /// The story with the editor's entities: drawn into a photo, kept for a video's export.
@@ -603,8 +649,11 @@ UIColorPickerViewControllerDelegate {
     private var scrubber: StoryVideoScrubber?
     private var timeObserver: Any?
 
-    init(media: StoryDraft, client: TDLibClient, accountID: UUID?) {
+    private let maxVideoDuration: Double
+
+    init(media: StoryDraft, maxVideoDuration: Double, client: TDLibClient, accountID: UUID?) {
         self.media = media
+        self.maxVideoDuration = maxVideoDuration
         self.client = client
         self.accountID = accountID
         super.init(nibName: nil, bundle: nil)
@@ -636,7 +685,13 @@ UIColorPickerViewControllerDelegate {
             playerView.frame = imageView.bounds
             playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             imageView.addSubview(playerView)
-            let scrubber = StoryVideoScrubber(asset: AVURLAsset(url: url), duration: assetDuration, range: range)
+            let scrubber = StoryVideoScrubber(
+                asset: AVURLAsset(url: url),
+                duration: assetDuration,
+                range: range,
+                maximumDuration: maxVideoDuration,
+                segmentDuration: StoryDraft.maxVideoDuration,
+            )
             scrubber.onTrim = { [weak self] range, edge, ended in self?.trim(to: range, edge: edge, ended: ended) }
             view.addSubview(scrubber)
             self.scrubber = scrubber
@@ -1055,6 +1110,11 @@ private final class StoryShareViewController: SettingsListViewController {
         }
     }
 
+    /// ShareWithPeersScreen's count: the stories a long video makes.
+    private var storyCount: Int {
+        max(1, media.segments.count)
+    }
+
     init(media: StoryDraft, caption: String, hours: Int) {
         self.media = media
         self.caption = caption
@@ -1104,7 +1164,9 @@ private final class StoryShareViewController: SettingsListViewController {
         // POST STORY AS, once the account can post somewhere else: the chosen peer, opening the list.
         if postAsPeers.count > 1, let postAs {
             sections.append(SettingsSection(
-                header: L10n.telegram("Story.Privacy.PostStoryAsHeader"),
+                header: L10n.telegram(storyCount > 1
+                    ? "Story.Privacy.PostStoriesAsHeader"
+                    : "Story.Privacy.PostStoryAsHeader"),
                 rows: [SettingsRow(
                     title: postAs.peer.title,
                     detail: postAs.subtitle,
@@ -1121,18 +1183,21 @@ private final class StoryShareViewController: SettingsListViewController {
             pinTitle = L10n.telegram(postAs.isGroup
                 ? "Story.Privacy.KeepOnGroupPage"
                 : "Story.Privacy.KeepOnChannelPage")
-            pinFooter = L10n.telegram(
-                postAs.isGroup ? "Story.Privacy.KeepOnGroupPageInfo" : "Story.Privacy.KeepOnChannelPageInfo",
-                hoursText,
-            )
+            let key = postAs.isGroup ? "Story.Privacy.KeepOnGroupPage" : "Story.Privacy.KeepOnChannelPage"
+            pinFooter = L10n.telegram(key + (storyCount > 1 ? "ManyInfo" : "Info"), hoursText)
         } else {
             pinTitle = L10n.telegram("Story.Privacy.KeepOnMyPage")
-            pinFooter = L10n.telegram("Story.Privacy.KeepOnMyPageInfo", hoursText)
+            pinFooter = L10n.telegram(
+                storyCount > 1 ? "Story.Privacy.KeepOnMyPageManyInfo" : "Story.Privacy.KeepOnMyPageInfo",
+                hoursText,
+            )
         }
         // A chat's story is public to it: no categories.
         if postAsChatID == nil {
             sections.append(SettingsSection(
-                header: L10n.telegram("Story.Privacy.WhoCanViewHeader"),
+                header: L10n.telegram(storyCount > 1
+                    ? "Story.Privacy.WhoCanViewStoriesHeader"
+                    : "Story.Privacy.WhoCanViewHeader"),
                 rows: audiences.map { audience, key, detail in
                     SettingsRow(
                         title: L10n.telegram(key),
@@ -1161,7 +1226,9 @@ private final class StoryShareViewController: SettingsListViewController {
                 ],
             ),
             SettingsSection(rows: [SettingsRow(
-                title: L10n.telegram("Story.Privacy.PostStory"),
+                title: storyCount > 1
+                    ? L10n.telegramPlural("Story.Privacy.PostStories", count: storyCount)
+                    : L10n.telegram("Story.Privacy.PostStory"),
                 style: .action(destructive: false),
                 accessory: isPosting ? .activity : .none,
                 isEnabled: !isPosting,
@@ -1270,19 +1337,24 @@ private final class StoryShareViewController: SettingsListViewController {
         Task { @MainActor in
             defer { StoryPosting.shared.end(preparing) }
             do {
-                let content = try await media.content()
-                _ = try await client.send(TDNativeRequests.postStory(
-                    chatId: chatID,
-                    content: content,
-                    areas: nil,
-                    caption: caption.isEmpty ? nil : FormattedText(entities: [], text: caption),
-                    privacySettings: privacy,
-                    albumIds: [],
-                    activePeriod: activePeriod,
-                    fromStoryFullId: nil,
-                    isPostedToChatPage: keepsOnPage,
-                    protectContent: !allowsScreenshots,
-                ))
+                // A long video goes as a minute a story, the caption on the first (MediaEditorStoryCompletion).
+                let parts = media.segments.count > 1 ? media.segments.map { media.withRange($0) } : [media]
+                for (index, part) in parts.enumerated() {
+                    let content = try await part.content()
+                    let text = index == 0 ? caption : ""
+                    _ = try await client.send(TDNativeRequests.postStory(
+                        chatId: chatID,
+                        content: content,
+                        areas: nil,
+                        caption: text.isEmpty ? nil : FormattedText(entities: [], text: text),
+                        privacySettings: privacy,
+                        albumIds: [],
+                        activePeriod: activePeriod,
+                        fromStoryFullId: nil,
+                        isPostedToChatPage: keepsOnPage,
+                        protectContent: !allowsScreenshots,
+                    ))
+                }
             } catch {
                 guard let presenter, presenter.presentedViewController == nil else { return }
                 let alert = UIAlertController(
