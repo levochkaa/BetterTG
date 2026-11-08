@@ -1705,6 +1705,7 @@ ClientRestorableNavigationEntry {
             self.updateProfileHeaderLayout()
             self.expandedPhotoContainer.layoutIfNeeded()
         }
+        updateProfileCoverTopFill()
     }
 
     /// addGiftsToCollection: AddGiftsScreen over the profile's gifts, then the picked ones join the collection.
@@ -3118,6 +3119,22 @@ ClientRestorableNavigationEntry {
     /// last 24 pt as it scrolls away, where the bar's own background shows.
     private func updateProfileCoverTopFill() {
         let chrome = view.subviews.lazy.compactMap { $0 as? TelegramClassicNavigationChrome }.first
+        // PeerInfoHeaderNode over an expanded photo: the bar is clear while the photo reaches the top, and its title
+        // and
+        // buttons white over it.
+        if isAvatarExpanded {
+            let photo = expandedPhotoContainer.convert(expandedPhotoContainer.bounds, to: view)
+            let clear = photo.minY <= 0 && photo.maxY > collectionView.frame.minY
+            profileCoverTopFill.isHidden = true
+            chrome?.backgroundAlpha = clear ? 0 : 1
+            chrome?.titleColorOverride = clear ? .white : nil
+            // White only where every button lies over the photo: beside the Duo's strip the column stands past it.
+            let overPhoto = chrome?.glassPlatters
+                .filter { !$0.isHidden && $0.window != nil }
+                .allSatisfy { photo.contains($0.convert($0.bounds, to: view)) } ?? false
+            chrome?.buttonTintOverride = clear && overPhoto ? .white : nil
+            return
+        }
         guard !profileCoverView.isHidden else {
             profileCoverTopFill.isHidden = true
             chrome?.backgroundAlpha = 1
