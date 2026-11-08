@@ -4205,3 +4205,4 @@
 "CountriesList.MaximumReached" = "You can select up to %@.";
 "CountriesList.MaximumReached.Countries_1" = "%@ country";
 "CountriesList.MaximumReached.Countries_any" = "%@ countries";
+"Settings.AddDevice" = "Scan QR";

@@ -19,6 +19,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
     private var me: User?
     private var meAccountID: UUID?
     private var sessionCount: Int?
+
     private var loadTask: Task<Void, Never>?
     /// The Settings bots' launcher, for the account and client it was made for.
     private var appLauncher: (source: TdUpdateSource, launcher: WebAppLauncher)?
@@ -198,7 +199,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             configuration = .valueCell()
         }
         configuration.text = row.title
-        configuration.secondaryText = row == .devices ? sessionCount.map(String.init) : row.subtitle
+        configuration.secondaryText = row == .devices ? Self.devicesLabel(sessionCount: sessionCount) : row.subtitle
         configuration.image = UIImage(systemName: row.symbolName)
         configuration.imageProperties.tintColor = row.tintColor
         configuration.imageProperties.maximumSize = CGSize(width: 25, height: 25)
@@ -296,6 +297,13 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             completion(true)
         }
         return UISwipeActionsConfiguration(actions: [delete])
+    }
+
+    /// PeerInfoSettingsItems' devicesLabel: the sessions with this one, or Add Device while it is the only one (QR
+    /// login stays on in BetterTG's Devices).
+    private static func devicesLabel(sessionCount: Int?) -> String? {
+        guard let sessionCount else { return nil }
+        return sessionCount <= 1 ? L10n.telegram("Settings.AddDevice") : String(sessionCount)
     }
 
     /// The text without its Markdown link brackets.
