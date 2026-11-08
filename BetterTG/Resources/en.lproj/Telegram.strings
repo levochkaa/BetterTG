@@ -4366,3 +4366,10 @@
 "SetTimeoutFor.Hours_any" = "Set for %@ hours";
 "SetTimeoutFor.Days_1" = "Set for 1 day";
 "SetTimeoutFor.Days_any" = "Set for %@ days";
+"MediaPlayer.ContextMenu.SaveTo" = "Save to...";
+"MediaPlayer.ContextMenu.SaveTo.Profile" = "Profile";
+"MediaPlayer.ContextMenu.SaveTo.SavedMessages" = "Saved Messages";
+"MediaPlayer.ContextMenu.SaveTo.Info" = "Choose where you want this audio to be saved.";
+"MediaPlayer.ContextMenu.ShowInChat" = "Show in Chat";
+"MediaPlayer.ContextMenu.Remove" = "Remove";
+"MediaPlayer.AudioForwardedToSavedMesagesTooltip" = "Audio forwarded to Saved Messages.";

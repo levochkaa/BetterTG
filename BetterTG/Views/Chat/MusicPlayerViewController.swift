@@ -144,6 +144,10 @@ final class MusicPlayerViewController: UIViewController {
     }
 
     private func configureList() {
+        tableView.addGestureRecognizer(UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(rowLongPressed(_:)),
+        ))
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
         tableView.contentInsetAdjustmentBehavior = .never
@@ -326,6 +330,156 @@ final class MusicPlayerViewController: UIViewController {
                 title: audio.title,
             ))
             if let ownerToReload { await ProfileMusicPlaylist.shared.reload(ownerToReload, client: client) }
+        }
+    }
+
+    /// OverlayAudioPlayerControllerNode's track menu: Save to… (Profile while the file isn't there, Saved Messages for
+    /// a track outside them), Show in Chat for a chat's track, and Remove for a track of the account's own playlist.
+    @objc private func rowLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              indexPath.row < rows.count,
+              let cell = tableView.cellForRow(at: indexPath),
+              TDLib.shared.activeAccountID == accountID
+        else { return }
+        let row = rows[indexPath.row]
+        let ownUserID = TDLib.shared.activeAccount?.userID
+        let isOwnPlaylist = isProfile && chatID == ownUserID
+        let fileID = row.audio.audio.id
+        let isSaved = isOwnPlaylist || savedFiles[fileID] == true
+        if !isOwnPlaylist, savedFiles[fileID] == nil { checkSaved(fileID) }
+        var saveTargets = [TelegramContextMenuAction]()
+        if !isSaved {
+            saveTargets.append(TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.SaveTo.Profile"),
+                image: UIImage(systemName: "person"),
+            ) { [weak self] in self?.saveToProfile(row.audio) })
+        }
+        if row.message == nil || chatID != ownUserID {
+            saveTargets.append(TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.SaveTo.SavedMessages"),
+                image: UIImage(systemName: "bookmark"),
+            ) { [weak self] in self?.sendToSavedMessages(row.audio) })
+        }
+        var actions = [TelegramContextMenuAction]()
+        if !saveTargets.isEmpty {
+            var info = TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.SaveTo.Info"),
+                image: nil,
+                startsNewSection: true,
+            )
+            info.isInformational = true
+            info.usesSmallText = true
+            info.isMultiline = true
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.SaveTo"),
+                image: UIImage(systemName: "square.and.arrow.down"),
+                children: saveTargets + [info],
+            ))
+        }
+        if let message = row.message {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.ShowInChat"),
+                image: UIImage(systemName: "arrow.right.circle"),
+                startsNewSection: !actions.isEmpty,
+            ) { [weak self] in self?.showInChat(message) })
+        }
+        if isOwnPlaylist {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("MediaPlayer.ContextMenu.Remove"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+                startsNewSection: true,
+            ) { [weak self] in self?.removeFromOwnPlaylist(row.audio) })
+        }
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    private func saveToProfile(_ audio: Audio) {
+        guard TDLib.shared.activeAccountID == accountID else { return }
+        let client = TDLib.shared.activeClient
+        savedFiles[audio.audio.id] = true
+        updateProfileButton()
+        TelegramUndoToast.show(
+            text: L10n.telegram("MediaPlayer.SavedMusic.AddedToProfile"),
+            in: view,
+            bottomInset: 8,
+            actionTitle: L10n.telegram("MediaPlayer.SavedMusic.AddedToProfile.View"),
+            undo: { [weak self] in self?.openMyProfile() },
+        )
+        Task {
+            _ = try? await client.addProfileAudio(audio: InputAudio(
+                albumCoverThumbnail: nil,
+                audio: .inputFileId(InputFileId(id: audio.audio.id)),
+                duration: audio.duration,
+                performer: audio.performer,
+                title: audio.title,
+            ))
+        }
+    }
+
+    /// forwardToSavedMessages: the file goes to Saved Messages as a new audio message.
+    private func sendToSavedMessages(_ audio: Audio) {
+        guard TDLib.shared.activeAccountID == accountID, let me = TDLib.shared.activeAccount?.userID else { return }
+        let client = TDLib.shared.activeClient
+        TelegramUndoToast.show(
+            text: L10n.telegram("MediaPlayer.AudioForwardedToSavedMesagesTooltip"),
+            in: view,
+            bottomInset: 8,
+            undo: nil,
+        )
+        Task {
+            _ = try? await client.send(TDNativeRequests.sendMessage(
+                chatId: me,
+                topicId: nil,
+                replyTo: nil,
+                options: nil,
+                replyMarkup: nil,
+                inputMessageContent: .inputMessageAudio(TDNativeInputMessageAudio(
+                    audio: InputAudio(
+                        albumCoverThumbnail: nil,
+                        audio: .inputFileId(InputFileId(id: audio.audio.id)),
+                        duration: audio.duration,
+                        performer: audio.performer,
+                        title: audio.title,
+                    ),
+                    caption: nil,
+                )),
+            ))
+        }
+    }
+
+    /// Show in Chat: the player closes and the chat opens at the track's message.
+    private func showInChat(_ message: Message) {
+        guard TDLib.shared.activeAccountID == accountID else { return }
+        let client = TDLib.shared.activeClient
+        let chatID = message.chatId
+        let messageID = message.id
+        dismiss(animated: true)
+        Task {
+            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: messageID))
+        }
+    }
+
+    /// Remove from the account's own playlist: the button's removal for that track.
+    private func removeFromOwnPlaylist(_ audio: Audio) {
+        guard TDLib.shared.activeAccountID == accountID else { return }
+        let client = TDLib.shared.activeClient
+        let fileID = audio.audio.id
+        savedFiles[fileID] = false
+        TelegramUndoToast.show(
+            text: L10n.telegram("MediaPlayer.SavedMusic.RemovedFromProfile"),
+            in: view,
+            bottomInset: 8,
+            undo: nil,
+        )
+        let owner = ProfileMusicPlaylist.Owner(accountID: accountID, userID: chatID)
+        Task {
+            _ = try? await client.removeProfileAudio(fileId: fileID)
+            await ProfileMusicPlaylist.shared.reload(owner, client: client)
         }
     }
 
