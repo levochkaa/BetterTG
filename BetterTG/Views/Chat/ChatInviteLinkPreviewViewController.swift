@@ -535,9 +535,7 @@ final class ChatInviteLinkPreviewViewController: UIViewController, UIViewControl
     private func handleJoinError(_ error: Swift.Error) {
         let message = (error as? TDLibError)?.message ?? ""
         let text: String? =
-            if message.contains("CHANNELS_TOO_MUCH") {
-                L10n.telegram("Join.ChannelsTooMuch")
-            } else if message.contains("USERS_TOO_MUCH") {
+            if message.contains("USERS_TOO_MUCH") {
                 L10n.telegram("Conversation.UsersTooMuchError")
             } else if message.contains("FLOOD") || (error as? TDLibError)?.code == 429 {
                 L10n.telegram("TwoStepAuth.FloodError")
@@ -546,6 +544,17 @@ final class ChatInviteLinkPreviewViewController: UIViewController, UIViewControl
             }
         if message.contains("INVITE_REQUEST_SENT") {
             finishWithRequestSent()
+            return
+        }
+        // `.tooMuchJoined`: OldChannelsController, to leave inactive chats.
+        if message.contains("CHANNELS_TOO_MUCH") {
+            let presenter = presentingViewController
+            dismiss(animated: true) {
+                presenter?.chatListTopPresenter.present(
+                    UINavigationController(rootViewController: OldChannelsViewController(intent: .join)),
+                    animated: true,
+                )
+            }
             return
         }
         guard let text else {

@@ -3783,10 +3783,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentJoinRequestSent()
             return
         }
+        // `.tooMuchJoined`: OldChannelsController, to leave inactive chats.
+        if message.contains("CHANNELS_TOO_MUCH") {
+            guard presentedViewController == nil else { return }
+            present(
+                UINavigationController(rootViewController: OldChannelsViewController(intent: .join)),
+                animated: true,
+            )
+            return
+        }
         let text =
-            if message.contains("CHANNELS_TOO_MUCH") {
-                L10n.telegram("Join.ChannelsTooMuch")
-            } else if message.contains("USERS_TOO_MUCH") {
+            if message.contains("USERS_TOO_MUCH") {
                 L10n.telegram("Conversation.UsersTooMuchError")
             } else {
                 L10n.telegram(isChannel ? "Channel.ErrorAccessDenied" : "Group.ErrorAccessDenied")

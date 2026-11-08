@@ -247,6 +247,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             PinnedMessageDebugProbe.runIfRequested(in: window)
             WebEmbedPlayerViewController.runIfRequested(in: window)
             ForumTopicDebugProbe.runIfRequested(in: window)
+            OldChannelsViewController.presentIfRequested(in: window)
             ContextMenuLiquidMorphProbe.runIfRequested(in: window)
             ContextMenuKeyboardHostProbe.runIfRequested(in: window)
             ContextMenuScreenProbe.runIfRequested(in: window)
