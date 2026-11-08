@@ -817,8 +817,8 @@ private final class BusinessLocationMapCell: UITableViewCell {
 
 // MARK: - BusinessIntroPreviewView
 
-/// BusinessIntroSetupScreen's preview of ChatEmptyNode's greeting: a card with the title, the message and the sticker
-/// over a soft backdrop that stands in for the chat's wallpaper.
+/// BusinessIntroSetupScreen's preview of ChatEmptyNode's greeting as BetterTG's chats draw it (ChatEmptyStateView's
+/// greeting card): the title, the message and the sticker on the chat's background, which has no wallpaper.
 private final class BusinessIntroPreviewView: UIView {
     private let backdrop = UIView()
     private let card = UIView()
@@ -829,23 +829,20 @@ private final class BusinessIntroPreviewView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backdrop.backgroundColor = UIColor { $0.userInterfaceStyle == .dark
-            ? UIColor(red: 0.11, green: 0.14, blue: 0.2, alpha: 1)
-            : UIColor(red: 0.82, green: 0.89, blue: 0.82, alpha: 1)
-        }
+        backdrop.backgroundColor = .systemBackground
         backdrop.layer.cornerRadius = 26
         backdrop.layer.cornerCurve = .continuous
         backdrop.translatesAutoresizingMaskIntoConstraints = false
         addSubview(backdrop)
-        card.backgroundColor = UIColor.black.withAlphaComponent(0.25)
+        card.backgroundColor = .secondarySystemBackground
         card.layer.cornerRadius = 20
         card.layer.cornerCurve = .continuous
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        titleLabel.textColor = .white
+        titleLabel.textColor = .secondaryLabel
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
-        messageLabel.font = .systemFont(ofSize: 14)
-        messageLabel.textColor = .white
+        messageLabel.font = .systemFont(ofSize: 13)
+        messageLabel.textColor = .secondaryLabel
         messageLabel.textAlignment = .center
         messageLabel.numberOfLines = 0
         let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, stickerView])
@@ -866,13 +863,13 @@ private final class BusinessIntroPreviewView: UIView {
             card.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 24),
             card.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -24),
             card.centerXAnchor.constraint(equalTo: backdrop.centerXAnchor),
-            card.widthAnchor.constraint(equalToConstant: 230),
+            card.widthAnchor.constraint(equalToConstant: 240),
             stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
-            stickerView.widthAnchor.constraint(equalToConstant: 120),
-            stickerView.heightAnchor.constraint(equalToConstant: 120),
+            stickerView.widthAnchor.constraint(equalToConstant: 160),
+            stickerView.heightAnchor.constraint(equalToConstant: 160),
         ])
     }
 
