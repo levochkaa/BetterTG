@@ -163,7 +163,7 @@ final class BusinessSetupViewController: SettingsListViewController {
 
     private func openLocation() {
         navigationController?.pushViewController(
-            BusinessLocationViewController(location: info?.location),
+            BusinessLocationViewController(location: info?.location, accountChatID: me?.id ?? 0),
             animated: true,
         )
     }
@@ -205,10 +205,16 @@ final class BusinessSetupViewController: SettingsListViewController {
 final class BusinessLocationViewController: SettingsListViewController {
     private let original: String
     private var address: String
+    /// BusinessLocationSetupScreen's map pin, kept with the address.
+    private var coordinate: TDNativeLocation?
+    /// The account's own chat, where the map's venue search asks from.
+    private let accountChatID: Int64
 
-    init(location: TDNativeBusinessLocation?) {
+    init(location: TDNativeBusinessLocation?, accountChatID: Int64) {
         self.original = location?.address ?? ""
         self.address = original
+        self.coordinate = location?.location
+        self.accountChatID = accountChatID
         super.init()
     }
 
@@ -235,22 +241,66 @@ final class BusinessLocationViewController: SettingsListViewController {
                 isMultiline: true,
             ) { [weak self] text in self?.address = text }))],
         )]
+        sections.append(SettingsSection(rows: [SettingsRow(
+            title: L10n.telegram("BusinessLocationSetup.SetLocationOnMap"),
+            detail: coordinate.map { String(format: "%.5f, %.5f", $0.latitude, $0.longitude) },
+            style: .subtitle,
+            accessory: .toggle(isOn: coordinate != nil) { [weak self] isOn in
+                guard let self else { return }
+                if isOn {
+                    pickCoordinate()
+                } else {
+                    coordinate = nil
+                    reload()
+                }
+            },
+        )]))
         if !original.isEmpty {
             sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram("BusinessLocationSetup.DeleteLocation"),
                 style: .action(destructive: true),
-            ) { [weak self] in self?.address = ""
+            ) { [weak self] in
+                self?.address = ""
+                self?.coordinate = nil
                 self?.save()
             }]))
         }
         return sections
     }
 
+    /// LocationPickerController in its pick mode: the pin or place chosen on the map, whose address fills an empty
+    /// field.
+    private func pickCoordinate() {
+        let picker = LocationPickerViewController(
+            peerName: nil,
+            allowsLiveLocation: false,
+            client: client,
+            chatID: accountChatID,
+        ) { [weak self] content in
+            guard let self else { return }
+            switch content {
+            case .inputMessageLocation(let location):
+                coordinate = location.location
+            case .inputMessageVenue(let venue):
+                coordinate = venue.venue.location
+                if address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    address = [venue.venue.title, venue.venue.address].filter { !$0.isEmpty }.joined(separator: ", ")
+                }
+            default:
+                break
+            }
+            reload()
+        }
+        // A picker closed without a choice leaves the switch off.
+        picker.onDismiss = { [weak self] in self?.reload() }
+        present(UINavigationController(rootViewController: picker), animated: true)
+    }
+
     private func save() {
         let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
         let location: TDNativeBusinessLocation? = address.isEmpty
             ? nil
-            : TDNativeBusinessLocation(location: nil, address: address)
+            : TDNativeBusinessLocation(location: coordinate, address: address)
         perform { client in
             _ = try await client.send(TDNativeRequests.setBusinessLocation(location: location))
         } completion: { [weak self] in
