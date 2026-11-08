@@ -4359,3 +4359,10 @@
 "ChatListFilterList.ShowTags" = "Show Folder Tags";
 "ChatListFilterList.ShowTagsFooter" = "Display folder names for each chat in the chat list.";
 "Premium.FolderTagsInfo" = "Add colorful labels to chats for faster access with Telegram Premium.";
+"PeerInfo.SetEmojiStatus" = "Set Emoji Status";
+"PeerInfo.ChangeEmojiStatus" = "Change Emoji Status";
+"EmojiStatusSetup.SetUntil" = "Set Until";
+"SetTimeoutFor.Hours_1" = "Set for 1 hour";
+"SetTimeoutFor.Hours_any" = "Set for %@ hours";
+"SetTimeoutFor.Days_1" = "Set for 1 day";
+"SetTimeoutFor.Days_any" = "Set for %@ days";

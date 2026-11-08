@@ -217,6 +217,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             cell.accessoryType = id == TDLib.shared.activeAccountID ? .checkmark : .none
         case .addAccount,
              .addTestServerAccount,
+             .setEmojiStatus,
              .setPhoto,
              .setUsername:
             // PeerInfoScreenActionItem: an accent action.
@@ -374,6 +375,21 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(profile, animated: true)
         case .setUsername:
             navigationController?.pushViewController(UsernameSetupViewController(), animated: true)
+        case .setEmojiStatus:
+            let currentID: Int64? =
+                if case .emojiStatusTypeCustomEmoji(let status)? = me?.emojiStatus?.type {
+                    status.customEmojiId
+                } else {
+                    nil
+                }
+            present(
+                EmojiStatusPickerViewController(
+                    client: TDLib.shared.activeClient,
+                    currentEmojiID: currentID,
+                    hasStatus: me?.emojiStatus != nil,
+                ),
+                animated: true,
+            )
         case .myProfile:
             openMyProfile()
         case .proxy:
@@ -655,7 +671,9 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 return []
             }
             let hasUsername = me.usernames?.activeUsernames.contains { !$0.isEmpty } == true
-            return [.setPhoto(hasPhoto: me.profilePhoto != nil)] + (hasUsername ? [] : [.setUsername])
+            // PeerInfoSettingsItems: the emoji status leads for Premium.
+            let status: [Row] = me.isPremium ? [.setEmojiStatus(hasStatus: me.emojiStatus != nil)] : []
+            return status + [.setPhoto(hasPhoto: me.profilePhoto != nil)] + (hasUsername ? [] : [.setUsername])
         case .suggestion:
             guard TDLib.shared.activeAccountID != nil,
                   let reminder = SuggestedActionsStore.shared.reminder(for: TDLib.shared.activeUpdateSource)
@@ -921,6 +939,8 @@ extension SettingsViewController {
         /// Settings.ChangeProfilePhoto, or Settings.SetProfilePhotoOrVideo without a photo.
         case setPhoto(hasPhoto: Bool)
         case setUsername
+        /// Set Emoji Status or Change Emoji Status, for Premium.
+        case setEmojiStatus(hasStatus: Bool)
         /// The reminder's title and text (PeerInfoScreenInfoItem).
         case suggestionInfo(SuggestedActionsStore.Reminder)
         /// Keep the number or the password, which dismisses the reminder.
@@ -988,6 +1008,8 @@ extension SettingsViewController {
                 L10n.telegram(hasPhoto ? "Settings.ChangeProfilePhoto" : "Settings.SetProfilePhotoOrVideo")
             case .setUsername:
                 L10n.telegram("Settings.SetUsername")
+            case .setEmojiStatus(let hasStatus):
+                L10n.telegram(hasStatus ? "PeerInfo.ChangeEmojiStatus" : "PeerInfo.SetEmojiStatus")
             case .myProfile:
                 L10n.telegram("Settings.MyProfile")
             case .proxy:
@@ -1065,6 +1087,7 @@ extension SettingsViewController {
                  .privacyPolicy,
                  .profile,
                  .savedMessages,
+                 .setEmojiStatus,
                  .setPhoto,
                  .setUsername,
                  .support,
@@ -1094,6 +1117,7 @@ extension SettingsViewController {
             case .profile: "person.crop.circle"
             case .setPhoto: "camera"
             case .setUsername: "at"
+            case .setEmojiStatus: "face.smiling"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
             case .addTestServerAccount: "testtube.2"
@@ -1134,6 +1158,7 @@ extension SettingsViewController {
                  .language,
                  .profile,
                  .savedMessages,
+                 .setEmojiStatus,
                  .setPhoto,
                  .setUsername,
                  .version: .systemBlue
