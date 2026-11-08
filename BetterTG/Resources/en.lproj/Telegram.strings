@@ -4206,3 +4206,6 @@
 "CountriesList.MaximumReached.Countries_1" = "%@ country";
 "CountriesList.MaximumReached.Countries_any" = "%@ countries";
 "Settings.AddDevice" = "Scan QR";
+"Settings.ChangeProfilePhoto" = "Change Profile Photo";
+"Settings.SetProfilePhotoOrVideo" = "Set Photo or Video";
+"Settings.SetUsername" = "Set Username";

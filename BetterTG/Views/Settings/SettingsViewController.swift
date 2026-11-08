@@ -216,7 +216,10 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         case .account(let id):
             cell.accessoryType = id == TDLib.shared.activeAccountID ? .checkmark : .none
         case .addAccount,
-             .addTestServerAccount:
+             .addTestServerAccount,
+             .setPhoto,
+             .setUsername:
+            // PeerInfoScreenActionItem: an accent action.
             configuration.textProperties.color = .systemBlue
             cell.contentConfiguration = configuration
         case .app(let botUserID):
@@ -364,6 +367,13 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
             navigationController?.pushViewController(EditProfileViewController(), animated: true)
+        case .setPhoto:
+            // openSettings(.avatar): the photo's choices, over the profile editor that sets it.
+            let profile = EditProfileViewController()
+            profile.opening = .photo
+            navigationController?.pushViewController(profile, animated: true)
+        case .setUsername:
+            navigationController?.pushViewController(UsernameSetupViewController(), animated: true)
         case .myProfile:
             openMyProfile()
         case .proxy:
@@ -640,6 +650,12 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         switch section {
         case .profile:
             return TDLib.shared.activeAccountID == nil ? [] : [.profile]
+        case .edit:
+            guard TDLib.shared.activeAccountID != nil, let me, meAccountID == TDLib.shared.activeAccountID else {
+                return []
+            }
+            let hasUsername = me.usernames?.activeUsernames.contains { !$0.isEmpty } == true
+            return [.setPhoto(hasPhoto: me.profilePhoto != nil)] + (hasUsername ? [] : [.setUsername])
         case .suggestion:
             guard TDLib.shared.activeAccountID != nil,
                   let reminder = SuggestedActionsStore.shared.reminder(for: TDLib.shared.activeUpdateSource)
@@ -864,6 +880,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
 extension SettingsViewController {
     fileprivate enum Section: Int, CaseIterable {
         case profile
+        /// PeerInfoSettingsItems' `.edit` section: setting the photo, and a username while there is none.
+        case edit
         /// PeerInfoSettingsItems' `.phone` section: the server's phone number or password reminder.
         case suggestion
         case accounts
@@ -886,6 +904,7 @@ extension SettingsViewController {
             case .accountActions,
                  .appearance,
                  .apps,
+                 .edit,
                  .media,
                  .myProfile,
                  .profile,
@@ -899,6 +918,9 @@ extension SettingsViewController {
 
     enum Row: Equatable {
         case profile
+        /// Settings.ChangeProfilePhoto, or Settings.SetProfilePhotoOrVideo without a photo.
+        case setPhoto(hasPhoto: Bool)
+        case setUsername
         /// The reminder's title and text (PeerInfoScreenInfoItem).
         case suggestionInfo(SuggestedActionsStore.Reminder)
         /// Keep the number or the password, which dismisses the reminder.
@@ -962,6 +984,10 @@ extension SettingsViewController {
                 ""
             case .profile:
                 L10n.telegram("EditProfile.Title")
+            case .setPhoto(let hasPhoto):
+                L10n.telegram(hasPhoto ? "Settings.ChangeProfilePhoto" : "Settings.SetProfilePhotoOrVideo")
+            case .setUsername:
+                L10n.telegram("Settings.SetUsername")
             case .myProfile:
                 L10n.telegram("Settings.MyProfile")
             case .proxy:
@@ -1039,6 +1065,8 @@ extension SettingsViewController {
                  .privacyPolicy,
                  .profile,
                  .savedMessages,
+                 .setPhoto,
+                 .setUsername,
                  .support,
                  .termsOfService,
                  .tips:
@@ -1064,6 +1092,8 @@ extension SettingsViewController {
                  .suggestionInfo,
                  .suggestionKeep: ""
             case .profile: "person.crop.circle"
+            case .setPhoto: "camera"
+            case .setUsername: "at"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
             case .addTestServerAccount: "testtube.2"
@@ -1104,6 +1134,8 @@ extension SettingsViewController {
                  .language,
                  .profile,
                  .savedMessages,
+                 .setPhoto,
+                 .setUsername,
                  .version: .systemBlue
             case .devices: .systemOrange
             case .chatFolders: .systemCyan
