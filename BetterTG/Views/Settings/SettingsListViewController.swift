@@ -52,6 +52,10 @@ struct SettingsRow {
     var action: (() -> Void)?
     /// Telegram's revealed row option, such as Terminate, Unblock or Remove from Exceptions.
     var swipeAction: (title: String, handler: () -> Void)?
+    /// A peer row's subtitle lines, 0 for as many as it takes; ItemListPeerItem's text keeps to one.
+    var detailLines = 0
+    /// ItemListPeerItem's reveal options: plain swipe actions in their own colours, first on the left.
+    var swipeActions = [(title: String, color: UIColor, handler: () -> Void)]()
     /// ItemListDisclosureItem's `.badge` label: the text on an accent pill before the disclosure arrow.
     var badge: String?
     /// A view before the disclosure arrow in place of the detail, such as ItemListReactionItem's reaction.
@@ -275,6 +279,7 @@ class SettingsListViewController: UITableViewController {
                 peer: peer,
                 detail: row.detail,
                 detailColor: row.detailColor,
+                detailLines: row.detailLines,
                 client: client,
                 accountID: accountID,
             )
@@ -398,6 +403,18 @@ class SettingsListViewController: UITableViewController {
         _: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
     ) -> UISwipeActionsConfiguration? {
+        if let actions = settingsRow(at: indexPath)?.swipeActions, !actions.isEmpty {
+            let configuration = UISwipeActionsConfiguration(actions: actions.reversed().map { option in
+                let action = UIContextualAction(style: .normal, title: option.title) { _, _, completion in
+                    option.handler()
+                    completion(true)
+                }
+                action.backgroundColor = option.color
+                return action
+            })
+            configuration.performsFirstActionWithFullSwipe = false
+            return configuration
+        }
         guard let swipe = settingsRow(at: indexPath)?.swipeAction else { return nil }
         let action = UIContextualAction(style: .destructive, title: swipe.title) { _, _, completion in
             swipe.handler()
@@ -817,11 +834,13 @@ final class SettingsPeerCell: UITableViewCell {
         peer: SettingsPeer,
         detail: String?,
         detailColor: UIColor? = nil,
+        detailLines: Int = 0,
         client: TDLibClient,
         accountID: UUID?,
     ) {
         nameLabel.text = peer.title
         detailLabel.text = detail
+        detailLabel.numberOfLines = detailLines
         detailLabel.textColor = detailColor ?? .secondaryLabel
         detailLabel.isHidden = detail?.isEmpty != false
         accessibilityLabel = [peer.title, detail].compactMap(\.self).joined(separator: ", ")

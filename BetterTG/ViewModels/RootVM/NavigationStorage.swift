@@ -62,9 +62,16 @@ import UIKit
 
     /// `fromList`: a list row opens the route. In a split window it takes the detail pane instead of stacking there,
     /// and the chat already shown stays.
-    func push(_ route: Route, animated: Bool = true, fromList: Bool = false) {
+    /// `prepare` sets up the screen before it shows.
+    func push(
+        _ route: Route,
+        animated: Bool = true,
+        fromList: Bool = false,
+        prepare: ((UIViewController) -> Void)? = nil,
+    ) {
         if fromList, splitController.isSplit, isShownInDetail(route) { return }
         guard let controller = controller(for: route) else { return }
+        prepare?(controller)
         dismissOpenTelegramContextMenu()
         if controller is TelegramMasterPaneScreen {
             navigationController.pushViewController(controller, animated: animated)

@@ -159,6 +159,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     let location: ChatLocation
 
+    /// activateMessageSearch(.member): a chat opened to search one member's messages, as group statistics' History
+    /// does; the search starts once the chat shows.
+    var pendingMemberSearchUserID: Int64?
+
     private let presentationMode: PresentationMode
     private let targetMessageID: Int64?
     private let targetQuote: MessageQuoteHighlight?
@@ -922,6 +926,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         presentAttachmentRecoveryIfNeeded()
+        if let userID = pendingMemberSearchUserID {
+            pendingMemberSearchUserID = nil
+            let client = chatVM.client
+            Task { [weak self] in
+                guard let user = try? await client.getUser(userId: userID), let self else { return }
+                searchMessages(from: user)
+            }
+        }
         #if DEBUG
             // `-ui-probe-header-activity` shows Telegram's account typing here, locally, to look at the header's
             // activity indicator without anyone typing.

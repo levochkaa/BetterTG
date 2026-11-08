@@ -325,9 +325,13 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         isSearching ? search : nil
     }
 
-    init(target: ChatManagementTarget) {
+    /// `adminUserID`: the log of one admin's actions, as group statistics' Actions opens it.
+    init(target: ChatManagementTarget, adminUserID: Int64? = nil) {
         self.target = target
         super.init()
+        if let adminUserID {
+            filter.adminUserIDs = [adminUserID]
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {

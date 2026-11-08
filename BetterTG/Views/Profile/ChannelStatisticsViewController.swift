@@ -103,6 +103,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private var topPeers = [Int64: SettingsPeer]()
     private var expandedTopLists = Set<TopList>()
 
+    /// The group as its management screens see it, for Actions and Promote.
+    private var managementTarget: ChatManagementTarget?
+
     private var graphEntries: [GraphEntry] {
         message != nil ? Self.messageGraphEntries : isGroup ? Self.groupGraphEntries : Self.channelGraphEntries
     }
@@ -114,6 +117,10 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         } else {
             false
         }
+    }
+
+    private var canPromote: Bool {
+        managementTarget?.isCreator == true || managementTarget?.rights?.canPromoteMembers == true
     }
 
     init(chat: Chat, client _: TDLibClient) {
@@ -622,11 +629,14 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             guard !known.isEmpty else { continue }
             let isCut = known.count > 12 && !expandedTopLists.contains(list)
             var rows = (isCut ? Array(known.prefix(10)) : known).map { userID, detail in
-                SettingsRow(
+                var row = SettingsRow(
                     title: topPeers[userID]?.title ?? "",
                     detail: detail,
                     style: .peer(topPeers[userID]!),
                 ) { [weak self] in self?.openUser(userID) }
+                row.swipeActions = topSwipeActions(list, userID: userID)
+                row.detailLines = 1
+                return row
             }
             if isCut {
                 rows.append(SettingsRow(
@@ -669,6 +679,84 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         return items
     }
 
+    /// ItemListPeerItem's reveal options: History (an admin's Actions) in the accent, then Promote in grey where
+    /// the account may add admins; none for a deleted account or the account itself.
+    private func topSwipeActions(_ list: TopList, userID: Int64) -> [(
+        title: String,
+        color: UIColor,
+        handler: () -> Void,
+    )] {
+        guard topPeers[userID]?.placeholder.isDeleted == false else { return [] }
+        var actions: [(title: String, color: UIColor, handler: () -> Void)] =
+            if list == .admins {
+                [(
+                    L10n.telegram("Stats.GroupTopAdmin.Actions"),
+                    .tintColor,
+                    { [weak self] in self?.openAdminActions(userID) },
+                )]
+            } else {
+                [(
+                    L10n.telegram("Stats.GroupTopPoster.History"),
+                    .tintColor,
+                    { [weak self] in self?.openHistory(userID) },
+                )]
+            }
+        if canPromote, userID != TDLib.shared.activeAccount?.userID {
+            actions.append((L10n.telegram("Stats.GroupTopPoster.Promote"), .systemGray, { [weak self] in
+                self?.promote(userID)
+            }))
+        }
+        return actions
+    }
+
+    /// openPeerHistory: the group with its search on the member's messages.
+    private func openHistory(_ userID: Int64) {
+        let client = client
+        let chatID = chat.id
+        Task {
+            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat)) { controller in
+                (controller as? ChatViewController)?.pendingMemberSearchUserID = userID
+            }
+        }
+    }
+
+    /// openPeerAdminActions: the group's recent actions by that admin.
+    private func openAdminActions(_ userID: Int64) {
+        guard let managementTarget else { return }
+        navigationController?.pushViewController(
+            ChatRecentActionsViewController(target: managementTarget, adminUserID: userID),
+            animated: true,
+        )
+    }
+
+    /// promotePeer: the member's admin rights.
+    private func promote(_ userID: Int64) {
+        guard let managementTarget else { return }
+        let client = client
+        let chatID = chat.id
+        Task { [weak self] in
+            guard let member = try? await client.send(TDNativeRequests.getChatMember(
+                chatId: chatID,
+                memberId: .messageSenderUser(MessageSenderUser(userId: userID)),
+            )),
+                  let resolved = await ChatManagementMember.resolve([member], client: client).first,
+                  let self, contextIsCurrent
+            else { return }
+            let isAdmin =
+                switch member.status {
+                case .chatMemberStatusAdministrator,
+                     .chatMemberStatusCreator: true
+                default: false
+                }
+            navigationController?.pushViewController(
+                ChatAdminRightsViewController(target: managementTarget, member: resolved, isNew: !isAdmin),
+                animated: true,
+            )
+        }
+    }
+
     /// The top lists' people, for their names and photos.
     private func loadTopPeers(_ statistics: TDNativeChatStatisticsSupergroup) {
         let ids = Set(
@@ -676,13 +764,16 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 + statistics.topInviters.map(\.userId),
         )
         let client = client
+        let chatID = chat.id
         Task { [weak self] in
             var peers = [Int64: SettingsPeer]()
             for id in ids {
                 peers[id] = await SettingsPeer.user(id, client: client)
             }
+            let target = await ChatManagementTarget.load(chatID: chatID, client: client)
             guard let self, contextIsCurrent else { return }
             topPeers = peers
+            managementTarget = target
             reload()
         }
     }
