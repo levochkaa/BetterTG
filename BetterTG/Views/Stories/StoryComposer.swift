@@ -115,7 +115,7 @@ import UniformTypeIdentifiers
         generator.appliesPreferredTrackTransform = true
         guard let frame = try? await generator.image(at: .zero).image else { return nil }
         let image = UIImage(cgImage: frame)
-        return .video(url, firstFrame: image, canvas: canvas(image), duration: min(duration, 60))
+        return .video(url, firstFrame: image, canvas: canvas(image), duration: min(duration, 60), overlay: nil)
     }
 
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -187,12 +187,30 @@ import UniformTypeIdentifiers
 /// which the preview plays the video over and which gives the export its gradient.
 private enum StoryDraft {
     case photo(UIImage)
-    case video(URL, firstFrame: UIImage, canvas: UIImage, duration: Double)
+    /// `overlay`: the editor's entities on a clear 1080 by 1920 image, drawn over every frame.
+    case video(URL, firstFrame: UIImage, canvas: UIImage, duration: Double, overlay: UIImage?)
 
     var canvas: UIImage {
         switch self {
         case .photo(let image): image
-        case .video(_, _, let canvas, _): canvas
+        case .video(_, _, let canvas, _, _): canvas
+        }
+    }
+
+    /// The story with the editor's entities: drawn into a photo, kept for a video's export.
+    func withOverlay(_ overlay: UIImage?) -> StoryDraft {
+        guard let overlay else { return self }
+        switch self {
+        case .photo(let image):
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let size = StoryEntitiesView.size
+            return .photo(UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: size))
+                overlay.draw(in: CGRect(origin: .zero, size: size))
+            })
+        case .video(let url, let firstFrame, let canvas, let duration, _):
+            return .video(url, firstFrame: firstFrame, canvas: canvas, duration: duration, overlay: overlay)
         }
     }
 
@@ -209,8 +227,13 @@ private enum StoryDraft {
                 photo: .inputFileLocal(InputFileLocal(path: url.path)),
                 addedStickerFileIds: [],
             ))
-        case .video(let url, let firstFrame, _, let duration):
-            let (output, hasAudio) = try await StoryVideoExport.export(url, firstFrame: firstFrame, duration: duration)
+        case .video(let url, let firstFrame, _, let duration, let overlay):
+            let (output, hasAudio) = try await StoryVideoExport.export(
+                url,
+                firstFrame: firstFrame,
+                duration: duration,
+                overlay: overlay,
+            )
             return .inputStoryContentVideo(TDNativeInputStoryContentVideo(
                 video: .inputFileLocal(InputFileLocal(path: output.path)),
                 addedStickerFileIds: [],
@@ -230,7 +253,12 @@ private enum StoryDraft {
 private enum StoryVideoExport {
     struct Failure: Error {}
 
-    static func export(_ source: URL, firstFrame: UIImage, duration: Double) async throws -> (URL, Bool) {
+    static func export(
+        _ source: URL,
+        firstFrame: UIImage,
+        duration: Double,
+        overlay: UIImage?,
+    ) async throws -> (URL, Bool) {
         let asset = AVURLAsset(url: source)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure() }
         let hasAudio = try await !asset.loadTracks(withMediaType: .audio).isEmpty
@@ -257,6 +285,12 @@ private enum StoryVideoExport {
             trackID: track.trackID,
             orientation: orientation(transform),
             background: background,
+            overlay: overlay.flatMap { CIImage(image: $0) }.map {
+                $0.transformed(by: CGAffineTransform(
+                    scaleX: renderSize.width / StoryEntitiesView.size.width,
+                    y: renderSize.height / StoryEntitiesView.size.height,
+                ))
+            },
         )]
         let composition = AVVideoComposition(configuration: configuration)
         let hevc = await AVAssetExportSession.compatibility(
@@ -301,17 +335,21 @@ private final class StoryVideoInstruction: NSObject, AVVideoCompositionInstructi
     let trackID: CMPersistentTrackID
     let orientation: CGImagePropertyOrientation
     let background: CIImage
+    /// The editor's entities at the render size, over the frame.
+    let overlay: CIImage?
 
     init(
         timeRange: CMTimeRange,
         trackID: CMPersistentTrackID,
         orientation: CGImagePropertyOrientation,
         background: CIImage,
+        overlay: CIImage?,
     ) {
         self.timeRange = timeRange
         self.trackID = trackID
         self.orientation = orientation
         self.background = background
+        self.overlay = overlay
         self.requiredSourceTrackIDs = [NSNumber(value: trackID)]
     }
 }
@@ -352,7 +390,9 @@ private final class StoryVideoCompositor: NSObject, AVVideoCompositing, @uncheck
                 translationX: (renderSize.width - size.width) / 2,
                 y: (renderSize.height - size.height) / 2,
             ))
-        context.render(image.composited(over: instruction.background), to: output)
+        var composed = image.composited(over: instruction.background)
+        if let overlay = instruction.overlay { composed = overlay.composited(over: composed) }
+        context.render(composed, to: output)
         request.finish(withComposedVideoFrame: output)
     }
 }
@@ -388,6 +428,31 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
 
     /// A video story's player, looping over the part that will be posted.
     private let playerView = StoryPlayerView()
+    /// MediaEditorScreen's entities over the story, in story points.
+    private let entitiesView = StoryEntitiesView()
+    /// The keyboard's top in the view, its bottom while the keyboard is down.
+    private var keyboardTop = CGFloat.greatestFiniteMagnitude
+    private var keyboardObservation: AnyCancellable?
+    private lazy var nextItem = UIBarButtonItem(
+        title: L10n.telegram("Story.Editor.Next"),
+        primaryAction: UIAction { [weak self] _ in self?.next() },
+    )
+    private lazy var closeItem = UIBarButtonItem(
+        title: L10n.telegram("Common.Close"),
+        primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
+    )
+    private lazy var doneItem = UIBarButtonItem(
+        title: L10n.telegram("Common.Done"),
+        primaryAction: UIAction { [weak self] _ in self?.entitiesView.endEditing() },
+    )
+    /// The editor's text button, as its bottom panel's AddText.
+    private lazy var textItem = UIBarButtonItem(
+        image: UIImage(systemName: "textformat"),
+        primaryAction: UIAction { [weak self] _ in
+            self?.captionView.resignFirstResponder()
+            self?.entitiesView.insertText()
+        },
+    )
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
 
@@ -406,10 +471,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         super.viewDidLoad()
         view.backgroundColor = .black
         overrideUserInterfaceStyle = .dark
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Close"),
-            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
-        )
+        navigationItem.leftBarButtonItem = closeItem
         imageView.image = media.canvas
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
@@ -417,7 +479,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         imageView.layer.cornerCurve = .continuous
         imageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(imageView)
-        if case .video(let url, _, _, let duration) = media {
+        if case .video(let url, _, _, let duration, _) = media {
             let player = AVQueuePlayer()
             looper = AVPlayerLooper(
                 player: player,
@@ -462,12 +524,47 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
             updateTimer()
         }
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Story.Editor.Next"),
-            primaryAction: UIAction { [weak self] _ in self?.next() },
-        )
+        textItem.accessibilityLabel = L10n.telegram("Paint.Text")
+        navigationItem.rightBarButtonItems = [nextItem, textItem]
+        imageView.isUserInteractionEnabled = true
+        imageView.addSubview(entitiesView)
+        // A tap while the caption is edited only ends that, as MediaEditorScreen's tap does with the keyboard up.
+        entitiesView.shouldInsertText = { [weak self] in
+            guard let self, captionView.isFirstResponder else { return true }
+            captionView.resignFirstResponder()
+            return false
+        }
+        entitiesView.editingCenter = { [weak self] in
+            guard let self else { return CGPoint(x: 540, y: 960) }
+            let story = imageView.frame
+            let bottom = max(story.minY + 120, min(story.maxY, keyboardTop))
+            let point = CGPoint(x: story.midX, y: (story.minY + bottom) / 2)
+            return view.convert(point, to: entitiesView)
+        }
+        keyboardObservation = NotificationCenter.default
+            .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self, let window = view.window,
+                      let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                else { return }
+                keyboardTop = view.convert(window.convert(frame, from: nil), from: nil).minY
+                entitiesView.updateEditingPosition()
+            }
+        entitiesView.onEditingChange = { [weak self] isEditing in
+            guard let self else { return }
+            navigationItem.rightBarButtonItems = isEditing ? [doneItem] : [nextItem, textItem]
+            navigationItem.leftBarButtonItem = isEditing ? nil : closeItem
+            UIView.animate(withDuration: 0.2) {
+                self.captionView.alpha = isEditing ? 0 : 1
+                self.timerButton.alpha = isEditing ? 0 : 1
+            }
+        }
 
         let guide = view.safeAreaLayoutGuide
+        // The caption rises with the keyboard over the story, which keeps its size.
+        let captionBottom = captionView.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -10)
+        captionBottom.priority = .defaultHigh - 1
         // As tall as the safe area allows, 9:16.
         let imageHeight = imageView.heightAnchor.constraint(equalTo: guide.heightAnchor, constant: -16)
         imageHeight.priority = .defaultHigh
@@ -484,7 +581,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
             timerButton.centerYAnchor.constraint(equalTo: captionView.centerYAnchor),
             timerButton.widthAnchor.constraint(equalToConstant: 44),
             timerButton.heightAnchor.constraint(equalToConstant: 36),
-            captionView.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -10),
+            captionBottom,
             captionView.bottomAnchor.constraint(
                 lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor,
                 constant: -10,
@@ -503,6 +600,14 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         player?.pause()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The entities' story points scaled onto the story.
+        let scale = imageView.bounds.width / StoryEntitiesView.size.width
+        entitiesView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        entitiesView.center = CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY)
     }
 
     func textViewDidChange(_ textView: UITextView) {
@@ -556,7 +661,12 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
 
     private func next() {
         captionView.resignFirstResponder()
-        let share = StoryShareViewController(media: media, caption: captionView.text ?? "", hours: hours)
+        entitiesView.endEditing()
+        let share = StoryShareViewController(
+            media: media.withOverlay(entitiesView.renderOverlay()),
+            caption: captionView.text ?? "",
+            hours: hours,
+        )
         navigationController?.pushViewController(share, animated: true)
     }
 }
