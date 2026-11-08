@@ -4663,3 +4663,15 @@
 "Message.InvoiceLabel" = "INVOICE";
 "Notification.JoinedGroupViaCommunityYou" = "You joined the group via community";
 "Notification.JoinedGroupViaCommunity" = "%@ joined the group via community";
+"ChannelInfo.Stats" = "View Statistics";
+"Stats.Overview" = "OVERVIEW";
+"Stats.Followers" = "Followers";
+"Stats.EnabledNotifications" = "Enabled Notifications";
+"Stats.ViewsPerPost" = "Views Per Post";
+"Stats.SharesPerPost" = "Shares Per Post";
+"Stats.ReactionsPerPost" = "Reactions Per Post";
+"Stats.ViewsPerStory" = "Views Per Story";
+"Stats.SharesPerStory" = "Shares Per Story";
+"Stats.ReactionsPerStory" = "Reactions Per Story";
+"Stats.LoadingTitle" = "Preparing stats";
+"Stats.LoadingText" = "Please wait a few moments while\nwe generate your stats";

@@ -14,6 +14,7 @@ import UIKit
     let chat: Chat
     let client: TDLibClient
     let canChangeInfo: Bool
+    let canGetStatistics: Bool
     let scope: ChatListActionScope
     /// A bot's commands and privacy policy, for its Share, Privacy Policy, Settings and Help.
     var botInfo: TDNativeBotInfo?
@@ -131,6 +132,17 @@ import UIKit
         }
         if let boost = boostAction() {
             actions.append(boost)
+        }
+        if canGetStatistics, case .supergroup(let group) = customChat.type, group.isChannel {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChannelInfo.Stats"),
+                image: UIImage(systemName: "chart.bar.xaxis"),
+            ) { [weak host, chat, client] in
+                host?.navigationController?.pushViewController(
+                    ChannelStatisticsViewController(chat: chat, client: client),
+                    animated: true,
+                )
+            })
         }
         if let report = reportAction() {
             actions.append(report)

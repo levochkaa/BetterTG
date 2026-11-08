@@ -420,6 +420,8 @@ ClientRestorableNavigationEntry {
     private var currentProfilePhoto: ChatPhoto?
     private var currentBasicGroupMembers = [ChatMember]()
     private var currentSupergroupCanGetMembers = false
+    /// supergroupFullInfo.canGetStatistics: the More menu's Statistics (cachedData's canViewStats).
+    private var currentCanGetStatistics = false
     private var avatarHistoryRawOffset = 0
     private var avatarHistoryTotalCount = 0
     private var avatarHistoryExtraPhotoCount = 0
@@ -4063,6 +4065,7 @@ ClientRestorableNavigationEntry {
         infoTask = nil
         if update.supergroupFullInfo.communityId != communityID { loadCommunity() }
         currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
+        currentCanGetStatistics = update.supergroupFullInfo.canGetStatistics
         currentSupergroupMemberCount = update.supergroupFullInfo.memberCount
         membersInfoLoaded = true
         applyGiftCount(update.supergroupFullInfo.giftCount)
@@ -5333,6 +5336,7 @@ ClientRestorableNavigationEntry {
                           fullInfoGeneration == generation
                     else { return }
                     currentSupergroupCanGetMembers = info.canGetMembers
+                    currentCanGetStatistics = info.canGetStatistics
                     currentSupergroupMemberCount = info.memberCount
                     membersInfoLoaded = true
                     applyGiftCount(info.giftCount)
@@ -7364,6 +7368,7 @@ ClientRestorableNavigationEntry {
                 chat: chat,
                 client: client,
                 canChangeInfo: infoPermission.canChangeInfo,
+                canGetStatistics: currentCanGetStatistics,
                 scope: scope,
                 botInfo: botInfo,
                 host: self,
