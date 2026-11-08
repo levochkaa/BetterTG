@@ -12410,6 +12410,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 navigationController?.pushViewController(controller, animated: true)
             })
         }
+        // View Statistics for a poll's votes where the channel post's own statistics aren't offered.
+        if message.properties.canGetPollVoteStatistics,
+           !(message.properties.canGetStatistics && chatVM.customChat.supergroup?.isChannel == true),
+           message.message.forwardInfo == nil
+        {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ViewPollStats"),
+                image: UIImage(systemName: "chart.bar.xaxis"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                let controller = ChannelStatisticsViewController(
+                    pollMessage: message.message,
+                    chat: chatVM.customChat.chat,
+                )
+                present(TelegramNavigationController(rootViewController: controller), animated: true)
+            })
+        }
         if canSelectMessage(message) {
             // Telegram's Select takes the message under the finger, an album's item included, and Select All takes
             // the whole group.

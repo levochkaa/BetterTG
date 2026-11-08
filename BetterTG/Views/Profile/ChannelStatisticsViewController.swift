@@ -106,8 +106,21 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     /// The group as its management screens see it, for Actions and Promote.
     private var managementTarget: ChatManagementTarget?
 
+    private var isPoll = false
+    private var pollLoaded = false
+
     private var graphEntries: [GraphEntry] {
-        message != nil ? Self.messageGraphEntries : isGroup ? Self.groupGraphEntries : Self.channelGraphEntries
+        if isPoll {
+            [GraphEntry(title: "PollStats.GraphHeader", kind: .lines)]
+        } else {
+            if message != nil {
+                Self.messageGraphEntries
+            } else if isGroup {
+                Self.groupGraphEntries
+            } else {
+                Self.channelGraphEntries
+            }
+        }
     }
 
     /// GroupStatsController: a group's statistics, with the top lists after the graphs.
@@ -136,12 +149,29 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         super.init()
     }
 
+    /// PollStatsScreen: a poll's VOTE TIMELINE (getPollVoteStatistics), shown as a sheet with Close.
+    init(pollMessage message: Message, chat: Chat) {
+        self.chat = chat
+        self.message = message
+        self.isPoll = true
+        super.init()
+    }
+
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        if isPoll {
+            title = L10n.telegram("PollStats.Title")
+            navigationItem.leftBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Close"),
+                primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
+            )
+            loadPoll()
+            return
+        }
         title = L10n.telegram(message == nil ? "ChannelInfo.Stats" : "Stats.MessageTitle")
         if message == nil {
             load()
@@ -151,6 +181,18 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     }
 
     override func makeSections() -> [SettingsSection] {
+        if isPoll {
+            guard pollLoaded else {
+                return [SettingsSection(rows: [SettingsRow(
+                    title: L10n.telegram(failed ? "Login.UnknownError" : "Stats.LoadingTitle"),
+                    style: .status(.secondaryLabel),
+                    accessory: failed ? .none : .activity,
+                )])]
+            }
+            var sections = [SettingsSection]()
+            appendGraphSections(to: &sections)
+            return sections
+        }
         if let message {
             return messageSections(message)
         }
@@ -305,6 +347,28 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             shares.append(PublicShare(message: item.message, chat: chat))
         }
         return (page.totalCount, shares, page.nextOffset)
+    }
+
+    private func loadPoll() {
+        guard let message else { return }
+        let client = client
+        let chatID = chat.id
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.getPollVoteStatistics(
+                chatId: chatID,
+                messageId: message.id,
+                isDark: isDark,
+            ))
+            guard let self, contextIsCurrent else { return }
+            if let result {
+                pollLoaded = true
+                setGraph(result.voteGraph, at: 0)
+            } else {
+                failed = true
+            }
+            reload()
+        }
     }
 
     private func appendGraphSections(to sections: inout [SettingsSection]) {

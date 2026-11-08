@@ -1352,7 +1352,7 @@ final class StatisticsGraphView: UIView {
     /// getStatisticalGraph with the graph's zoomToken: the hours around a day, for a two-axis graph.
     var zoomLoader: ((Double) async -> StatisticsChartData?)? {
         didSet {
-            if kind == .twoAxisStep, case .loaded(let data) = state {
+            if kind == .twoAxisStep || kind == .lines, case .loaded(let data) = state {
                 setUp(data)
             }
         }
