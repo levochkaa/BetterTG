@@ -3,6 +3,8 @@
 import Combine
 import UIKit
 
+// MARK: - RootViewController
+
 final class RootViewController: UIViewController {
     override var childForScreenEdgesDeferringSystemGestures: UIViewController? {
         displayedController
@@ -12,10 +14,19 @@ final class RootViewController: UIViewController {
 
     private let rootVM: RootVM
     private var displayedController: UIViewController?
-    private var displayedLoggedInState: Bool?
+    /// Whether the main shell shows, nil for the launch placeholder.
+    private var displayedLoggedInState: Bool??
     private var displayedAccountID: UUID?
     private var lastDuoLayout: IPhoneDuoLayout?
     private var cancellables = Set<AnyCancellable>()
+
+    /// An account that signed in before, whose client TDLib is still creating: Telegram opens on its chat list from
+    /// the cold start, so the root keeps the launch screen until the shell can show, instead of the sign-in screen's
+    /// Waiting for Authorization.
+    private var awaitsSignedInClient: Bool {
+        !rootVM.loggedIn && TDLib.shared.activeAccount?.userID != nil
+            && (TDLib.shared.activeUpdateSource == nil || TDLib.shared.activeAccountIsStarting)
+    }
 
     init(rootVM: RootVM) {
         self.rootVM = rootVM
@@ -36,6 +47,12 @@ final class RootViewController: UIViewController {
             .sink { [weak self] in
                 DispatchQueue.main.async { self?.render(animated: true) }
             }
+            .store(in: &cancellables)
+        // The placeholder gives way once the client reports where the account stands.
+        TDLib.shared
+            .authorizationUpdates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.render(animated: true) }
             .store(in: &cancellables)
         nc.publisher(&cancellables, for: .appLanguageChanged) { [weak self] _ in
             self?.displayedLoggedInState = nil
@@ -60,13 +77,16 @@ final class RootViewController: UIViewController {
     }
 
     private func render(animated: Bool) {
-        guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID
+        let loggedInState: Bool? = awaitsSignedInClient ? nil : rootVM.loggedIn
+        guard displayedLoggedInState != .some(loggedInState) || displayedAccountID != rootVM.activeAccountID
             || (displayedController as? LoginViewController)?.isRevoked == true else { return }
-        displayedLoggedInState = rootVM.loggedIn
+        displayedLoggedInState = .some(loggedInState)
         displayedAccountID = rootVM.activeAccountID
 
         let controller: UIViewController
-        if rootVM.loggedIn {
+        if loggedInState == nil {
+            controller = LaunchPlaceholderViewController()
+        } else if rootVM.loggedIn {
             let mainController = MainTabsViewController(rootVM: rootVM)
             controller = NavigationStorage.shared.setRoot(mainController)
         } else {
@@ -121,5 +141,23 @@ final class RootViewController: UIViewController {
             newController.view.alpha = 1
             oldController.view.alpha = 0
         }, completion: { _ in completion() })
+    }
+}
+
+// MARK: - LaunchPlaceholderViewController
+
+/// The launch screen as Info.plist's UILaunchScreen draws it: its colour, and its image at its own size, across the
+/// middle of the screen and down the middle of the safe area.
+private final class LaunchPlaceholderViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(named: "launchScreenBackground") ?? .systemBackground
+        let imageView = UIImageView(image: UIImage(named: "launchScreen"))
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+        ])
     }
 }
