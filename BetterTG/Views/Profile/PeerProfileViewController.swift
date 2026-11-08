@@ -191,6 +191,9 @@ ClientRestorableNavigationEntry {
     /// and rebuilds itself after a same-account client renewal, since no chat below can host it.
     private(set) var opensChatItself = false
 
+    /// The pane to open on once it turns up, as PeerInfoStoryGridScreen's saved or archive scope opens on its stories.
+    var preferredSharedTab: SharedTab?
+
     private let accountID: UUID
     private let accountUserID: Int64?
     private let client: TDLibClient
@@ -6823,6 +6826,11 @@ ClientRestorableNavigationEntry {
            let first = tabs.first
         {
             selectedSharedTab = first
+        }
+        if let preferred = preferredSharedTab, tabs.contains(preferred), !sharedTabChosenByUser {
+            selectedSharedTab = preferred
+            preferredSharedTab = nil
+            sharedTabChosenByUser = true
         }
         sharedTabs.configure(items: sharedTabItems(tabs), selectedID: tabs.isEmpty ? nil : selectedSharedTab.rawValue)
         sharedTabs.alpha = tabs.isEmpty ? 0 : 1

@@ -190,6 +190,7 @@ final class StoryPeerListExpandedView: UIView {
         }
 
         let ringView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
+        let chatID: Int64
 
         private let avatar = ProfileAvatarView()
         private let titleLabel = UILabel()
@@ -200,6 +201,7 @@ final class StoryPeerListExpandedView: UIView {
         private let progressRing = CAShapeLayer()
 
         init(item: Item, client: TDLibClient, accountID: UUID?) {
+            self.chatID = item.chatID
             super.init(frame: .zero)
             ringView.isUserInteractionEnabled = false
             ringView.style = item.ringStyle
@@ -287,10 +289,11 @@ final class StoryPeerListExpandedView: UIView {
         }
 
         /// StoryProgressLayer.updateAnimations: the dashes give way to the arc once progress is known, and the arc
-        /// eases to each new share over 0.3 s, never shorter than 0.028.
+        /// eases to each new share over 0.3 s.
         func setUploadProgress(_ progress: Float?) {
             guard let progress else { return }
-            let end = CGFloat(max(0.028, progress))
+            // updateStoryUploadProgress keeps the arc between 0.027 and 0.99 until the post succeeds.
+            let end = CGFloat(max(0.027, min(0.99, progress)))
             if progressRing.isHidden {
                 progressRing.isHidden = false
                 progressRing.strokeEnd = end
@@ -310,6 +313,8 @@ final class StoryPeerListExpandedView: UIView {
     static let height: CGFloat = 96
 
     var onSelect: ((Int64, UIView) -> Void)?
+    /// storyContextPeerAction: a long press on an item.
+    var onContextMenu: ((Int64, UIView, ContextMenuPressGestureRecognizer) -> Void)?
     private(set) var items = [Item]()
 
     private let scrollView = UIScrollView()
@@ -358,9 +363,18 @@ final class StoryPeerListExpandedView: UIView {
                 guard let view else { return }
                 self?.onSelect?(item.chatID, view.ringView)
             }, for: .touchUpInside)
+            view.addGestureRecognizer(ContextMenuPressGestureRecognizer(
+                target: self,
+                action: #selector(itemLongPressed(_:)),
+            ))
             scrollView.addSubview(view)
             return view
         }
         setNeedsLayout()
+    }
+
+    @objc private func itemLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, let view = gesture.view as? ItemView else { return }
+        onContextMenu?(view.chatID, view, gesture)
     }
 }

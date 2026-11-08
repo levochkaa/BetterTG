@@ -4845,3 +4845,10 @@
 "Story.Privacy.KeepOnChannelPageInfo" = "Keep this story on channel profile even after it expires in %@.";
 "Story.Privacy.KeepOnGroupPage" = "Post to Group Page";
 "Story.Privacy.KeepOnGroupPageInfo" = "Keep this story on group page even after it expires in %@.";
+"StoryFeed.ContextAddStory" = "Add Story";
+"StoryFeed.ContextSavedStories" = "Saved Stories";
+"StoryFeed.ContextArchivedStories" = "Archived Stories";
+"StoryFeed.ContextOpenChat" = "Send Message";
+"StoryFeed.ContextOpenProfile" = "Open Profile";
+"ChatList.ContextOpenChannel" = "Open Channel";
+"ChatList.ContextOpenGroup" = "Open Group";
