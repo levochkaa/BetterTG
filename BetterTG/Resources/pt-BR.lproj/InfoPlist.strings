@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Permita o acesso à câmera para enviar fotos nas conversas.";
+"NSContactsUsageDescription" = "Permita o acesso aos contatos para compartilhar contatos nas conversas.";
+"NSLocationWhenInUseUsageDescription" = "Permita o acesso à localização para compartilhar sua localização nas conversas.";
+"NSMicrophoneUsageDescription" = "Permita o acesso ao microfone para enviar mensagens de voz nas conversas.";
+"NSPhotoLibraryAddUsageDescription" = "Permita o acesso a Fotos para salvar as imagens que você pedir.";
+"NSPhotoLibraryUsageDescription" = "Permita o acesso a Fotos para enviar fotos nas conversas.";

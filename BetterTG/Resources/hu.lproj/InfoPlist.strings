@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Engedélyezd a kamerát, hogy fotókat küldhess a csevegésekben.";
+"NSContactsUsageDescription" = "Engedélyezd a névjegyeket, hogy névjegyeket oszthass meg a csevegésekben.";
+"NSLocationWhenInUseUsageDescription" = "Engedélyezd a helyhozzáférést, hogy megoszthasd a helyzeted a csevegésekben.";
+"NSMicrophoneUsageDescription" = "Engedélyezd a mikrofont, hogy hangüzeneteket küldhess a csevegésekben.";
+"NSPhotoLibraryAddUsageDescription" = "Engedélyezd a Fotók elérését, hogy elmenthesd a kért képeket.";
+"NSPhotoLibraryUsageDescription" = "Engedélyezd a Fotók elérését, hogy fotókat küldhess a csevegésekben.";

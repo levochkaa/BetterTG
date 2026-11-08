@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Povoľte prístup ku kamere, aby ste mohli posielať fotky v chatoch.";
+"NSContactsUsageDescription" = "Povoľte prístup ku kontaktom, aby ste mohli zdieľať kontakty v chatoch.";
+"NSLocationWhenInUseUsageDescription" = "Povoľte prístup k polohe, aby ste mohli zdieľať svoju polohu v chatoch.";
+"NSMicrophoneUsageDescription" = "Povoľte prístup k mikrofónu, aby ste mohli posielať hlasové správy v chatoch.";
+"NSPhotoLibraryAddUsageDescription" = "Povoľte prístup k Fotkám, aby ste mohli ukladať obrázky, ktoré si vyžiadate.";
+"NSPhotoLibraryUsageDescription" = "Povoľte prístup k Fotkám, aby ste mohli posielať fotky v chatoch.";

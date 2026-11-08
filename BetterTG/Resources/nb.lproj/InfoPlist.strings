@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Gi tilgang til kameraet for å sende bilder i samtaler.";
+"NSContactsUsageDescription" = "Gi tilgang til kontakter for å dele kontakter i samtaler.";
+"NSLocationWhenInUseUsageDescription" = "Gi tilgang til posisjon for å dele posisjonen din i samtaler.";
+"NSMicrophoneUsageDescription" = "Gi tilgang til mikrofonen for å sende talemeldinger i samtaler.";
+"NSPhotoLibraryAddUsageDescription" = "Gi tilgang til Bilder for å lagre bilder du ber om.";
+"NSPhotoLibraryUsageDescription" = "Gi tilgang til Bilder for å sende bilder i samtaler.";

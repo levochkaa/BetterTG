@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Sohbetlerde fotoğraf göndermek için kamera erişimine izin verin.";
+"NSContactsUsageDescription" = "Sohbetlerde kişi paylaşmak için kişiler erişimine izin verin.";
+"NSLocationWhenInUseUsageDescription" = "Sohbetlerde konumunuzu paylaşmak için konum erişimine izin verin.";
+"NSMicrophoneUsageDescription" = "Sohbetlerde sesli mesaj göndermek için mikrofon erişimine izin verin.";
+"NSPhotoLibraryAddUsageDescription" = "İstediğiniz görselleri kaydetmek için Fotoğraflar erişimine izin verin.";
+"NSPhotoLibraryUsageDescription" = "Sohbetlerde fotoğraf göndermek için Fotoğraflar erişimine izin verin.";

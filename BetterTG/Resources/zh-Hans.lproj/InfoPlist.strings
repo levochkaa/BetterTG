@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "允许访问相机，以便在聊天中发送照片。";
+"NSContactsUsageDescription" = "允许访问通讯录，以便在聊天中分享联系人。";
+"NSLocationWhenInUseUsageDescription" = "允许访问位置，以便在聊天中分享您的位置。";
+"NSMicrophoneUsageDescription" = "允许访问麦克风，以便在聊天中发送语音消息。";
+"NSPhotoLibraryAddUsageDescription" = "允许访问照片，以便保存您要求保存的图片。";
+"NSPhotoLibraryUsageDescription" = "允许访问照片，以便在聊天中发送照片。";

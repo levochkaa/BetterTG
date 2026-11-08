@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Zezwól na dostęp do aparatu, aby wysyłać zdjęcia na czatach.";
+"NSContactsUsageDescription" = "Zezwól na dostęp do kontaktów, aby udostępniać kontakty na czatach.";
+"NSLocationWhenInUseUsageDescription" = "Zezwól na dostęp do lokalizacji, aby udostępniać swoją lokalizację na czatach.";
+"NSMicrophoneUsageDescription" = "Zezwól na dostęp do mikrofonu, aby wysyłać wiadomości głosowe na czatach.";
+"NSPhotoLibraryAddUsageDescription" = "Zezwól na dostęp do Zdjęć, aby zapisywać wybrane obrazy.";
+"NSPhotoLibraryUsageDescription" = "Zezwól na dostęp do Zdjęć, aby wysyłać zdjęcia na czatach.";

@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Дазвольце доступ да камеры, каб адпраўляць фота ў чатах.";
+"NSContactsUsageDescription" = "Дазвольце доступ да кантактаў, каб дзяліцца кантактамі ў чатах.";
+"NSLocationWhenInUseUsageDescription" = "Дазвольце доступ да геапазіцыі, каб дзяліцца сваім месцазнаходжаннем у чатах.";
+"NSMicrophoneUsageDescription" = "Дазвольце доступ да мікрафона, каб адпраўляць галасавыя паведамленні ў чатах.";
+"NSPhotoLibraryAddUsageDescription" = "Дазвольце доступ да Фота, каб захоўваць выявы, калі вы гэтага просіце.";
+"NSPhotoLibraryUsageDescription" = "Дазвольце доступ да Фота, каб адпраўляць фота ў чатах.";

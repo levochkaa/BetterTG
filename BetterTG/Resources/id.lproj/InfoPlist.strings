@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Izinkan akses kamera untuk mengirim foto di chat.";
+"NSContactsUsageDescription" = "Izinkan akses kontak untuk membagikan kontak di chat.";
+"NSLocationWhenInUseUsageDescription" = "Izinkan akses lokasi untuk membagikan lokasi Anda di chat.";
+"NSMicrophoneUsageDescription" = "Izinkan akses mikrofon untuk mengirim pesan suara di chat.";
+"NSPhotoLibraryAddUsageDescription" = "Izinkan akses Foto untuk menyimpan gambar yang Anda minta.";
+"NSPhotoLibraryUsageDescription" = "Izinkan akses Foto untuk mengirim foto di chat.";

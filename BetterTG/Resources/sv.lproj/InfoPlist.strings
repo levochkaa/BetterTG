@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Tillåt kameraåtkomst för att skicka bilder i chattar.";
+"NSContactsUsageDescription" = "Tillåt åtkomst till kontakter för att dela kontakter i chattar.";
+"NSLocationWhenInUseUsageDescription" = "Tillåt platsåtkomst för att dela din plats i chattar.";
+"NSMicrophoneUsageDescription" = "Tillåt mikrofonåtkomst för att skicka röstmeddelanden i chattar.";
+"NSPhotoLibraryAddUsageDescription" = "Tillåt åtkomst till Bilder för att spara bilder du begär.";
+"NSPhotoLibraryUsageDescription" = "Tillåt åtkomst till Bilder för att skicka bilder i chattar.";

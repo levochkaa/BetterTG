@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Чатта сурет жіберу үшін камераға рұқсат беріңіз.";
+"NSContactsUsageDescription" = "Чатта контакт бөлісу үшін контактілерге рұқсат беріңіз.";
+"NSLocationWhenInUseUsageDescription" = "Чатта орныңызды бөлісу үшін геолокацияға рұқсат беріңіз.";
+"NSMicrophoneUsageDescription" = "Чатта дауысхат жіберу үшін микрофонға рұқсат беріңіз.";
+"NSPhotoLibraryAddUsageDescription" = "Өзіңіз сұраған суреттерді сақтау үшін «Фото» қолданбасына рұқсат беріңіз.";
+"NSPhotoLibraryUsageDescription" = "Чатта сурет жіберу үшін «Фото» қолданбасына рұқсат беріңіз.";

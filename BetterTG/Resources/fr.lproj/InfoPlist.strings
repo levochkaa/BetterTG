@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Autorisez l’accès à l’appareil photo pour envoyer des photos dans les discussions.";
+"NSContactsUsageDescription" = "Autorisez l’accès aux contacts pour partager des contacts dans les discussions.";
+"NSLocationWhenInUseUsageDescription" = "Autorisez l’accès à la position pour partager votre position dans les discussions.";
+"NSMicrophoneUsageDescription" = "Autorisez l’accès au micro pour envoyer des messages vocaux dans les discussions.";
+"NSPhotoLibraryAddUsageDescription" = "Autorisez l’accès à Photos pour enregistrer les images que vous demandez.";
+"NSPhotoLibraryUsageDescription" = "Autorisez l’accès à Photos pour envoyer des photos dans les discussions.";

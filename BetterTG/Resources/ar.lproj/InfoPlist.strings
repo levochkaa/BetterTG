@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "اسمح بالوصول إلى الكاميرا لإرسال الصور في الدردشات.";
+"NSContactsUsageDescription" = "اسمح بالوصول إلى جهات الاتصال لمشاركتها في الدردشات.";
+"NSLocationWhenInUseUsageDescription" = "اسمح بالوصول إلى الموقع لمشاركة موقعك في الدردشات.";
+"NSMicrophoneUsageDescription" = "اسمح بالوصول إلى الميكروفون لإرسال الرسائل الصوتية في الدردشات.";
+"NSPhotoLibraryAddUsageDescription" = "اسمح بالوصول إلى الصور لحفظ الصور التي تطلبها.";
+"NSPhotoLibraryUsageDescription" = "اسمح بالوصول إلى الصور لإرسال الصور في الدردشات.";

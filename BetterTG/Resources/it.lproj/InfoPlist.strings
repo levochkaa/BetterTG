@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Consenti l'accesso alla fotocamera per inviare foto nelle chat.";
+"NSContactsUsageDescription" = "Consenti l'accesso ai contatti per condividerli nelle chat.";
+"NSLocationWhenInUseUsageDescription" = "Consenti l'accesso alla posizione per condividerla nelle chat.";
+"NSMicrophoneUsageDescription" = "Consenti l'accesso al microfono per inviare messaggi vocali nelle chat.";
+"NSPhotoLibraryAddUsageDescription" = "Consenti l'accesso a Foto per salvare le immagini che richiedi.";
+"NSPhotoLibraryUsageDescription" = "Consenti l'accesso a Foto per inviare foto nelle chat.";

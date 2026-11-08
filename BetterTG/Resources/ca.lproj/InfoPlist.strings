@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Permet l'accés a la càmera per enviar fotos als xats.";
+"NSContactsUsageDescription" = "Permet l'accés als contactes per compartir contactes als xats.";
+"NSLocationWhenInUseUsageDescription" = "Permet l'accés a la ubicació per compartir la teva ubicació als xats.";
+"NSMicrophoneUsageDescription" = "Permet l'accés al micròfon per enviar missatges de veu als xats.";
+"NSPhotoLibraryAddUsageDescription" = "Permet l'accés a Fotos per desar les imatges que demanis.";
+"NSPhotoLibraryUsageDescription" = "Permet l'accés a Fotos per enviar fotos als xats.";

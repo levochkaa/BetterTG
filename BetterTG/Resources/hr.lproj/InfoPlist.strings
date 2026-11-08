@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Dopustite pristup kameri za slanje fotografija u razgovorima.";
+"NSContactsUsageDescription" = "Dopustite pristup kontaktima za dijeljenje kontakata u razgovorima.";
+"NSLocationWhenInUseUsageDescription" = "Dopustite pristup lokaciji za dijeljenje svoje lokacije u razgovorima.";
+"NSMicrophoneUsageDescription" = "Dopustite pristup mikrofonu za slanje glasovnih poruka u razgovorima.";
+"NSPhotoLibraryAddUsageDescription" = "Dopustite pristup Fotografijama za spremanje slika koje odaberete.";
+"NSPhotoLibraryUsageDescription" = "Dopustite pristup Fotografijama za slanje fotografija u razgovorima.";

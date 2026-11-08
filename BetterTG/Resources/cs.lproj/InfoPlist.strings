@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Povolte přístup ke kameře, abyste mohli posílat fotky v chatech.";
+"NSContactsUsageDescription" = "Povolte přístup ke kontaktům, abyste je mohli sdílet v chatech.";
+"NSLocationWhenInUseUsageDescription" = "Povolte přístup k poloze, abyste ji mohli sdílet v chatech.";
+"NSMicrophoneUsageDescription" = "Povolte přístup k mikrofonu, abyste mohli posílat hlasové zprávy v chatech.";
+"NSPhotoLibraryAddUsageDescription" = "Povolte přístup k Fotkám, abyste mohli ukládat obrázky, o které požádáte.";
+"NSPhotoLibraryUsageDescription" = "Povolte přístup k Fotkám, abyste mohli posílat fotky v chatech.";

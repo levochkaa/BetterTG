@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "允許存取相機，以便在聊天中傳送照片。";
+"NSContactsUsageDescription" = "允許存取聯絡人，以便在聊天中分享聯絡人。";
+"NSLocationWhenInUseUsageDescription" = "允許存取位置，以便在聊天中分享您的位置。";
+"NSMicrophoneUsageDescription" = "允許存取麥克風，以便在聊天中傳送語音訊息。";
+"NSPhotoLibraryAddUsageDescription" = "允許存取照片，以便儲存您要求的圖片。";
+"NSPhotoLibraryUsageDescription" = "允許存取照片，以便在聊天中傳送照片。";

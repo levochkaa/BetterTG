@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Erlaube den Kamerazugriff, um Fotos in Chats zu senden.";
+"NSContactsUsageDescription" = "Erlaube den Zugriff auf Kontakte, um Kontakte in Chats zu teilen.";
+"NSLocationWhenInUseUsageDescription" = "Erlaube den Standortzugriff, um deinen Standort in Chats zu teilen.";
+"NSMicrophoneUsageDescription" = "Erlaube den Mikrofonzugriff, um Sprachnachrichten in Chats zu senden.";
+"NSPhotoLibraryAddUsageDescription" = "Erlaube den Zugriff auf Fotos, um Bilder zu sichern, wenn du es möchtest.";
+"NSPhotoLibraryUsageDescription" = "Erlaube den Zugriff auf Fotos, um Fotos in Chats zu senden.";

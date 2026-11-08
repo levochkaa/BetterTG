@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Geef toegang tot de camera om foto’s in chats te sturen.";
+"NSContactsUsageDescription" = "Geef toegang tot contacten om contacten in chats te delen.";
+"NSLocationWhenInUseUsageDescription" = "Geef toegang tot je locatie om die in chats te delen.";
+"NSMicrophoneUsageDescription" = "Geef toegang tot de microfoon om spraakberichten in chats te sturen.";
+"NSPhotoLibraryAddUsageDescription" = "Geef toegang tot Foto’s om afbeeldingen op te slaan wanneer je daarom vraagt.";
+"NSPhotoLibraryUsageDescription" = "Geef toegang tot Foto’s om foto’s in chats te sturen.";

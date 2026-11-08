@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Chatlarda rasm yuborish uchun kameraga ruxsat bering.";
+"NSContactsUsageDescription" = "Chatlarda kontaktlarni ulashish uchun kontaktlarga ruxsat bering.";
+"NSLocationWhenInUseUsageDescription" = "Chatlarda joylashuvingizni ulashish uchun joylashuvga ruxsat bering.";
+"NSMicrophoneUsageDescription" = "Chatlarda ovozli xabar yuborish uchun mikrofonga ruxsat bering.";
+"NSPhotoLibraryAddUsageDescription" = "Siz soʻragan rasmlarni saqlash uchun Rasmlar ilovasiga ruxsat bering.";
+"NSPhotoLibraryUsageDescription" = "Chatlarda rasm yuborish uchun Rasmlar ilovasiga ruxsat bering.";

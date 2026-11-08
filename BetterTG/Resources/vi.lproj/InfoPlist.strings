@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Cho phép truy cập camera để gửi ảnh trong cuộc trò chuyện.";
+"NSContactsUsageDescription" = "Cho phép truy cập danh bạ để chia sẻ liên hệ trong cuộc trò chuyện.";
+"NSLocationWhenInUseUsageDescription" = "Cho phép truy cập vị trí để chia sẻ vị trí của bạn trong cuộc trò chuyện.";
+"NSMicrophoneUsageDescription" = "Cho phép truy cập micrô để gửi tin nhắn thoại trong cuộc trò chuyện.";
+"NSPhotoLibraryAddUsageDescription" = "Cho phép truy cập Ảnh để lưu những hình ảnh bạn yêu cầu.";
+"NSPhotoLibraryUsageDescription" = "Cho phép truy cập Ảnh để gửi ảnh trong cuộc trò chuyện.";

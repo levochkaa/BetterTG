@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Salli kameran käyttö, jotta voit lähettää kuvia keskusteluihin.";
+"NSContactsUsageDescription" = "Salli yhteystietojen käyttö, jotta voit jakaa yhteystietoja keskusteluissa.";
+"NSLocationWhenInUseUsageDescription" = "Salli sijainnin käyttö, jotta voit jakaa sijaintisi keskusteluissa.";
+"NSMicrophoneUsageDescription" = "Salli mikrofonin käyttö, jotta voit lähettää ääniviestejä keskusteluihin.";
+"NSPhotoLibraryAddUsageDescription" = "Salli Kuvien käyttö, jotta voit tallentaa pyytämiäsi kuvia.";
+"NSPhotoLibraryUsageDescription" = "Salli Kuvien käyttö, jotta voit lähettää kuvia keskusteluihin.";

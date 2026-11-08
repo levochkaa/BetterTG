@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "יש לאפשר גישה למצלמה כדי לשלוח תמונות בצ'אטים.";
+"NSContactsUsageDescription" = "יש לאפשר גישה לאנשי הקשר כדי לשתף אנשי קשר בצ'אטים.";
+"NSLocationWhenInUseUsageDescription" = "יש לאפשר גישה למיקום כדי לשתף את המיקום שלך בצ'אטים.";
+"NSMicrophoneUsageDescription" = "יש לאפשר גישה למיקרופון כדי לשלוח הודעות קוליות בצ'אטים.";
+"NSPhotoLibraryAddUsageDescription" = "יש לאפשר גישה לתמונות כדי לשמור תמונות שביקשת.";
+"NSPhotoLibraryUsageDescription" = "יש לאפשר גישה לתמונות כדי לשלוח תמונות בצ'אטים.";

@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Benarkan akses kamera untuk menghantar foto dalam sembang.";
+"NSContactsUsageDescription" = "Benarkan akses kenalan untuk berkongsi kenalan dalam sembang.";
+"NSLocationWhenInUseUsageDescription" = "Benarkan akses lokasi untuk berkongsi lokasi anda dalam sembang.";
+"NSMicrophoneUsageDescription" = "Benarkan akses mikrofon untuk menghantar mesej suara dalam sembang.";
+"NSPhotoLibraryAddUsageDescription" = "Benarkan akses Foto untuk menyimpan imej yang anda minta.";
+"NSPhotoLibraryUsageDescription" = "Benarkan akses Foto untuk menghantar foto dalam sembang.";

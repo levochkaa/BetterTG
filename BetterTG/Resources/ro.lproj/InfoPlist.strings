@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "Permite accesul la cameră pentru a trimite fotografii în conversații.";
+"NSContactsUsageDescription" = "Permite accesul la contacte pentru a partaja contacte în conversații.";
+"NSLocationWhenInUseUsageDescription" = "Permite accesul la locație pentru a-ți partaja locația în conversații.";
+"NSMicrophoneUsageDescription" = "Permite accesul la microfon pentru a trimite mesaje vocale în conversații.";
+"NSPhotoLibraryAddUsageDescription" = "Permite accesul la Poze pentru a salva imaginile pe care le ceri.";
+"NSPhotoLibraryUsageDescription" = "Permite accesul la Poze pentru a trimite fotografii în conversații.";

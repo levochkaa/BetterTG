@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "برای ارسال عکس در گفتگوها، اجازهٔ دسترسی به دوربین را بدهید.";
+"NSContactsUsageDescription" = "برای اشتراک‌گذاری مخاطبان در گفتگوها، اجازهٔ دسترسی به مخاطبان را بدهید.";
+"NSLocationWhenInUseUsageDescription" = "برای اشتراک‌گذاری موقعیت خود در گفتگوها، اجازهٔ دسترسی به موقعیت مکانی را بدهید.";
+"NSMicrophoneUsageDescription" = "برای ارسال پیام صوتی در گفتگوها، اجازهٔ دسترسی به میکروفون را بدهید.";
+"NSPhotoLibraryAddUsageDescription" = "برای ذخیرهٔ تصاویری که درخواست می‌کنید، اجازهٔ دسترسی به Photos را بدهید.";
+"NSPhotoLibraryUsageDescription" = "برای ارسال عکس در گفتگوها، اجازهٔ دسترسی به Photos را بدهید.";

@@ -1,0 +1,6 @@
+"NSCameraUsageDescription" = "채팅에서 사진을 보내려면 카메라 접근을 허용하세요.";
+"NSContactsUsageDescription" = "채팅에서 연락처를 공유하려면 연락처 접근을 허용하세요.";
+"NSLocationWhenInUseUsageDescription" = "채팅에서 위치를 공유하려면 위치 접근을 허용하세요.";
+"NSMicrophoneUsageDescription" = "채팅에서 음성 메시지를 보내려면 마이크 접근을 허용하세요.";
+"NSPhotoLibraryAddUsageDescription" = "요청한 이미지를 저장하려면 사진 접근을 허용하세요.";
+"NSPhotoLibraryUsageDescription" = "채팅에서 사진을 보내려면 사진 접근을 허용하세요.";
