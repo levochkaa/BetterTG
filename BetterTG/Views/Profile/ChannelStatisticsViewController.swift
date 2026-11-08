@@ -7,12 +7,44 @@ import UIKit
 
 /// ChannelStatsController's overview (StatsOverviewItem) for a channel (getChatStatistics): the period, then
 /// Followers, Enabled Notifications, Views Per Post, Shares Per Post, Reactions Per Post and the story means, each with
-/// its change over the period, green for growth and red for a fall. While the server prepares the statistics it shows
-/// Preparing stats.
+/// its change over the period, green for growth and red for a fall; then its graphs in ChannelStatsController's order,
+/// each under its title, an asynchronous one loading through getStatisticalGraph. While the server prepares the
+/// statistics it shows Preparing stats.
 final class ChannelStatisticsViewController: SettingsListViewController {
+    private struct GraphEntry {
+        let title: String
+        let kind: StatisticsGraphKind
+        let graph: KeyPath<TDNativeChatStatisticsChannel, TDNativeStatisticalGraph>
+    }
+
+    /// channelStatsControllerEntries' graphs.
+    private static let graphEntries = [
+        GraphEntry(title: "Stats.GrowthTitle", kind: .lines, graph: \.memberCountGraph),
+        GraphEntry(title: "Stats.FollowersTitle", kind: .lines, graph: \.joinGraph),
+        GraphEntry(title: "Stats.NotificationsTitle", kind: .lines, graph: \.muteGraph),
+        GraphEntry(title: "Stats.ViewsByHoursTitle", kind: .hourlyStep, graph: \.viewCountByHourGraph),
+        GraphEntry(title: "Stats.ViewsBySourceTitle", kind: .bars, graph: \.viewCountBySourceGraph),
+        GraphEntry(title: "Stats.FollowersBySourceTitle", kind: .bars, graph: \.joinBySourceGraph),
+        GraphEntry(title: "Stats.LanguagesTitle", kind: .pie, graph: \.languageGraph),
+        GraphEntry(title: "Stats.InteractionsTitle", kind: .twoAxisStep, graph: \.messageInteractionGraph),
+        GraphEntry(
+            title: "Stats.InstantViewInteractionsTitle",
+            kind: .twoAxisStep,
+            graph: \.instantViewInteractionGraph,
+        ),
+        GraphEntry(title: "Stats.ReactionsByEmotionTitle", kind: .bars, graph: \.messageReactionGraph),
+        GraphEntry(title: "Stats.StoryInteractionsTitle", kind: .twoAxisStep, graph: \.storyInteractionGraph),
+        GraphEntry(title: "Stats.StoryReactionsByEmotionTitle", kind: .bars, graph: \.storyReactionGraph),
+    ]
+
     private let chat: Chat
     private var statistics: TDNativeChatStatisticsChannel?
     private var failed = false
+    /// Each graph's state by its entry; a graph with no data or error text has none and no section.
+    private var graphStates = [Int: StatisticsGraphView.State]()
+    private var graphViews = [Int: StatisticsGraphView]()
+    /// The entry each graph section shows.
+    private var graphSections = [Int: Int]()
 
     init(chat: Chat, client _: TDLibClient) {
         self.chat = chat
@@ -59,10 +91,42 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 row("Stats.ReactionsPerStory", statistics.meanStoryReactionCount),
             ]
         }
-        return [SettingsSection(
+        var sections = [SettingsSection(
             header: L10n.telegram("Stats.Overview") + "  " + Self.periodText(statistics.period),
             rows: rows,
         )]
+        graphSections = [:]
+        for (index, entry) in Self.graphEntries.enumerated() where graphStates[index] != nil {
+            graphSections[sections.count] = index
+            sections.append(SettingsSection(header: L10n.telegram(entry.title), rows: [SettingsRow(title: "")]))
+        }
+        return sections
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let index = graphSections[indexPath.section], let graphView = graphView(index) else {
+            return super.tableView(tableView, cellForRowAt: indexPath)
+        }
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.selectionStyle = .none
+        graphView.removeFromSuperview()
+        graphView.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(graphView)
+        NSLayoutConstraint.activate([
+            graphView.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+            graphView.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+            graphView.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+            graphView.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
+        ])
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard let index = graphSections[indexPath.section], let state = graphStates[index] else {
+            return UITableView.automaticDimension
+        }
+        let width = tableView.bounds.width - tableView.layoutMargins.left - tableView.layoutMargins.right
+        return StatisticsGraphView.height(width: width, kind: Self.graphEntries[index].kind, state: state)
     }
 
     /// compactNumericCountString: 1234 reads 1.2K, under a thousand the whole number.
@@ -87,6 +151,51 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         return "\(format(period.startDate)) – \(format(period.endDate))".uppercased()
     }
 
+    private func graphView(_ index: Int) -> StatisticsGraphView? {
+        if let view = graphViews[index] {
+            return view
+        }
+        guard let state = graphStates[index] else { return nil }
+        let view = StatisticsGraphView(kind: Self.graphEntries[index].kind, state: state)
+        graphViews[index] = view
+        return view
+    }
+
+    /// StatsGraph from statisticalGraph: data to draw, an asynchronous graph to load by its token, or the server's
+    /// text.
+    private func setGraph(_ graph: TDNativeStatisticalGraph, at index: Int) {
+        graphViews[index] = nil
+        switch graph {
+        case .statisticalGraphData(let data):
+            graphStates[index] = StatisticsChartData(json: data.jsonData).map { .loaded($0) }
+        case .statisticalGraphAsync(let async):
+            graphStates[index] = .loading
+            loadGraph(token: async.token, at: index)
+        case .statisticalGraphError(let error):
+            graphStates[index] = error.errorMessage.isEmpty ? nil : .failed(error.errorMessage)
+        }
+    }
+
+    private func loadGraph(token: String, at index: Int) {
+        let client = client
+        let chatID = chat.id
+        Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.getStatisticalGraph(
+                chatId: chatID,
+                token: token,
+                x: 0,
+            ))
+            guard let self, contextIsCurrent else { return }
+            if let result {
+                setGraph(result, at: index)
+            } else {
+                graphViews[index] = nil
+                graphStates[index] = nil
+            }
+            reload()
+        }
+    }
+
     private func load() {
         let client = client
         let chatID = chat.id
@@ -96,6 +205,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             guard let self, contextIsCurrent else { return }
             if case .chatStatisticsChannel(let channel)? = result {
                 statistics = channel
+                for (index, entry) in Self.graphEntries.enumerated() {
+                    setGraph(channel[keyPath: entry.graph], at: index)
+                }
             } else {
                 failed = true
             }

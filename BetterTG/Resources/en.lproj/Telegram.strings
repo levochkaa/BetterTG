@@ -4675,3 +4675,15 @@
 "Stats.ReactionsPerStory" = "Reactions Per Story";
 "Stats.LoadingTitle" = "Preparing stats";
 "Stats.LoadingText" = "Please wait a few moments while\nwe generate your stats";
+"Stats.GrowthTitle" = "GROWTH";
+"Stats.FollowersTitle" = "FOLLOWERS";
+"Stats.NotificationsTitle" = "NOTIFICATIONS";
+"Stats.ViewsByHoursTitle" = "VIEWS BY HOURS";
+"Stats.ViewsBySourceTitle" = "VIEWS BY SOURCE";
+"Stats.FollowersBySourceTitle" = "FOLLOWERS BY SOURCE";
+"Stats.LanguagesTitle" = "LANGUAGES";
+"Stats.InteractionsTitle" = "INTERACTIONS";
+"Stats.InstantViewInteractionsTitle" = "INSTANT VIEW INTERACTIONS";
+"Stats.ReactionsByEmotionTitle" = "REACTIONS BY EMOTION";
+"Stats.StoryInteractionsTitle" = "STORIES INTERACTIONS";
+"Stats.StoryReactionsByEmotionTitle" = "STORIES REACTIONS BY EMOTION";
