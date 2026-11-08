@@ -603,6 +603,11 @@ final class TelegramListNavigationBar: UIView {
         textActionButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
         textActionButton.isHidden = true
         textActionButton.addAction(UIAction { [weak self] _ in self?.textAction?() }, for: .touchUpInside)
+        // A long title (the archive's with its posters, in iPhone Duo's narrow list pane) truncates; the buttons keep
+        // their width.
+        for platter in allPlatters {
+            platter.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
         leadingPlatter.setItems([leftButton])
         trailingPlatter.setItems([rightButton])
         rightButton.addGestureRecognizer(rightLongPress)
@@ -663,6 +668,9 @@ final class TelegramListNavigationBar: UIView {
         storiesView.isHidden = true
         titleRow.addArrangedSubview(storiesView)
         titleRow.setCustomSpacing(8, after: storiesView)
+        // Short of room the title truncates beside the posters.
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh - 1, for: .horizontal)
+        storiesView.setContentCompressionResistancePriority(.required, for: .horizontal)
         titleRow.addArrangedSubview(titleLabel)
         lockButton.setImage(UIImage(
             systemName: "lock.open.fill",
@@ -718,6 +726,9 @@ final class TelegramListNavigationBar: UIView {
         activateLeadingRowConstraints()
         titleBandCenterConstraint = titleControl.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor)
         titleBetweenButtonsConstraint = titleControl.centerXAnchor.constraint(equalTo: titleSlotGuide.centerXAnchor)
+        // Short of room the title leaves the middle before its text truncates.
+        titleBandCenterConstraint.priority = .defaultHigh - 10
+        titleBetweenButtonsConstraint.priority = .defaultHigh - 10
         let trailingTop = trailingStack.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor)
         let titleTop = titleControl.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor)
         rowTopConstraints += [trailingTop, titleTop]
