@@ -28,6 +28,15 @@ final class TelegramListNavigationBar: UIView {
     /// The proxy shield's tap: Telegram opens the proxy settings.
     var onProxyTap: (() -> Void)?
 
+    /// StoryPeerListComponent's collapsed posters 8 pt before the title; ChatListTitleView's activity takes their
+    /// place while a network status shows.
+    let storiesView = StoryPeerListCollapsedView()
+
+    /// StoryPeerListComponent's collapsedButton: a tap on the title while posters show.
+    var onStoriesTap: (() -> Void)? {
+        didSet { updateTitleInteraction() }
+    }
+
     /// ChatListTitleLockView's tap: the app locks.
     var onLockTap: (() -> Void)?
 
@@ -214,6 +223,11 @@ final class TelegramListNavigationBar: UIView {
     /// stays at its edge, and stops with UIKit's space under the row of platters.
     private static func visibleHeight(clipped: CGFloat) -> CGFloat {
         expandedContentHeight - clipped
+    }
+
+    /// Shows or hides the posters after `storiesView` changed.
+    func updateStories() {
+        updateTitle()
     }
 
     /// The owner extends one backdrop behind this bar and its accessory panels.
@@ -491,6 +505,8 @@ final class TelegramListNavigationBar: UIView {
         subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || editingTitle != nil
         let showsActivity = networkStatus != nil
         networkActivityContainer.isHidden = !showsActivity
+        storiesView.isHidden = showsActivity || storiesView.items.isEmpty || editingTitle != nil
+        updateTitleInteraction()
         if showsActivity {
             networkActivityIndicator.startAnimating()
         } else {
@@ -502,7 +518,7 @@ final class TelegramListNavigationBar: UIView {
     }
 
     private func updateTitleInteraction() {
-        let tappable = onTitleTap != nil && doneAction == nil
+        let tappable = (onTitleTap != nil || onStoriesTap != nil && !storiesView.isHidden) && doneAction == nil
         titleControl.isUserInteractionEnabled = tappable
         // Without an action the labels stay separate static text, as before.
         titleControl.isAccessibilityElement = tappable
@@ -644,6 +660,9 @@ final class TelegramListNavigationBar: UIView {
         titleRow.isLayoutMarginsRelativeArrangement = true
         titleRow.directionalLayoutMargins = .zero
         titleRow.addArrangedSubview(networkActivityContainer)
+        storiesView.isHidden = true
+        titleRow.addArrangedSubview(storiesView)
+        titleRow.setCustomSpacing(8, after: storiesView)
         titleRow.addArrangedSubview(titleLabel)
         lockButton.setImage(UIImage(
             systemName: "lock.open.fill",
@@ -765,7 +784,14 @@ final class TelegramListNavigationBar: UIView {
     }
 
     @objc private func secondaryRightPressed() { secondaryRightAction?() }
-    @objc private func titlePressed() { onTitleTap?() }
+    @objc private func titlePressed() {
+        if !storiesView.isHidden, let onStoriesTap {
+            onStoriesTap()
+        } else {
+            onTitleTap?()
+        }
+    }
+
     @objc private func searchPressed() { openButtonSearch(animated: true) }
 
     private func openButtonSearch(animated: Bool) {

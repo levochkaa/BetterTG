@@ -58,6 +58,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var isLoadingBirthdate = false
     private var headerPanelsWidth: CGFloat = 0
     private var liveLocationChatTitles = [Int64: String]()
+    /// The main story list's posters for the title's collapsed stories.
+    private let storySubscriptions = StorySubscriptions()
+    private var storyPeers = [Int64: SettingsPeer]()
+    private var storyPeerTask: Task<Void, Never>?
     private var liveLocationTitleTask: Task<Void, Never>?
     private var liveLocationOpenTask: Task<Void, Never>?
     /// Telegram's chat list bar: Edit, then search, the tab's title, and compose. The archive and Settings are tabs, or
@@ -175,6 +179,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         isShowingSearchResults ? 0 : topFolderTabsHeight
     }
 
+    /// StoryPeerListComponent's collapseStartIndex: the account's own stories lead only while some are unseen.
+    private var collapsedStoryEntries: [StorySubscriptions.Entry] {
+        let ownID = TDLib.shared.activeAccount?.userID
+        return storySubscriptions.entries.filter { $0.chatID != ownID || $0.ringStyle != .seen }
+    }
+
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isClientRestoration = restoration != nil
@@ -195,6 +205,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         view.backgroundColor = .systemBackground
         configurePageController()
         configureNavigationBar()
+        configureStories()
         configureFolderPicker()
         configureSearchResults()
         configureHeaderPanels()
@@ -538,6 +549,74 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         for controller in folderControllers {
             controller.setAccessoryBottomInset(folderTabsAtTop ? 0 : FolderPickerView.barHeight - lowering)
         }
+    }
+
+    // MARK: Stories
+
+    /// ChatListController's story subscriptions: the main list's posters from loadActiveStories and
+    /// updateChatActiveStories, shown collapsed beside the title.
+    private func configureStories() {
+        let client = actionAuthority.client
+        let source = TDLib.shared.activeUpdateSource
+        storySubscriptions.onChange = { [weak self] in self?.updateStoryPeers() }
+        nc.scopedPublisher(&cancellables, for: .updateChatActiveStories) { [weak self] event in
+            guard let self, event.source == source, actionAuthority.isCurrent else { return }
+            storySubscriptions.apply(event.value.activeStories)
+        }
+        customNavigationBar.onStoriesTap = { [weak self] in self?.openCollapsedStories() }
+        storySubscriptions.load(client: client)
+    }
+
+    private func updateStoryPeers() {
+        let entries = collapsedStoryEntries.prefix(3)
+        let missing = entries.map(\.chatID).filter { storyPeers[$0] == nil }
+        applyStoryPeers()
+        guard !missing.isEmpty else { return }
+        let client = actionAuthority.client
+        storyPeerTask?.cancel()
+        storyPeerTask = Task { [weak self] in
+            var found = [Int64: SettingsPeer]()
+            for chatID in missing {
+                guard let chat = try? await client.getChat(chatId: chatID) else { continue }
+                found[chatID] =
+                    if case .chatTypePrivate(let user) = chat.type {
+                        await SettingsPeer.user(user.userId, client: client)
+                    } else {
+                        SettingsPeer(chat: chat)
+                    }
+            }
+            guard let self, !Task.isCancelled, actionAuthority.isCurrent else { return }
+            storyPeers.merge(found) { $1 }
+            applyStoryPeers()
+        }
+    }
+
+    private func applyStoryPeers() {
+        let items = collapsedStoryEntries.prefix(3).compactMap { entry in
+            storyPeers[entry.chatID].map { StoryPeerListCollapsedView.Item(peer: $0, ringStyle: entry.ringStyle) }
+        }
+        customNavigationBar.storiesView.update(
+            items: items,
+            client: actionAuthority.client,
+            accountID: TDLib.shared.activeAccountID,
+        )
+        customNavigationBar.updateStories()
+    }
+
+    /// The collapsed posters' tap opens their stories in the list's order, unseen first.
+    private func openCollapsedStories() {
+        let entries = storySubscriptions.entries
+        let unseen = entries.filter { $0.ringStyle != .seen }.map(\.chatID)
+        let seen = entries.filter { $0.ringStyle == .seen }.map(\.chatID)
+        let ordered = unseen + seen
+        guard let first = collapsedStoryEntries.first?.chatID ?? ordered.first else { return }
+        StoryViewerController.present(
+            .activeStories(chatIDs: ordered, initialChatID: first),
+            client: actionAuthority.client,
+            from: self,
+            sourceView: customNavigationBar.storiesView,
+            sourceIsAvatar: true,
+        )
     }
 
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
