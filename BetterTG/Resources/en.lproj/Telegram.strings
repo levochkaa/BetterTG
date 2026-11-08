@@ -4659,3 +4659,5 @@
 "Settings.ChatAutomation" = "Chat Automation";
 "Settings.ChatAutomationInfo" = "Add a bot to reply to messages on your behalf.";
 "Settings.ChatAutomationOff" = "Off";
+"Checkout.Receipt.Title" = "Receipt";
+"Message.InvoiceLabel" = "INVOICE";

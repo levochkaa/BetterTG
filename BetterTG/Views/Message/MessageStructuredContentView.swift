@@ -595,6 +595,8 @@ final class MessageStructuredContentView: UIView {
                 )
             case .game(let game):
                 GameMessageContentView(game: game, messageID: messageID, client: client, onAction: onAction)
+            case .invoice(let invoice):
+                InvoiceMessageContentView(invoice: invoice, client: client)
             case .location(let location):
                 LocationMessageContentView(content: location, onAction: onAction)
             case .linkPreview(let preview):

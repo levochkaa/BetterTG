@@ -67,6 +67,7 @@ struct MessageContentPresentation {
         case dice(DiceContent)
         case document(Document)
         case game(Game)
+        case invoice(TDNativeMessageInvoice)
         case location(LocationContent)
         case linkPreview(LinkPreview)
         case none
@@ -155,6 +156,34 @@ struct MessageContentPresentation {
     ) -> Self {
         switch content {
         case .messageText(let message):
+            #if DEBUG
+                // `-ui-probe-invoice-card`: a message reading #invoice-probe draws as a test invoice without a photo.
+                if message.text.text == "#invoice-probe",
+                   ProcessInfo.processInfo.arguments.contains("-ui-probe-invoice-card")
+                {
+                    let invoice = TDNativeMessageInvoice(
+                        productInfo: TDNativeProductInfo(
+                            title: "Coffee Beans",
+                            description: FormattedText(entities: [], text: "A pound of fresh roast, ground to order."),
+                            photo: nil,
+                        ),
+                        currency: "USD",
+                        totalAmount: 1250,
+                        startParameter: "",
+                        isTest: true,
+                        needShippingAddress: false,
+                        receiptMessageId: 0,
+                        paidMedia: nil,
+                        paidMediaCaption: nil,
+                    )
+                    return Self(
+                        formattedText: nil,
+                        isVisualMedia: false,
+                        summary: "Coffee Beans",
+                        supplement: .invoice(invoice),
+                    )
+                }
+            #endif
             return Self(
                 formattedText: message.text,
                 isVisualMedia: false,
@@ -362,10 +391,19 @@ struct MessageContentPresentation {
                     isScheduled: false,
                 )),
             )
-        case .messageInvoice:
-            return unsupported(
-                title: L10n.betterTG("Message.Invoice"),
-                detail: L10n.betterTG("Message.Unsupported.Invoice"),
+        case .messageInvoice(let invoice):
+            // A paid-media invoice is Stars content, outside BetterTG's scope.
+            guard invoice.paidMedia == nil else {
+                return unsupported(
+                    title: L10n.betterTG("Message.Invoice"),
+                    detail: L10n.betterTG("Message.Unsupported.Invoice"),
+                )
+            }
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: firstNonEmpty(invoice.productInfo.title, L10n.betterTG("Message.Invoice")),
+                supplement: .invoice(invoice),
             )
         case .messageCall:
             return service(title: L10n.betterTG("Service.Call"), symbolName: "phone")
