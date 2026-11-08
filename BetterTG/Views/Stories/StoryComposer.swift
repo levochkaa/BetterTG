@@ -1,15 +1,18 @@
 // StoryComposer.swift
 
+import AVFoundation
+import CoreImage.CIFilterBuiltins
 import PhotosUI
 import TDLibKit
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - StoryComposer
 
-/// ChatListController.openStoryCamera for the account's first story, from what BetterTG has: a photo from the library
-/// (Telegram opens its camera with the gallery under it), its MediaEditorScreen preview on a 9:16 canvas with the
-/// caption, then ShareWithPeersScreen's Share Story. Telegram's camera, video stories and the editor's drawing,
-/// text, stickers and areas aren't ported.
+/// ChatListController.openStoryCamera for the account's first story, from what BetterTG has: a photo or a video from
+/// the library (Telegram opens its camera with the gallery under it), its MediaEditorScreen preview on a 9:16 canvas
+/// with the caption, then ShareWithPeersScreen's Share Story. Telegram's camera, its trimming and splitting of long
+/// videos and the editor's drawing, text, stickers and areas aren't ported.
 @MainActor final class StoryComposer: NSObject, PHPickerViewControllerDelegate {
     private static var current: StoryComposer?
 
@@ -27,7 +30,7 @@ import UIKit
         let composer = StoryComposer(host: host, client: client, accountID: accountID)
         current = composer
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images
+        configuration.filter = .any(of: [.images, .videos])
         configuration.selectionLimit = 1
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = composer
@@ -59,7 +62,7 @@ import UIKit
     }
 
     /// The photo's mean colours of its top and bottom halves, read from a 1 by 2 RGBA buffer.
-    private static func edgeColors(_ image: UIImage) -> (UIColor, UIColor) {
+    nonisolated static func edgeColors(_ image: UIImage) -> (UIColor, UIColor) {
         guard let cgImage = image.cgImage else { return (.black, .black) }
         var pixels = [UInt8](repeating: 0, count: 8)
         let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
@@ -103,11 +106,30 @@ import UIKit
         )
     }
 
+    /// A video's first frame, its canvas and its length, at most storyMaxVideoDuration's 60 seconds.
+    private static func videoMedia(_ url: URL) async -> StoryDraft? {
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration).seconds, duration > 0 else { return nil }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        guard let frame = try? await generator.image(at: .zero).image else { return nil }
+        let image = UIImage(cgImage: frame)
+        return .video(url, firstFrame: image, canvas: canvas(image), duration: min(duration, 60))
+    }
+
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         let provider = results.first?.itemProvider
         Task { @MainActor in
             picker.dismiss(animated: true)
-            guard let provider, provider.canLoadObject(ofClass: UIImage.self) else {
+            guard let provider else {
+                Self.current = nil
+                return
+            }
+            if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                loadVideo(provider)
+                return
+            }
+            guard provider.canLoadObject(ofClass: UIImage.self) else {
                 Self.current = nil
                 return
             }
@@ -118,22 +140,232 @@ import UIKit
                         Self.current = nil
                         return
                     }
-                    self.openPreview(image)
+                    self.openPreview(.photo(Self.canvas(image)))
                 }
             }
         }
     }
 
-    private func openPreview(_ image: UIImage) {
+    /// The picked video, copied out of the provider's file, which goes away when its handler returns.
+    private func loadVideo(_ provider: NSItemProvider) {
+        provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
+            var copy: URL?
+            if let url {
+                let destination = FileManager.default
+                    .temporaryDirectory
+                    .appendingPathComponent("bettertg-story-source-\(UUID().uuidString)")
+                    .appendingPathExtension(url.pathExtension)
+                if (try? FileManager.default.copyItem(at: url, to: destination)) != nil { copy = destination }
+            }
+            Task { @MainActor in
+                guard let copy, let media = await Self.videoMedia(copy) else {
+                    Self.current = nil
+                    return
+                }
+                self.openPreview(media)
+            }
+        }
+    }
+
+    private func openPreview(_ media: StoryDraft) {
         guard let host else {
             Self.current = nil
             return
         }
-        let preview = StoryPreviewViewController(image: Self.canvas(image), client: client, accountID: accountID)
+        let preview = StoryPreviewViewController(media: media, client: client, accountID: accountID)
         let navigation = TelegramNavigationController(rootViewController: preview)
         navigation.modalPresentationStyle = .fullScreen
         host.present(navigation, animated: true)
         Self.current = nil
+    }
+}
+
+// MARK: - StoryDraft
+
+/// What a new story shows: a photo already on its canvas, or a video with its first frame and that frame's canvas,
+/// which the preview plays the video over and which gives the export its gradient.
+private enum StoryDraft {
+    case photo(UIImage)
+    case video(URL, firstFrame: UIImage, canvas: UIImage, duration: Double)
+
+    var canvas: UIImage {
+        switch self {
+        case .photo(let image): image
+        case .video(_, _, let canvas, _): canvas
+        }
+    }
+
+    /// postStory's content: the photo as a JPEG, or the video exported for a story.
+    func content() async throws -> TDNativeInputStoryContent {
+        switch self {
+        case .photo(let image):
+            guard let data = image.jpegData(compressionQuality: 0.9) else { throw StoryVideoExport.Failure() }
+            let url = FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent("bettertg-story-\(UUID().uuidString).jpg")
+            try data.write(to: url)
+            return .inputStoryContentPhoto(TDNativeInputStoryContentPhoto(
+                photo: .inputFileLocal(InputFileLocal(path: url.path)),
+                addedStickerFileIds: [],
+            ))
+        case .video(let url, let firstFrame, _, let duration):
+            let (output, hasAudio) = try await StoryVideoExport.export(url, firstFrame: firstFrame, duration: duration)
+            return .inputStoryContentVideo(TDNativeInputStoryContentVideo(
+                video: .inputFileLocal(InputFileLocal(path: output.path)),
+                addedStickerFileIds: [],
+                duration: duration,
+                coverFrameTimestamp: 0,
+                isAnimation: !hasAudio,
+            ))
+        }
+    }
+}
+
+// MARK: - StoryVideoExport
+
+/// MediaEditorVideoExport for a story: MediaEditorValues' 720 by 1280, the video fitted over its first frame's
+/// gradient as the preview shows it, HEVC where the device can encode it and H.264 otherwise, cut to its first
+/// 60 seconds, a streamable MPEG-4. Telegram's bitrate ladder isn't ported: the export session picks the rate.
+private enum StoryVideoExport {
+    struct Failure: Error {}
+
+    static func export(_ source: URL, firstFrame: UIImage, duration: Double) async throws -> (URL, Bool) {
+        let asset = AVURLAsset(url: source)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure() }
+        let hasAudio = try await !asset.loadTracks(withMediaType: .audio).isEmpty
+        let (transform, frameRate, assetDuration) = try await (
+            track.load(.preferredTransform),
+            track.load(.nominalFrameRate),
+            asset.load(.duration),
+        )
+        let renderSize = CGSize(width: 720, height: 1280)
+        let (top, bottom) = StoryComposer.edgeColors(firstFrame)
+        let gradient = CIFilter.linearGradient()
+        gradient.point0 = CGPoint(x: 0, y: renderSize.height)
+        gradient.color0 = CIColor(color: top)
+        gradient.point1 = .zero
+        gradient.color1 = CIColor(color: bottom)
+        let background = (gradient.outputImage ?? CIImage(color: .black))
+            .cropped(to: CGRect(origin: .zero, size: renderSize))
+        var configuration = AVVideoComposition.Configuration()
+        configuration.customVideoCompositorClass = StoryVideoCompositor.self
+        configuration.renderSize = renderSize
+        configuration.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate > 0 ? frameRate.rounded() : 30))
+        configuration.instructions = [StoryVideoInstruction(
+            timeRange: CMTimeRange(start: .zero, duration: assetDuration),
+            trackID: track.trackID,
+            orientation: orientation(transform),
+            background: background,
+        )]
+        let composition = AVVideoComposition(configuration: configuration)
+        let hevc = await AVAssetExportSession.compatibility(
+            ofExportPreset: AVAssetExportPresetHEVCHighestQuality,
+            with: asset,
+            outputFileType: .mp4,
+        )
+        guard let session = AVAssetExportSession(
+            asset: asset,
+            presetName: hevc ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality,
+        ) else { throw Failure() }
+        session.videoComposition = composition
+        session.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+        session.shouldOptimizeForNetworkUse = true
+        let output = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("bettertg-story-\(UUID().uuidString).mp4")
+        try await session.export(to: output, as: .mp4)
+        return (output, hasAudio)
+    }
+
+    /// The stored frame's orientation from the track's preferred transform.
+    private static func orientation(_ transform: CGAffineTransform) -> CGImagePropertyOrientation {
+        switch (transform.a, transform.b, transform.c, transform.d) {
+        case (0, 1, -1, 0): .right
+        case (0, -1, 1, 0): .left
+        case (-1, 0, 0, -1): .down
+        default: .up
+        }
+    }
+}
+
+// MARK: - StoryVideoInstruction
+
+/// The export's one instruction: which track to draw, how its stored frames turn upright, and the gradient under them.
+private final class StoryVideoInstruction: NSObject, AVVideoCompositionInstructionProtocol, @unchecked Sendable {
+    let timeRange: CMTimeRange
+    let enablePostProcessing = false
+    let containsTweening = true
+    let requiredSourceTrackIDs: [NSValue]?
+    let passthroughTrackID = kCMPersistentTrackID_Invalid
+    let trackID: CMPersistentTrackID
+    let orientation: CGImagePropertyOrientation
+    let background: CIImage
+
+    init(
+        timeRange: CMTimeRange,
+        trackID: CMPersistentTrackID,
+        orientation: CGImagePropertyOrientation,
+        background: CIImage,
+    ) {
+        self.timeRange = timeRange
+        self.trackID = trackID
+        self.orientation = orientation
+        self.background = background
+        self.requiredSourceTrackIDs = [NSNumber(value: trackID)]
+    }
+}
+
+// MARK: - StoryVideoCompositor
+
+/// Draws each frame upright and aspect fitted in the middle of the story over the gradient, as MediaEditor's
+/// composer draws a video that doesn't fill 9:16.
+private final class StoryVideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
+    let sourcePixelBufferAttributes: [String: any Sendable]? = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+    ]
+    let requiredPixelBufferAttributesForRenderContext: [String: any Sendable] = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+    ]
+
+    private let context = CIContext()
+
+    func renderContextChanged(_: AVVideoCompositionRenderContext) {}
+
+    func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
+        guard let instruction = request.videoCompositionInstruction as? StoryVideoInstruction,
+              let source = request.sourceFrame(byTrackID: instruction.trackID),
+              let output = request.renderContext.newPixelBuffer()
+        else {
+            request.finish(with: StoryVideoExport.Failure())
+            return
+        }
+        var image = CIImage(cvPixelBuffer: source).oriented(instruction.orientation)
+        let renderSize = request.renderContext.size
+        let extent = image.extent
+        let scale = min(renderSize.width / extent.width, renderSize.height / extent.height)
+        let size = CGSize(width: extent.width * scale, height: extent.height * scale)
+        image = image
+            .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(
+                translationX: (renderSize.width - size.width) / 2,
+                y: (renderSize.height - size.height) / 2,
+            ))
+        context.render(image.composited(over: instruction.background), to: output)
+        request.finish(withComposedVideoFrame: output)
+    }
+}
+
+// MARK: - StoryPlayerView
+
+/// The preview's looping video, aspect fitted like the canvas.
+private final class StoryPlayerView: UIView {
+    override static var layerClass: AnyClass {
+        AVPlayerLayer.self
+    }
+
+    var playerLayer: AVPlayerLayer {
+        unsafeDowncast(layer, to: AVPlayerLayer.self)
     }
 }
 
@@ -142,7 +374,7 @@ import UIKit
 /// MediaEditorScreen's preview: the story on black with 12 pt corners, Close and Next in the bar, and the caption
 /// field over the story's bottom (Add a caption...); Next goes on to Share Story.
 private final class StoryPreviewViewController: UIViewController, UITextViewDelegate {
-    private let image: UIImage
+    private let media: StoryDraft
     private let client: TDLibClient
     private let accountID: UUID?
     private let imageView = UIImageView()
@@ -153,8 +385,13 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
     private var hours = 24
     private var isPremium = false
 
-    init(image: UIImage, client: TDLibClient, accountID: UUID?) {
-        self.image = image
+    /// A video story's player, looping over the part that will be posted.
+    private let playerView = StoryPlayerView()
+    private var player: AVQueuePlayer?
+    private var looper: AVPlayerLooper?
+
+    init(media: StoryDraft, client: TDLibClient, accountID: UUID?) {
+        self.media = media
         self.client = client
         self.accountID = accountID
         super.init(nibName: nil, bundle: nil)
@@ -172,13 +409,28 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
             title: L10n.telegram("Common.Close"),
             primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
         )
-        imageView.image = image
+        imageView.image = media.canvas
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.layer.cornerRadius = 12
         imageView.layer.cornerCurve = .continuous
         imageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(imageView)
+        if case .video(let url, _, _, let duration) = media {
+            let player = AVQueuePlayer()
+            looper = AVPlayerLooper(
+                player: player,
+                templateItem: AVPlayerItem(url: url),
+                timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600)),
+            )
+            playerView.playerLayer.player = player
+            playerView.playerLayer.videoGravity = .resizeAspect
+            playerView.isUserInteractionEnabled = false
+            playerView.frame = imageView.bounds
+            playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            imageView.addSubview(playerView)
+            self.player = player
+        }
 
         captionView.backgroundColor = UIColor.black.withAlphaComponent(0.35)
         captionView.layer.cornerRadius = 18
@@ -242,6 +494,16 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         ])
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        player?.play()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        player?.pause()
+    }
+
     func textViewDidChange(_ textView: UITextView) {
         placeholder.isHidden = !textView.text.isEmpty
     }
@@ -293,7 +555,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
 
     private func next() {
         captionView.resignFirstResponder()
-        let share = StoryShareViewController(image: image, caption: captionView.text ?? "", hours: hours)
+        let share = StoryShareViewController(media: media, caption: captionView.text ?? "", hours: hours)
         navigationController?.pushViewController(share, animated: true)
     }
 }
@@ -311,7 +573,7 @@ private final class StoryShareViewController: SettingsListViewController {
         case selected
     }
 
-    private let image: UIImage
+    private let media: StoryDraft
     private let caption: String
     private let hours: Int
     private var audience = Audience.everyone
@@ -338,8 +600,8 @@ private final class StoryShareViewController: SettingsListViewController {
         }
     }
 
-    init(image: UIImage, caption: String, hours: Int) {
-        self.image = image
+    init(media: StoryDraft, caption: String, hours: Int) {
+        self.media = media
         self.caption = caption
         self.hours = hours
         super.init()
@@ -486,15 +748,9 @@ private final class StoryShareViewController: SettingsListViewController {
         }
     }
 
-    /// The canvas as a JPEG for postStory from the account's Saved Messages, active for a day.
+    /// The story for postStory from the account's Saved Messages, active for the chosen hours.
     private func post() {
-        guard !isPosting, contextIsCurrent, let ownID = TDLib.shared.activeAccount?.userID,
-              let data = image.jpegData(compressionQuality: 0.9)
-        else { return }
-        let url = FileManager.default
-            .temporaryDirectory
-            .appendingPathComponent("bettertg-story-\(UUID().uuidString).jpg")
-        guard (try? data.write(to: url)) != nil else { return }
+        guard !isPosting, contextIsCurrent, let ownID = TDLib.shared.activeAccount?.userID else { return }
         isPosting = true
         reload()
         let client = client
@@ -503,14 +759,13 @@ private final class StoryShareViewController: SettingsListViewController {
         let keepsOnPage = keepsOnPage
         let allowsScreenshots = allowsScreenshots
         let activePeriod = hours * 3600
+        let media = media
         Task { [weak self] in
             do {
+                let content = try await media.content()
                 _ = try await client.send(TDNativeRequests.postStory(
                     chatId: ownID,
-                    content: .inputStoryContentPhoto(TDNativeInputStoryContentPhoto(
-                        photo: .inputFileLocal(InputFileLocal(path: url.path)),
-                        addedStickerFileIds: [],
-                    )),
+                    content: content,
                     areas: nil,
                     caption: caption.isEmpty ? nil : FormattedText(entities: [], text: caption),
                     privacySettings: privacy,
