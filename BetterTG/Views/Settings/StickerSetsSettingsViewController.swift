@@ -145,7 +145,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
             }
         let mode = mode
         let accountID = accountID
-        updatesCancellable = NotificationCenter.default
+        updatesCancellable = nc
             .publisher(for: .updateInstalledStickerSets)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in

@@ -4816,7 +4816,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .removeDuplicates()
             .sink { [weak self] messageID in self?.pollAddOptionFocusChanged(messageID) }
             .store(in: &cancellables)
-        NotificationCenter.default
+        nc
             .publisher(for: .updateConnectionState)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in

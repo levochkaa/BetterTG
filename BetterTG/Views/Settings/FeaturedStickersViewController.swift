@@ -109,7 +109,7 @@ UISearchBarDelegate {
         ])
         load()
         let accountID = accountID
-        updatesCancellable = NotificationCenter.default
+        updatesCancellable = nc
             .publisher(for: .updateInstalledStickerSets)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in
