@@ -664,6 +664,7 @@
 "Login.WaitingForAuthorization" = "Waiting for authorization";
 "Accessibility.NextUnreadMention" = "Next mention";
 "Accessibility.NextUnreadReaction" = "Next reaction";
+"Accessibility.NextUnreadPollVote" = "Next unread poll vote";
 "Accessibility.SearchOlderResult" = "Previous result";
 "Accessibility.SearchNewerResult" = "Next result";
 "Story.Unsupported" = "This story can't be shown in BetterTG.";

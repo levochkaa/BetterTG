@@ -663,6 +663,7 @@
 "Login.WaitingForAuthorization" = "Ожидание авторизации";
 "Accessibility.NextUnreadMention" = "Следующее упоминание";
 "Accessibility.NextUnreadReaction" = "Следующая реакция";
+"Accessibility.NextUnreadPollVote" = "Следующий непрочитанный голос в опросе";
 "Accessibility.SearchOlderResult" = "Предыдущий результат";
 "Accessibility.SearchNewerResult" = "Следующий результат";
 "Story.Unsupported" = "Эту историю нельзя показать в BetterTG.";

@@ -360,6 +360,8 @@ import UIKit
     /// counts from its `ForumTopic`, and TDLib keeps no count for a reply thread.
     @Published var chatUnreadMentionCount = 0
     @Published var chatUnreadReactionCount = 0
+    /// Telegram 13's poll votes button: the chat's polls with votes the account hasn't seen.
+    @Published var chatUnreadPollVoteCount = 0
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
     /// A Saved Messages sublist route's topic, kept by `updateSavedMessagesTopic`, and how many messages it holds.
     @Published private(set) var savedMessagesTopic: SavedMessagesTopic?

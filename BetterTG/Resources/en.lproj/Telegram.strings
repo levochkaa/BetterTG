@@ -4274,3 +4274,4 @@
 "AuthConfirmation.Emoji.Description" = "Telegram wants to make sure it's really you.";
 "AuthConfirmation.Emoji.DescriptionFirst" = "Telegram wants to make sure it's really you trying to log in to **%@**.";
 "AuthConfirmation.UnverifiedApp" = "Unverified App";
+"Conversation.ReadAllPollVotes" = "Read All Poll Votes";

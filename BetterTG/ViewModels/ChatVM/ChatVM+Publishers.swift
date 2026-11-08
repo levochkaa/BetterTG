@@ -37,6 +37,7 @@ extension ChatVM {
         }
         chatUnreadMentionCount = customChat.chat.unreadMentionCount
         chatUnreadReactionCount = customChat.chat.unreadReactionCount
+        chatUnreadPollVoteCount = customChat.chat.unreadPollVoteCount
         hasScheduledMessages = customChat.chat.hasScheduledMessages
         messageAutoDeleteTime = customChat.chat.messageAutoDeleteTime
         messageSenderID = customChat.chat.messageSenderId
@@ -68,6 +69,14 @@ extension ChatVM {
         observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             chatUnreadReactionCount = update.unreadReactionCount
+        }
+        observeCurrentUpdate(.updateChatUnreadPollVoteCount) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadPollVoteCount = update.unreadPollVoteCount
+        }
+        observeCurrentUpdate(.updateMessageContainsUnreadPollVotes) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadPollVoteCount = update.unreadPollVoteCount
         }
         observeCurrentUpdate(.updateNewMessage) { [weak self] update, authority in
             guard let self,
