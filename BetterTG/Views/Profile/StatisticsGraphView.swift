@@ -170,7 +170,19 @@ private final class StatisticsPlotView: UIView {
     let data: StatisticsChartData
     let kind: StatisticsGraphKind
     let isPreview: Bool
-    var visible: [Bool] { didSet { setNeedsDisplay() } }
+    /// The shown series; a change in a window fades or shrinks the series over AnimationController's 0.25 s.
+    var visible: [Bool] {
+        didSet {
+            let current = data.series.indices.map(factor)
+            let target = visible.map { $0 ? 1.0 : 0.0 }
+            factorAnimation = window == nil ? nil : (current, target, CACurrentMediaTime())
+            if window == nil {
+                factors = target
+            }
+            setNeedsDisplay()
+        }
+    }
+
     var range: ClosedRange<Double> { didSet { setNeedsDisplay() } }
     /// The point the details show: its line and bullets, or its bar at full colour with the rest dimmed.
     var selectedIndex: Int? { didSet { setNeedsDisplay() } }
@@ -181,6 +193,20 @@ private final class StatisticsPlotView: UIView {
 
     /// LineBulletsRenderer's bullets for the selected point, gathered while the series draw.
     private var bullets = [(CGPoint, UIColor)]()
+
+    // MARK: Animation
+
+    /// Each series' shown fraction: a line's alpha, a step's, bar's or segment's height.
+    private var factors: [Double]
+    private var factorAnimation: (from: [Double], to: [Double], start: CFTimeInterval)?
+    /// The vertical ranges as they move to new targets, by axis.
+    private var rangeAnimations = [String: (
+        from: ClosedRange<Double>,
+        to: ClosedRange<Double>,
+        start: CFTimeInterval,
+    )]()
+    private var needsAnimationFrame = false
+    private var displayLink: CADisplayLink?
 
     private var ignoresTouch = false
     private let feedback = UISelectionFeedbackGenerator()
@@ -226,7 +252,7 @@ private final class StatisticsPlotView: UIView {
     private var pieValues: [Double] {
         let indices = data.x.indices.filter { data.x[$0] > range.lowerBound + 1 && data.x[$0] <= range.upperBound }
         return data.series.enumerated().map { index, line in
-            visible[index] ? indices.reduce(0) { $0 + line.values[$1] } : 0
+            indices.reduce(0) { $0 + line.values[$1] } * factor(index)
         }
     }
 
@@ -236,6 +262,7 @@ private final class StatisticsPlotView: UIView {
         self.range = range
         self.isPreview = isPreview
         self.visible = data.series.map { _ in true }
+        self.factors = data.series.map { _ in 1 }
         super.init(frame: .zero)
         isOpaque = false
         backgroundColor = .clear
@@ -254,11 +281,13 @@ private final class StatisticsPlotView: UIView {
               range.upperBound > range.lowerBound
         else { return }
         bullets = []
+        needsAnimationFrame = false
+        defer { scheduleAnimationFrame() }
         switch kind {
         case .lines:
             drawLines(context)
         case .hourlyStep:
-            drawSteps(context, series: visibleSeries, axis: .left(nil))
+            drawSteps(context, series: Array(data.series.indices), axis: .left(nil), key: "steps")
         case .twoAxisStep:
             drawTwoAxisSteps(context)
         case .bars:
@@ -365,6 +394,71 @@ private final class StatisticsPlotView: UIView {
             return
         }
         showDetails(selectedIndex)
+    }
+
+    /// TimeFunction.easeInOut over defaultDuration, 0.25 s.
+    private func progress(since start: CFTimeInterval) -> Double {
+        let x = min(1, (CACurrentMediaTime() - start) / 0.25)
+        if x < 1 {
+            needsAnimationFrame = true
+        }
+        if x < 0.5 {
+            return 4 * x * x * x
+        }
+        let f = 2 * x - 2
+        return 0.5 * f * f * f + 1
+    }
+
+    private func factor(_ index: Int) -> Double {
+        guard let animation = factorAnimation else { return factors[index] }
+        let p = progress(since: animation.start)
+        let value = animation.from[index] + (animation.to[index] - animation.from[index]) * p
+        if p >= 1 {
+            factors = animation.to
+            factorAnimation = nil
+        }
+        return value
+    }
+
+    /// updateVerticalLimitsAndRange(animated: true): the range eases from where it stands to a new target.
+    private func animatedRange(_ key: String, _ target: ClosedRange<Double>) -> ClosedRange<Double> {
+        guard window != nil, var animation = rangeAnimations[key] else {
+            rangeAnimations[key] = (target, target, 0)
+            return target
+        }
+        if animation.to != target {
+            animation = (interpolated(animation), target, CACurrentMediaTime())
+            rangeAnimations[key] = animation
+        }
+        return interpolated(animation)
+    }
+
+    private func interpolated(
+        _ animation: (from: ClosedRange<Double>, to: ClosedRange<Double>, start: CFTimeInterval),
+    ) -> ClosedRange<Double> {
+        guard animation.from != animation.to else { return animation.to }
+        let p = progress(since: animation.start)
+        let lower = animation.from.lowerBound + (animation.to.lowerBound - animation.from.lowerBound) * p
+        let upper = animation.from.upperBound + (animation.to.upperBound - animation.from.upperBound) * p
+        return lower...max(lower, upper)
+    }
+
+    private func scheduleAnimationFrame() {
+        guard needsAnimationFrame else { return }
+        if displayLink == nil {
+            let link = CADisplayLink(target: self, selector: #selector(animationFrame))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+    }
+
+    @objc private func animationFrame() {
+        if needsAnimationFrame {
+            setNeedsDisplay()
+        } else {
+            displayLink?.invalidate()
+            displayLink = nil
+        }
     }
 
     /// VerticalLinesRenderer's line through the selected point and LineBulletsRenderer's bullets on it, over the
@@ -577,6 +671,7 @@ private final class StatisticsPlotView: UIView {
         if !isPreview {
             (vertical, labels) = verticalLabels(for: vertical)
         }
+        vertical = animatedRange("lines", vertical)
         // VerticalScalesRenderer draws over the chart.
         defer {
             if !isPreview {
@@ -586,8 +681,11 @@ private final class StatisticsPlotView: UIView {
         context.setLineWidth(isPreview ? 1 : 2)
         context.setLineJoin(.round)
         context.setLineCap(.round)
-        for line in series {
-            context.setStrokeColor(line.color.cgColor)
+        // LinesChartRenderer: a series fades as it hides.
+        for (seriesIndex, line) in data.series.enumerated() {
+            let alpha = factor(seriesIndex)
+            guard alpha > 0 else { continue }
+            context.setStrokeColor(line.color.withAlphaComponent(alpha).cgColor)
             context.beginPath()
             for (index, value) in line.values.enumerated() {
                 let point = CGPoint(x: xPosition(data.x[index]), y: yPosition(value, in: vertical))
@@ -598,7 +696,7 @@ private final class StatisticsPlotView: UIView {
                 }
             }
             context.strokePath()
-            if !isPreview, let selectedIndex {
+            if !isPreview, let selectedIndex, visible[seriesIndex] {
                 let point = CGPoint(
                     x: xPosition(data.x[selectedIndex]),
                     y: yPosition(line.values[selectedIndex], in: vertical),
@@ -613,32 +711,38 @@ private final class StatisticsPlotView: UIView {
     /// BarChartRenderer(step: true): each series as a line along its bars' tops.
     private func drawSteps(
         _ context: CGContext,
-        series: [StatisticsChartData.Series],
+        series: [Int],
         axis: Axis,
+        key: String,
     ) {
-        guard !series.isEmpty else { return }
         // The step before the visible ones shows in the margin, so the scale counts it too.
         let indices = isPreview
             ? 0...data.x.count - 1
             : max(0, visibleIndices.lowerBound - 1)...visibleIndices.upperBound
-        let maximum = series.flatMap { $0.values[indices] }.max() ?? 0
+        let shown = series.filter { visible[$0] }
+        let maximum = shown.flatMap { data.series[$0].values[indices] }.max() ?? 0
         var vertical = 0...(maximum > 0 ? maximum : 1)
         var labels = [(Double, String)]()
         if !isPreview {
             (vertical, labels) = verticalLabels(for: vertical)
         }
-        // VerticalScalesRenderer draws over the chart.
+        vertical = animatedRange(key, vertical)
+        // VerticalScalesRenderer draws over the chart; a hidden series' axis goes with it.
         defer {
-            if !isPreview {
+            if !isPreview, !shown.isEmpty {
                 drawVerticalScale(labels, range: vertical, axis: axis)
             }
         }
         context.setLineWidth(isPreview ? 1 : 2)
         context.setLineJoin(.miter)
-        for line in series.reversed() {
+        // componentsAnimators: a hiding series' steps sink to zero.
+        for seriesIndex in series.reversed() {
+            let line = data.series[seriesIndex]
+            let scale = factor(seriesIndex)
+            guard scale > 0 else { continue }
             var points = [CGPoint]()
             for (index, value) in line.values.enumerated() {
-                let y = yPosition(value, in: vertical)
+                let y = yPosition(value * scale, in: vertical)
                 points.append(CGPoint(x: xPosition(data.x[index] - data.step), y: y))
                 points.append(CGPoint(x: xPosition(data.x[index]), y: y))
             }
@@ -646,7 +750,7 @@ private final class StatisticsPlotView: UIView {
             context.beginPath()
             context.addLines(between: points)
             context.strokePath()
-            if !isPreview, let selectedIndex {
+            if !isPreview, let selectedIndex, visible[seriesIndex] {
                 let point = CGPoint(
                     x: xPosition(data.x[selectedIndex]),
                     y: yPosition(line.values[selectedIndex], in: vertical),
@@ -660,9 +764,9 @@ private final class StatisticsPlotView: UIView {
     /// values in its series' colour. The lines follow the left axis, or the right one while the first series is
     /// hidden.
     private func drawTwoAxisSteps(_ context: CGContext) {
-        for (index, line) in data.series.enumerated() where visible[index] {
+        for (index, line) in data.series.enumerated() {
             let axis: Axis = index == 0 || !visible[0] ? .left(line.color) : .right(line.color)
-            drawSteps(context, series: [line], axis: axis)
+            drawSteps(context, series: [index], axis: axis, key: "steps-\(index)")
         }
     }
 
@@ -670,17 +774,21 @@ private final class StatisticsPlotView: UIView {
 
     /// BarChartRenderer: the visible series stacked in each bar.
     private func drawBars(_ context: CGContext) {
-        let series = visibleSeries
-        guard !series.isEmpty else { return }
+        let shown = visibleSeries
+        guard !shown.isEmpty else { return }
         // The bar before the visible ones shows in the margin, so the scale counts it too.
         let indices = isPreview ? 0...data.x.count - 1 : visibleIndices
         let drawn = isPreview ? indices : max(0, indices.lowerBound - 1)...indices.upperBound
-        let maximum = drawn.map { index in series.reduce(0) { $0 + $1.values[index] } }.max() ?? 0
+        let maximum = drawn.map { index in shown.reduce(0) { $0 + $1.values[index] } }.max() ?? 0
         var vertical = 0...(maximum > 0 ? maximum : 1)
         var labels = [(Double, String)]()
         if !isPreview {
             (vertical, labels) = verticalLabels(for: vertical)
         }
+        vertical = animatedRange("bars", vertical)
+        // componentsAnimators: a hiding series' parts shrink out of each bar.
+        let scales = data.series.indices.map(factor)
+        let series = data.series
         // VerticalScalesRenderer draws over the chart.
         defer {
             if !isPreview {
@@ -693,9 +801,9 @@ private final class StatisticsPlotView: UIView {
             let left = xPosition(data.x[index] - data.step)
             let right = xPosition(data.x[index])
             var stacked = 0.0
-            for (component, line) in series.enumerated() {
+            for (component, line) in series.enumerated() where scales[component] > 0 {
                 let bottom = yPosition(stacked, in: vertical)
-                stacked += line.values[index]
+                stacked += line.values[index] * scales[component]
                 let top = yPosition(stacked, in: vertical)
                 let rect = CGRect(x: left, y: top, width: right - left, height: bottom - top)
                 if !isPreview, index == selectedIndex {
@@ -787,13 +895,14 @@ private final class StatisticsPlotView: UIView {
 
     /// PercentChartRenderer: each day's shares stacked to the full height.
     private func drawPercentArea(_ context: CGContext) {
-        let series = visibleSeries
-        guard !series.isEmpty else { return }
-        let totals = data.x.indices.map { index in series.reduce(0) { $0 + $1.values[index] } }
+        let scales = data.series.indices.map(factor)
+        let totals = data.x.indices.map { index in
+            data.series.indices.reduce(0) { $0 + data.series[$1].values[index] * scales[$1] }
+        }
         var below = data.x.map { _ in 0.0 }
-        for line in series {
+        for (seriesIndex, line) in data.series.enumerated() where scales[seriesIndex] > 0 {
             let above = data.x.indices.map { index in
-                below[index] + (totals[index] > 0 ? line.values[index] / totals[index] : 0)
+                below[index] + (totals[index] > 0 ? line.values[index] * scales[seriesIndex] / totals[index] : 0)
             }
             context.beginPath()
             for index in data.x.indices {
