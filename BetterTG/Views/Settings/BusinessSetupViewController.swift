@@ -331,6 +331,7 @@ final class BusinessIntroViewController: SettingsListViewController {
     /// The intro's sticker; without one the chat shows a random greeting sticker.
     private var sticker: Sticker?
     private let hadIntro: Bool
+    private let preview = BusinessIntroPreviewView()
 
     /// BusinessIntroSetupScreen's Choose Sticker: the chosen sticker, or Random.
     private var stickerRow: SettingsRow {
@@ -371,6 +372,7 @@ final class BusinessIntroViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Business.Intro.Title")
+        updatePreview()
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Done"),
             primaryAction: UIAction { [weak self] _ in self?.save() },
@@ -386,13 +388,19 @@ final class BusinessIntroViewController: SettingsListViewController {
                     text: titleText,
                     placeholder: L10n.telegram("Business.Intro.IntroTitlePlaceholder"),
                     maxLength: 32,
-                ) { [weak self] text in self?.titleText = text })),
+                ) { [weak self] text in
+                    self?.titleText = text
+                    self?.updatePreview()
+                })),
                 SettingsRow(title: "", style: .input(SettingsTextInput(
                     text: message,
                     placeholder: L10n.telegram("Business.Intro.IntroTextPlaceholder"),
                     maxLength: 70,
                     isMultiline: true,
-                ) { [weak self] text in self?.message = text })),
+                ) { [weak self] text in
+                    self?.message = text
+                    self?.updatePreview()
+                })),
                 stickerRow,
             ],
         )]
@@ -410,11 +418,38 @@ final class BusinessIntroViewController: SettingsListViewController {
         return sections
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if preview.frame.width != tableView.bounds.width { updatePreview() }
+    }
+
+    /// BusinessIntroSetupScreen's preview: the empty chat's greeting as customers will see it, Telegram's defaults
+    /// standing in for empty fields.
+    private func updatePreview() {
+        let title = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        preview.configure(
+            title: title.isEmpty ? L10n.telegram("Conversation.EmptyPlaceholder") : title,
+            message: message.isEmpty ? L10n.telegram("Conversation.GreetingText") : message,
+            sticker: sticker,
+            client: client,
+        )
+        let width = tableView.bounds.width > 0 ? tableView.bounds.width : view.bounds.width
+        let size = preview.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel,
+        )
+        preview.frame = CGRect(x: 0, y: 0, width: width, height: size.height)
+        tableView.tableHeaderView = preview
+    }
+
     private func chooseSticker() {
         let picker = BusinessStickerPickerViewController(client: client)
         picker.onSelect = { [weak self] sticker in
             self?.sticker = sticker
             self?.reload()
+            self?.updatePreview()
             self?.navigationController?.popViewController(animated: true)
         }
         navigationController?.pushViewController(picker, animated: true)
@@ -777,6 +812,84 @@ private final class BusinessLocationMapCell: UITableViewCell {
         pin.coordinate = center
         mapView.removeAnnotations(mapView.annotations)
         mapView.addAnnotation(pin)
+    }
+}
+
+// MARK: - BusinessIntroPreviewView
+
+/// BusinessIntroSetupScreen's preview of ChatEmptyNode's greeting: a card with the title, the message and the sticker
+/// over a soft backdrop that stands in for the chat's wallpaper.
+private final class BusinessIntroPreviewView: UIView {
+    private let backdrop = UIView()
+    private let card = UIView()
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+    private let stickerView = CustomEmojiInlineView()
+    private var stickerID: Int?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backdrop.backgroundColor = UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(red: 0.11, green: 0.14, blue: 0.2, alpha: 1)
+            : UIColor(red: 0.82, green: 0.89, blue: 0.82, alpha: 1)
+        }
+        backdrop.layer.cornerRadius = 26
+        backdrop.layer.cornerCurve = .continuous
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backdrop)
+        card.backgroundColor = UIColor.black.withAlphaComponent(0.25)
+        card.layer.cornerRadius = 20
+        card.layer.cornerCurve = .continuous
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        messageLabel.font = .systemFont(ofSize: 14)
+        messageLabel.textColor = .white
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, stickerView])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 6
+        stack.setCustomSpacing(12, after: messageLabel)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+        backdrop.addSubview(card)
+        NSLayoutConstraint.activate([
+            // Keeps to the band the sections keep to, clear of a side column.
+            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            backdrop.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            card.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: 24),
+            card.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -24),
+            card.centerXAnchor.constraint(equalTo: backdrop.centerXAnchor),
+            card.widthAnchor.constraint(equalToConstant: 230),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+            stickerView.widthAnchor.constraint(equalToConstant: 120),
+            stickerView.heightAnchor.constraint(equalToConstant: 120),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(title: String, message: String, sticker: Sticker?, client: TDLibClient) {
+        titleLabel.text = title
+        messageLabel.text = message
+        stickerView.isHidden = sticker == nil
+        if let sticker, sticker.sticker.id != stickerID {
+            stickerID = sticker.sticker.id
+            stickerView.configure(sticker: sticker, client: client)
+        } else if sticker == nil {
+            stickerID = nil
+        }
     }
 }
 
