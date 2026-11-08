@@ -273,6 +273,14 @@ final class CreateGroupViewController: SettingsListViewController, ComposeFlowSc
                 photoHeader.setEnabled(true)
                 updateCreateButton()
                 guard contextIsCurrent else { return }
+                // `.tooMuchJoined`: OldChannelsController's create intent, to leave inactive chats first.
+                if (error as? TDLibError)?.message.contains("CHANNELS_TOO_MUCH") == true {
+                    present(
+                        UINavigationController(rootViewController: OldChannelsViewController(intent: .create)),
+                        animated: true,
+                    )
+                    return
+                }
                 presentAlert(title: nil, message: Self.failureText(error))
             }
         }
