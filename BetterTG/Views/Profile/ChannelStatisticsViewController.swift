@@ -26,6 +26,19 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         let chat: Chat
     }
 
+    /// StatsPostItem: a recent post, a message or a story.
+    private enum RecentPost {
+        case message(Message)
+        case story(Story)
+
+        var date: Int {
+            switch self {
+            case .message(let message): message.date
+            case .story(let story): story.date
+            }
+        }
+    }
+
     /// A post's views, shares and reactions (chatStatisticsInteractionInfo).
     private struct PostInteractions {
         let views: Int
@@ -77,6 +90,8 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private let chat: Chat
     /// The post whose statistics show, or nil for the channel's.
     private let message: Message?
+    /// The story whose statistics show (MessageStatsController's story subject).
+    private let story: Story?
     private var statistics: TDNativeChatStatisticsChannel?
     private var messageLoaded = false
     /// getMessagePublicForwards: the total and the channels' messages.
@@ -96,7 +111,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     /// The entry each graph section shows.
     private var graphSections = [Int: Int]()
     /// RECENT POSTS: the channel's recent messages with their interactions, newest first.
-    private var posts = [(Message, PostInteractions)]()
+    private var posts = [(RecentPost, PostInteractions)]()
     private var postsSection: Int?
 
     private var groupStatistics: TDNativeChatStatisticsSupergroup?
@@ -113,7 +128,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         if isPoll {
             [GraphEntry(title: "PollStats.GraphHeader", kind: .lines)]
         } else {
-            if message != nil {
+            if message != nil || story != nil {
                 Self.messageGraphEntries
             } else if isGroup {
                 Self.groupGraphEntries
@@ -139,6 +154,15 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     init(chat: Chat, client _: TDLibClient) {
         self.chat = chat
         self.message = nil
+        self.story = nil
+        super.init()
+    }
+
+    /// A channel story's statistics: Story Statistics.
+    init(story: Story, chat: Chat) {
+        self.chat = chat
+        self.message = nil
+        self.story = story
         super.init()
     }
 
@@ -146,6 +170,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     init(message: Message, chat: Chat) {
         self.chat = chat
         self.message = message
+        self.story = nil
         super.init()
     }
 
@@ -153,6 +178,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     init(pollMessage message: Message, chat: Chat) {
         self.chat = chat
         self.message = message
+        self.story = nil
         self.isPoll = true
         super.init()
     }
@@ -170,6 +196,11 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
             )
             loadPoll()
+            return
+        }
+        if story != nil {
+            title = L10n.telegram("Stats.StoryTitle")
+            loadStory()
             return
         }
         title = L10n.telegram(message == nil ? "ChannelInfo.Stats" : "Stats.MessageTitle")
@@ -195,6 +226,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
         if let message {
             return messageSections(message)
+        }
+        if let story {
+            return storySections(story)
         }
         if isGroup {
             return groupSections()
@@ -233,15 +267,37 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             return cell
         }
         if indexPath.section == postsSection, posts.indices.contains(indexPath.row) {
-            let (message, interaction) = posts[indexPath.row]
+            let (post, interaction) = posts[indexPath.row]
             let cell = StatisticsPostCell()
-            cell.configure(
-                message: message,
-                views: interaction.views,
-                forwards: interaction.forwards,
-                reactions: interaction.reactions,
-                client: client,
-            )
+            switch post {
+            case .message(let message):
+                cell.configure(
+                    message: message,
+                    views: interaction.views,
+                    forwards: interaction.forwards,
+                    reactions: interaction.reactions,
+                    client: client,
+                )
+            case .story(let story):
+                cell.configure(
+                    story: story,
+                    views: interaction.views,
+                    forwards: interaction.forwards,
+                    reactions: interaction.reactions,
+                    client: client,
+                )
+                // StatsMessageItem's storyButton: the story's circle opens the story itself.
+                cell.onStory = { [weak self, weak cell] in
+                    guard let self, let cell else { return }
+                    StoryViewerController.present(
+                        .story(chatID: story.posterChatId, storyID: story.id),
+                        client: client,
+                        from: self,
+                        sourceView: cell.storySourceView,
+                        sourceIsAvatar: true,
+                    )
+                }
+            }
             return cell
         }
         guard let index = graphSections[indexPath.section], let graphView = graphView(index) else {
@@ -282,7 +338,11 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             return
         }
         tableView.deselectRow(at: indexPath, animated: true)
-        let controller = ChannelStatisticsViewController(message: posts[indexPath.row].0, chat: chat)
+        let controller =
+            switch posts[indexPath.row].0 {
+            case .message(let message): ChannelStatisticsViewController(message: message, chat: chat)
+            case .story(let story): ChannelStatisticsViewController(story: story, chat: chat)
+            }
         navigationController?.pushViewController(controller, animated: true)
     }
 
@@ -347,6 +407,28 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             shares.append(PublicShare(message: item.message, chat: chat))
         }
         return (page.totalCount, shares, page.nextOffset)
+    }
+
+    private static func storyPublicShares(
+        chatID: Int64,
+        storyID: Int,
+        offset: String,
+        client: TDLibClient,
+    ) async -> (totalCount: Int, shares: [PublicShare])? {
+        guard let page = try? await client.send(TDNativeRequests.getStoryPublicForwards(
+            storyPosterChatId: chatID,
+            storyId: storyID,
+            offset: offset,
+            limit: 50,
+        )) else { return nil }
+        var shares = [PublicShare]()
+        for forward in page.forwards {
+            guard case .publicForwardMessage(let item) = forward,
+                  let chat = try? await client.getChat(chatId: item.message.chatId)
+            else { continue }
+            shares.append(PublicShare(message: item.message, chat: chat))
+        }
+        return (page.totalCount, shares)
     }
 
     private func loadPoll() {
@@ -475,13 +557,16 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     /// ChannelStatsContext's messages for recentInteractions; stories aren't listed yet.
     private func loadPosts(_ interactions: [TDNativeChatStatisticsInteractionInfo]) {
         var byMessage = [Int64: PostInteractions]()
+        var byStory = [Int: PostInteractions]()
         for interaction in interactions {
-            if case .chatStatisticsObjectTypeMessage(let object) = interaction.objectType {
-                byMessage[object.messageId] = PostInteractions(
-                    views: interaction.viewCount,
-                    forwards: interaction.forwardCount,
-                    reactions: interaction.reactionCount,
-                )
+            let counts = PostInteractions(
+                views: interaction.viewCount,
+                forwards: interaction.forwardCount,
+                reactions: interaction.reactionCount,
+            )
+            switch interaction.objectType {
+            case .chatStatisticsObjectTypeMessage(let object): byMessage[object.messageId] = counts
+            case .chatStatisticsObjectTypeStory(let object): byStory[object.storyId] = counts
             }
         }
         let client = client
@@ -508,16 +593,46 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                     }
                 }
             #endif
-            guard !byMessage.isEmpty else { return }
-            let result = try? await client.send(TDNativeRequests.getMessages(
+            var storyPosts = [(RecentPost, PostInteractions)]()
+            var storyChatID = chatID
+            #if DEBUG
+                // `-ui-probe-stats-stories`: the account's own active stories stand in for the channel's, with
+                // made-up counters, so the story rows can be checked on a channel without stories.
+                if byStory.isEmpty, ProcessInfo.processInfo.arguments.contains("-ui-probe-stats-stories"),
+                   let ownID = TDLib.shared.activeAccount?.userID,
+                   let active = try? await client.send(TDNativeRequests.getChatActiveStories(chatId: ownID))
+                {
+                    storyChatID = ownID
+                    for (index, item) in active.stories.enumerated() {
+                        byStory[item.storyId] = PostInteractions(
+                            views: [34, 1200][index % 2],
+                            forwards: [2, 0][index % 2],
+                            reactions: [5, 48][index % 2],
+                        )
+                    }
+                }
+            #endif
+            for (storyID, counts) in byStory {
+                if let item = try? await client.send(TDNativeRequests.getStory(
+                    storyPosterChatId: storyChatID,
+                    storyId: storyID,
+                    onlyLocal: false,
+                )) {
+                    storyPosts.append((.story(item), counts))
+                }
+            }
+            var messagePosts = [(RecentPost, PostInteractions)]()
+            if !byMessage.isEmpty, let result = try? await client.send(TDNativeRequests.getMessages(
                 chatId: chatID,
                 messageIds: Array(byMessage.keys),
-            ))
-            guard let self, contextIsCurrent, let result else { return }
-            posts = result.messages
-                .compactMap(\.self)
-                .compactMap { message in byMessage[message.id].map { (message, $0) } }
-                .sorted { $0.0.date > $1.0.date }
+            )) {
+                messagePosts = result.messages
+                    .compactMap(\.self)
+                    .compactMap { message in byMessage[message.id].map { (.message(message), $0) } }
+            }
+            guard let self, contextIsCurrent, !(messagePosts.isEmpty && storyPosts.isEmpty) else { return }
+            // ChannelStatsContext's posts and stories, newest first.
+            posts = (messagePosts + storyPosts).sorted { $0.0.date > $1.0.date }
             reload()
         }
     }
@@ -568,6 +683,90 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             publicSharesOffset = page.nextOffset
             reload()
         }
+    }
+
+    /// MessageStatsController for a story: getStoryStatistics' interactions and reactions, and the public shares
+    /// (getStoryPublicForwards).
+    private func loadStory() {
+        guard let story else { return }
+        let client = client
+        let chatID = chat.id
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        Task { [weak self] in
+            async let statistics = try? client.send(TDNativeRequests.getStoryStatistics(
+                chatId: chatID,
+                storyId: story.id,
+                isDark: isDark,
+            ))
+            async let forwards = Self.storyPublicShares(
+                chatID: chatID,
+                storyID: story.id,
+                offset: "",
+                client: client,
+            )
+            let (result, shares) = await (statistics, forwards)
+            guard let self, contextIsCurrent else { return }
+            if let result {
+                messageLoaded = true
+                setGraph(result.storyInteractionGraph, at: 0)
+                setGraph(result.storyReactionGraph, at: 1)
+                publicShareCount = shares?.totalCount
+                publicShares = shares?.shares ?? []
+                publicSharesOffset = ""
+            } else {
+                failed = true
+            }
+            reload()
+        }
+    }
+
+    /// The story's OVERVIEW as StatsOverviewItem shows it with the story's views: Views, Public Shares, Reactions and
+    /// Private Shares, then its graphs and the public shares.
+    private func storySections(_ story: Story) -> [SettingsSection] {
+        guard messageLoaded else {
+            return [SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram(failed ? "Login.UnknownError" : "Stats.LoadingTitle"),
+                style: .status(.secondaryLabel),
+                accessory: failed ? .none : .activity,
+            )])]
+        }
+        let info = story.interactionInfo
+        let forwards = info?.forwardCount ?? 0
+        let item: (String, String) -> StatisticsOverviewCell.Item = { value, key in
+            StatisticsOverviewCell.Item(value: value, title: L10n.telegram(key), delta: nil)
+        }
+        overviewItems = [
+            item(Self.compact(Double(info?.viewCount ?? 0)), "Stats.Message.Views"),
+            item(publicShareCount.map { Self.compact(Double($0)) } ?? "–", "Stats.Message.PublicShares"),
+            item(Self.compact(Double(info?.reactionCount ?? 0)), "Stats.Message.Reactions"),
+            item(
+                publicShareCount.map { "~" + Self.compact(Double(max(0, forwards - $0))) } ?? "–",
+                "Stats.Message.PrivateShares",
+            ),
+        ]
+        var sections = [SettingsSection(
+            header: L10n.telegram("Stats.MessageOverview").uppercased(),
+            rows: [SettingsRow(title: "")],
+        )]
+        appendGraphSections(to: &sections)
+        publicSharesSection = nil
+        if !publicShares.isEmpty {
+            publicSharesSection = sections.count
+            sections.append(SettingsSection(
+                header: L10n.telegram("Stats.MessagePublicForwardsTitle").uppercased(),
+                rows: publicShares.map { share in
+                    let views = share.message.interactionInfo?.viewCount ?? 0
+                    return SettingsRow(
+                        title: share.chat.title,
+                        detail: views == 0
+                            ? L10n.telegram("Stats.MessageViews.NoViews")
+                            : L10n.telegramPlural("Stats.MessageViews", count: views),
+                        style: .peer(SettingsPeer(chat: share.chat)),
+                    ) { [weak self] in self?.openPublicShare(share) }
+                },
+            ))
+        }
+        return sections
     }
 
     private func loadMessage() {
@@ -1000,6 +1199,9 @@ private final class StatisticsPostCell: UITableViewCell {
     private static let titleFont = UIFont.systemFont(ofSize: 17, weight: .semibold)
     private static let labelFont = UIFont.systemFont(ofSize: 13)
 
+    /// The story's circle, which opens the story.
+    var onStory: (() -> Void)?
+
     private let thumbnailView = TDImageLoadingView()
     private let titleLabel = UILabel()
     private let dateLabel = UILabel()
@@ -1009,6 +1211,15 @@ private final class StatisticsPostCell: UITableViewCell {
     private let reactionsIcon = UIImageView(image: UIImage(named: "Chart/Reactions")?
         .withRenderingMode(.alwaysTemplate))
     private let forwardsIcon = UIImageView(image: UIImage(named: "Chart/Forwards")?.withRenderingMode(.alwaysTemplate))
+
+    private var storyRing: StoryAvatarRingView?
+    private var storyButton: UIButton?
+
+    private var isStory = false
+
+    var storySourceView: UIView {
+        thumbnailView
+    }
 
     init() {
         super.init(style: .default, reuseIdentifier: nil)
@@ -1048,7 +1259,17 @@ private final class StatisticsPostCell: UITableViewCell {
         let width = contentView.bounds.width
         let height = contentView.bounds.height
         let hasCounters = !reactionsIcon.isHidden || !forwardsIcon.isHidden
-        thumbnailView.frame = CGRect(x: 10, y: ((height - 40) / 2).rounded(.down), width: 40, height: 40)
+        if isStory {
+            // contentImageInset 3 pt further in, a 34 pt circle in its ring.
+            thumbnailView.frame = CGRect(x: 13, y: ((height - 34) / 2).rounded(.down), width: 34, height: 34)
+            thumbnailView.layer.cornerRadius = 17
+            let ringFrame = thumbnailView.frame.insetBy(dx: -3, dy: -3)
+            storyRing?.frame = ringFrame
+            storyButton?.frame = ringFrame
+        } else {
+            thumbnailView.frame = CGRect(x: 10, y: ((height - 40) / 2).rounded(.down), width: 40, height: 40)
+            thumbnailView.layer.cornerRadius = 6
+        }
         let left: CGFloat = thumbnailView.isHidden ? 16 : 16 + 46
         let viewsSize = Self.size(of: viewsLabel)
         let reactionsSize = Self.size(of: reactionsLabel)
@@ -1096,6 +1317,64 @@ private final class StatisticsPostCell: UITableViewCell {
 
     private static func size(of label: UILabel) -> CGSize {
         label.text == nil ? .zero : label.sizeThatFits(CGSize(width: 128, height: CGFloat.greatestFiniteMagnitude))
+    }
+
+    /// StatsMessageItem for a story: Story, its date, its media in a 34 pt circle 3 pt further in inside a 1.5 pt
+    /// unseen ring, which opens the story.
+    func configure(story: Story, views: Int, forwards: Int, reactions: Int, client: TDLibClient) {
+        titleLabel.text = L10n.telegram("Message.Story")
+        let date = Date(timeIntervalSince1970: TimeInterval(story.date))
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMddyy")
+        dateLabel.text = L10n.telegram(
+            "Time.MediumDate",
+            formatter.string(from: date),
+            date.formatted(date: .omitted, time: .shortened),
+        )
+        viewsLabel.text = views == 0
+            ? L10n.telegram("Stats.MessageViews.NoViews")
+            : L10n.telegramPlural("Stats.MessageViews", count: views)
+        reactionsLabel.text = reactions > 0 ? Self.compact(reactions) : nil
+        forwardsLabel.text = forwards > 0 ? Self.compact(forwards) : nil
+        reactionsIcon.isHidden = reactions == 0
+        forwardsIcon.isHidden = forwards == 0
+        thumbnailView.isHidden = false
+        isStory = true
+        let origin = TDImageOrigin.captured(client: client)
+        switch story.content {
+        case .storyContentPhoto(let value):
+            if let file = StoryMedia.photoFile(value.photo) {
+                thumbnailView.load(
+                    file: file,
+                    placeholderData: value.photo.minithumbnail?.data,
+                    maximumPixelSize: 160,
+                    origin: origin,
+                )
+            }
+        case .storyContentVideo(let value):
+            if let thumbnail = value.video.thumbnail {
+                thumbnailView.load(
+                    file: thumbnail.file,
+                    placeholderData: value.video.minithumbnail?.data,
+                    maximumPixelSize: 160,
+                    origin: origin,
+                )
+            }
+        default:
+            break
+        }
+        let ring = storyRing ?? StoryAvatarRingView(activeLineWidth: 1.5, inactiveLineWidth: 1.5)
+        ring.style = .unseen
+        ring.isUserInteractionEnabled = false
+        if storyRing == nil { contentView.addSubview(ring) }
+        storyRing = ring
+        let button = storyButton ?? UIButton(type: .custom)
+        if storyButton == nil {
+            button.addAction(UIAction { [weak self] _ in self?.onStory?() }, for: .touchUpInside)
+            contentView.addSubview(button)
+        }
+        storyButton = button
+        setNeedsLayout()
     }
 
     func configure(message: Message, views: Int, forwards: Int, reactions: Int, client: TDLibClient) {
