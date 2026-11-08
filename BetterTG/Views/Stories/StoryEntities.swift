@@ -571,6 +571,8 @@ final class StoryTextSettingsBar: UIView {
 
     var onColor: (() -> Void)?
     var onChange: (() -> Void)?
+    /// presentFontPicker from the font button.
+    var onFonts: ((UIView) -> Void)?
 
     private let colorButton = StoryColorSwatchButton()
     private let styleButton = UIButton(type: .custom)
@@ -598,9 +600,10 @@ final class StoryTextSettingsBar: UIView {
         fontLabel.textColor = .white
         fontLabel.isUserInteractionEnabled = false
         fontButton.addSubview(fontLabel)
-        fontButton.showsMenuAsPrimaryAction = true
-        // presentFontPicker's order from the top, wherever the menu opens.
-        fontButton.preferredMenuElementOrder = .fixed
+        fontButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            onFonts?(fontButton)
+        }, for: .touchUpInside)
         fontArrow.tintColor = UIColor.white.withAlphaComponent(0.5)
         fontButton.addSubview(fontArrow)
         for view in [colorButton, styleButton, alignmentButton, fontButton] {
@@ -649,14 +652,13 @@ final class StoryTextSettingsBar: UIView {
         fontLabel.font = entity.fontName.flatMap { UIFont(name: $0, size: size) }
             ?? .systemFont(ofSize: size, weight: .semibold)
         fontButton.accessibilityLabel = entity.fontTitle
-        fontButton.menu = UIMenu(children: StoryTextEntityView.fonts.map { font in
-            UIAction(title: font.title, state: font.name == entity.fontName ? .on : .off) { [weak self] _ in
-                guard let self, let entity = self.entity else { return }
-                entity.fontName = font.name
-                changed()
-            }
-        })
         setNeedsLayout()
+    }
+
+    /// presentFontPicker's choice.
+    func chooseFont(_ name: String?) {
+        entity?.fontName = name
+        changed()
     }
 
     private func toggleStyle() {

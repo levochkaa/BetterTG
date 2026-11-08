@@ -801,6 +801,7 @@ UIColorPickerViewControllerDelegate {
             entitiesView.updateEditingPosition()
         }
         entitiesView.settingsBar.onColor = { [weak self] in self?.presentColorPicker() }
+        entitiesView.settingsBar.onFonts = { [weak self] source in self?.presentFontPicker(from: source) }
         entitiesView.onEditingChange = { [weak self] isEditing in
             guard let self else { return }
             if isEditing, let entity = entitiesView.editingEntity { sizeSlider.value = entity.fontSize }
@@ -993,6 +994,26 @@ UIColorPickerViewControllerDelegate {
             y: top + (bottom - top) / 2 - 120,
             width: 30,
             height: 240,
+        )
+    }
+
+    /// presentFontPicker: Telegram's eight fonts, each named in itself at 17 pt, over the keyboard by the button.
+    private func presentFontPicker(from source: UIView) {
+        let bar = entitiesView.settingsBar
+        let actions = StoryTextEntityView.fonts.map { font in
+            var action = TelegramContextMenuAction(title: font.title) { bar.chooseFont(font.name) }
+            action.titleFont = font.name.flatMap { UIFont(name: $0, size: 17) } ?? .systemFont(
+                ofSize: 17,
+                weight: .semibold,
+            )
+            return action
+        }
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: actions,
+            presentationStyle: .menuOnly,
+            menuAnchorView: source,
+            menuSpacing: 8,
         )
     }
 

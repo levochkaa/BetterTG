@@ -161,7 +161,7 @@ import UIKit
     }
 
     static func titleFont(of action: TelegramContextMenuAction) -> UIFont {
-        font(ofSize: titleFontSize(of: action))
+        action.titleFont ?? font(ofSize: titleFontSize(of: action))
     }
 
     static func showsLeadingIcon(of action: TelegramContextMenuAction) -> Bool {
@@ -202,6 +202,9 @@ struct TelegramContextMenuAction {
     /// A selectable row in the smaller 14-point font, such as who added a poll answer (ContextMenuActionItem with
     /// `.small` text and an action).
     var usesSmallText = false
+    /// ContextMenuActionItem's `textFont: .custom`: the title in a face of its own, as presentFontPicker lists the
+    /// fonts each in itself.
+    var titleFont: UIFont?
     /// ContextMenuActionItem's `.multiline` text layout: the title wraps to as many lines as it needs, such as the
     /// auto-delete submenu's note.
     var isMultiline = false
