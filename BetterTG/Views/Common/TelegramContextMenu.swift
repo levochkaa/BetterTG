@@ -131,6 +131,7 @@ import UIKit
     /// A title too long for the menu wraps, up to `maximumTitleLines`, and the row grows to hold it. Headers and titles
     /// that arrive later keep one line.
     static func height(of action: TelegramContextMenuAction, menuWidth: CGFloat) -> CGFloat {
+        if let rowHeight = action.titleRowHeight { return rowHeight }
         guard wrapsTitle(of: action), menuWidth > 0 else { return height(of: action) }
         let font = titleFont(of: action)
         let textWidth = max(1, menuWidth - titleLeadingInset(of: action) - titleTrailingInset(of: action))
@@ -205,6 +206,9 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `textFont: .custom`: the title in a face of its own, as presentFontPicker lists the
     /// fonts each in itself.
     var titleFont: UIFont?
+    /// `.custom`'s height and verticalOffset: the row's own height and the title moved up or down in it.
+    var titleRowHeight: CGFloat?
+    var titleVerticalOffset: CGFloat = 0
     /// ContextMenuActionItem's `.multiline` text layout: the title wraps to as many lines as it needs, such as the
     /// auto-delete submenu's note.
     var isMultiline = false
@@ -3633,7 +3637,10 @@ final class TelegramContextMenuActionButton: UIControl {
                 ),
             ])
         } else {
-            constraints.append(titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor))
+            constraints.append(titleLabel.centerYAnchor.constraint(
+                equalTo: centerYAnchor,
+                constant: action.titleVerticalOffset,
+            ))
         }
         if let badge = action.badge {
             let badgeLabel = UILabel()

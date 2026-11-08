@@ -1019,6 +1019,9 @@ UIColorPickerViewControllerDelegate {
                 ofSize: 17,
                 weight: .semibold,
             )
+            // textFont .custom(height: 42, verticalOffset: -6 for Noteworthy).
+            action.titleRowHeight = 42
+            action.titleVerticalOffset = font.title == "Noteworthy" ? -6 : 0
             return action
         }
         presentTelegramContextMenu(
