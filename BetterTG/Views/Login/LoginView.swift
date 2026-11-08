@@ -67,10 +67,8 @@ final class LoginViewController: UIViewController {
     private lazy var backItem = UIBarButtonItem(customView: backButton)
     private lazy var accountsItem = UIBarButtonItem(customView: accountsButton)
     private let serverLabel = UILabel()
-    #if DEBUG
-        /// AuthorizationSequencePhoneEntryControllerNode's debugTapCounter: the last tap's time and the run of taps.
-        private var debugTapCounter = (time: 0.0, count: 0)
-    #endif
+    /// AuthorizationSequencePhoneEntryControllerNode's debugTapCounter: the last tap's time and the run of taps.
+    private var debugTapCounter = (time: 0.0, count: 0)
 
     // MARK: Internal
 
@@ -284,14 +282,13 @@ final class LoginViewController: UIViewController {
         serverLabel.lineBreakMode = .byTruncatingTail
         serverLabel.textColor = .systemOrange
 
-        #if DEBUG
-            // Telegram's sign-in opens its debug options after ten quick taps; here a tap anywhere off the controls
-            // counts, and the options switch the sign-in between the production and test servers.
-            let debugTap = UITapGestureRecognizer(target: self, action: #selector(debugTapped))
-            debugTap.cancelsTouchesInView = false
-            debugTap.delegate = self
-            view.addGestureRecognizer(debugTap)
-        #endif
+        // Telegram's sign-in opens its debug options after ten quick taps, release builds included; here a tap anywhere
+        // off the controls counts, and the options switch the sign-in between the production and test servers. App
+        // Review signs in on the test server this way.
+        let debugTap = UITapGestureRecognizer(target: self, action: #selector(debugTapped))
+        debugTap.cancelsTouchesInView = false
+        debugTap.delegate = self
+        view.addGestureRecognizer(debugTap)
 
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -785,49 +782,47 @@ final class LoginViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    #if DEBUG
-        /// AuthorizationSequencePhoneEntryControllerNode's debugTap: ten taps, each within 0.4 s of the last.
-        @objc private func debugTapped(_ recognizer: UITapGestureRecognizer) {
-            guard recognizer.state == .ended else { return }
-            let timestamp = CACurrentMediaTime()
-            if debugTapCounter.time < timestamp - 0.4 {
-                debugTapCounter = (timestamp, 0)
-            }
-            debugTapCounter = (timestamp, debugTapCounter.count + 1)
-            guard debugTapCounter.count >= 10 else { return }
-            debugTapCounter.count = 0
-            presentServerSwitch()
+    /// AuthorizationSequencePhoneEntryControllerNode's debugTap: ten taps, each within 0.4 s of the last.
+    @objc private func debugTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        let timestamp = CACurrentMediaTime()
+        if debugTapCounter.time < timestamp - 0.4 {
+            debugTapCounter = (timestamp, 0)
         }
+        debugTapCounter = (timestamp, debugTapCounter.count + 1)
+        guard debugTapCounter.count >= 10 else { return }
+        debugTapCounter.count = 0
+        presentServerSwitch()
+    }
 
-        /// DebugAccountsController's Production and Test choice for this sign-in; the current server is disabled.
-        private func presentServerSwitch() {
-            guard let serverSwitch, let token = authorization.capture() else { return }
-            view.endEditing(true)
-            let usesTestServer = serverSwitch.usesTestServer()
-            let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-            for (title, testServer) in [
-                (L10n.betterTG("Accounts.ProductionServer"), false),
-                (L10n.betterTG("Accounts.TestServer"), true),
-            ] {
-                let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
-                    guard let self, authorization.permits(token) else { return }
-                    do {
-                        try serverSwitch.select(testServer)
-                    } catch {
-                        showError(error.localizedDescription)
-                    }
+    /// DebugAccountsController's Production and Test choice for this sign-in; the current server is disabled.
+    private func presentServerSwitch() {
+        guard let serverSwitch, let token = authorization.capture() else { return }
+        view.endEditing(true)
+        let usesTestServer = serverSwitch.usesTestServer()
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        for (title, testServer) in [
+            (L10n.betterTG("Accounts.ProductionServer"), false),
+            (L10n.betterTG("Accounts.TestServer"), true),
+        ] {
+            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
+                guard let self, authorization.permits(token) else { return }
+                do {
+                    try serverSwitch.select(testServer)
+                } catch {
+                    showError(error.localizedDescription)
                 }
-                action.isEnabled = testServer != usesTestServer
-                alert.addAction(action)
             }
-            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-            if let popover = alert.popoverPresentationController {
-                popover.sourceView = view
-                popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-            }
-            present(alert, animated: true)
+            action.isEnabled = testServer != usesTestServer
+            alert.addAction(action)
         }
-    #endif
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        }
+        present(alert, animated: true)
+    }
 
     private func showError(_ message: String) {
         let alert = UIAlertController(
@@ -840,14 +835,11 @@ final class LoginViewController: UIViewController {
     }
 }
 
-#if DEBUG
+// MARK: UIGestureRecognizerDelegate
 
-    // MARK: - LoginViewController + UIGestureRecognizerDelegate
-
-    extension LoginViewController: UIGestureRecognizerDelegate {
-        /// Taps on buttons and fields act on them and don't count toward the debug options.
-        func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            !(touch.view is UIControl)
-        }
+extension LoginViewController: UIGestureRecognizerDelegate {
+    /// Taps on buttons and fields act on them and don't count toward the debug options.
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(touch.view is UIControl)
     }
-#endif
+}
