@@ -4159,3 +4159,10 @@
 "WelcomeMessages.ServiceHeader2" = "Touch and hold it to delete it";
 "WelcomeMessages.MessageLimitReachedText_1" = "Limit of %@ message reached";
 "WelcomeMessages.MessageLimitReachedText_any" = "Limit of %@ messages reached";
+"PeerInfo.Community_1" = "Community with %@ chat";
+"PeerInfo.Community_any" = "Community with %@ chats";
+"Community.View.Title" = "Community";
+"Community.View.SectionJoined" = "CHATS YOU ARE IN";
+"Community.View.SectionVisible" = "CHATS YOU CAN VIEW";
+"Community.View.SectionRequestable" = "CHATS YOU CAN REQUEST TO JOIN";
+"Community.View.SectionHidden" = "HIDDEN CHATS";

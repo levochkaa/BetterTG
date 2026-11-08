@@ -11,6 +11,61 @@ import UIKit
     @MainActor enum ThreadReplyProbe {
         private static let title = "BetterTG thread test"
 
+        /// `-ui-probe-community`: puts the account's own BetterTG thread test in a community of its own once, to try
+        /// the
+        /// profile's community row and screen; `-ui-probe-community-delete` deletes that community again.
+        static func setUpCommunityIfRequested() {
+            let arguments = ProcessInfo.processInfo.arguments
+            let deletes = arguments.contains("-ui-probe-community-delete")
+            guard arguments.contains("-ui-probe-community") || deletes else { return }
+            Task {
+                var result: String
+                do {
+                    try await ProbeFixtures.waitForActiveAccount()
+                    let client = TDLib.shared.activeClient
+                    let found = try await client.send(TDNativeRequests.searchChats(
+                        query: title,
+                        typeFilter: nil,
+                        limit: 10,
+                    ))
+                    var chat: Chat?
+                    for id in found.chatIds {
+                        let candidate = try await client.send(TDNativeRequests.getChat(chatId: id))
+                        if candidate.title == title { chat = candidate }
+                    }
+                    guard let chat, case .chatTypeSupergroup(let type) = chat.type else {
+                        throw NSError(domain: "probe", code: 1)
+                    }
+                    let info = try await client
+                        .send(TDNativeRequests.getSupergroupFullInfo(supergroupId: type.supergroupId))
+                    if deletes {
+                        if info.communityId != 0 {
+                            _ = try await client.send(TDNativeRequests.deleteCommunity(communityId: info.communityId))
+                        }
+                        result = "Community probe deleted \(info.communityId)"
+                    } else if info.communityId != 0 {
+                        result = "Community probe: already in \(info.communityId)"
+                    } else {
+                        let id = try await client.send(TDNativeRequests.createCommunity(
+                            name: "BetterTG test community",
+                            chatId: chat.id,
+                            isChatHidden: false,
+                        ))
+                        result = "Community probe created \(id.id)"
+                    }
+                } catch {
+                    result = "Community probe failed: \(error)"
+                }
+                if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? Data(result.utf8).write(
+                        to: directory.appendingPathComponent("community-probe.txt"),
+                        options: .atomic,
+                    )
+                }
+                log(result)
+            }
+        }
+
         /// `-ui-probe-emoji-sounds`: which animated emoji TDLib gives a sound (getAnimatedEmoji), to try the tap's
         /// sound.
         static func listEmojiSoundsIfRequested() {

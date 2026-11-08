@@ -217,6 +217,10 @@ ClientRestorableNavigationEntry {
     private let infoCardView = ProfileInfoCardView()
     /// A small group's members under its info (PeerInfoMembersData.shortList), where a larger one gets the pane.
     private let shortMembersView = ProfileShortMembersView()
+    /// The community the chat or bot belongs to (PeerInfoScreenCommunityItem).
+    private let communityView = ProfileCommunityView()
+    private var communityID: Int64 = 0
+    private var communityTask: Task<Void, Never>?
     /// PeerInfoScreenCommentItem under the info block, as Bot.AddToChatInfo.
     private let infoFooterLabel = UILabel()
     private var businessLocation: TDNativeBusinessLocation?
@@ -798,6 +802,7 @@ ClientRestorableNavigationEntry {
         observeAccount()
         handleClientReadiness(restorationIdentity.readySource)
         loadProfileInfo()
+        loadCommunity()
         if restoration != nil {
             applySnapshot(animated: false) { [weak self] in
                 self?.restoredSnapshotApplied = true
@@ -2639,6 +2644,14 @@ ClientRestorableNavigationEntry {
         infoFooterLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor, constant: -32).isActive = true
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         headerStack.setCustomSpacing(20, after: infoFooterLabel)
+        communityView.isHidden = true
+        communityView.addAction(UIAction { [weak self] _ in
+            guard let self, communityID != 0 else { return }
+            navigationController?.pushViewController(CommunityViewController(communityID: communityID), animated: true)
+        }, for: .touchUpInside)
+        headerStack.addArrangedSubview(communityView)
+        communityView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
+        headerStack.setCustomSpacing(20, after: communityView)
         shortMembersView.isHidden = true
         shortMembersView.onOpen = { [weak self] id in self?.membersPane?.open(id) }
         shortMembersView.onMenu = { [weak self] id, view, gesture in
@@ -3472,6 +3485,7 @@ ClientRestorableNavigationEntry {
         fullInfoGeneration &+= 1
         infoTask?.cancel()
         infoTask = nil
+        if update.supergroupFullInfo.communityId != communityID { loadCommunity() }
         currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
         currentSupergroupMemberCount = update.supergroupFullInfo.memberCount
         membersInfoLoaded = true
@@ -6236,6 +6250,43 @@ ClientRestorableNavigationEntry {
             applySnapshot()
         }
         membersPane = pane
+    }
+
+    /// PeerInfoData's linkedCommunityData: a supergroup's or a bot's community from its full info, with its chats.
+    private func loadCommunity() {
+        guard topic == nil else { return }
+        let client = client
+        let type = customChat.type
+        communityTask?.cancel()
+        communityTask = Task { [weak self] in
+            let id: Int64 =
+                switch type {
+                case .supergroup(let group):
+                    await (try? client.getSupergroupFullInfo(supergroupId: group.id))?.communityId ?? 0
+                case .bot(let user):
+                    await (try? client.getUserFullInfo(userId: user.id))?.communityId ?? 0
+                case .group,
+                     .user: 0
+                }
+            let chatCount: Int? =
+                if id != 0 {
+                    await (try? client.send(TDNativeRequests.getCommunityFullInfo(communityId: id)))?.chats.count
+                } else {
+                    nil
+                }
+            guard let self, !Task.isCancelled, contextIsCurrent else { return }
+            communityID = id
+            if id != 0 {
+                communityView.configure(
+                    community: TelegramChatListStore.shared.community(id, clientID: client.id),
+                    communityID: id,
+                    chatCount: chatCount,
+                    client: client,
+                )
+            }
+            communityView.isHidden = id == 0
+            view.setNeedsLayout()
+        }
     }
 
     private func updateShortMembers() {

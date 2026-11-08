@@ -49,8 +49,8 @@ import TDLibKit
     private var users = [Int64: User]()
     private var groups = [Int64: BasicGroup]()
     private var supergroups = [Int64: Supergroup]()
-    /// TDLib names communities only by updateCommunity; service messages about them need the name.
-    private var communityNames = [Int64: String]()
+    /// TDLib describes communities only by updateCommunity; service messages and profiles need them.
+    private var communities = [Int64: Community]()
     private var onlineMemberCounts = [Int64: Int]()
 
     /// A person's update redraws their private chat (not a secret one); a group's, its chat.
@@ -79,7 +79,7 @@ import TDLibKit
             users = [:]
             groups = [:]
             supergroups = [:]
-            communityNames = [:]
+            communities = [:]
             onlineMemberCounts = [:]
             folderConfiguration = nil
             changes.send(.reset)
@@ -110,7 +110,7 @@ import TDLibKit
             supergroups[value.supergroup.id] = value.supergroup
             changedPeers(.supergroup(value.supergroup.id))
         case .updateCommunity(let value):
-            communityNames[value.community.id] = value.community.name
+            communities[value.community.id] = value.community
         case .updateChatPosition(let value):
             mutate(value.chatId) { $0.setPosition(value.position) }
         case .updateChatLastMessage(let value):
@@ -236,8 +236,13 @@ import TDLibKit
 
     /// The community's name for this client, nil until TDLib has sent it.
     func communityName(_ id: Int64, clientID: Int32) -> String? {
+        community(id, clientID: clientID)?.name
+    }
+
+    /// The community as TDLib last described it to this client.
+    func community(_ id: Int64, clientID: Int32) -> Community? {
         guard self.clientID == clientID else { return nil }
-        return communityNames[id]
+        return communities[id]
     }
 
     func chatIDs(in list: ChatList) -> [Int64] {
