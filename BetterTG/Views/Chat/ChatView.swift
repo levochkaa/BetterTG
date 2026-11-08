@@ -10385,6 +10385,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if chatVM.canAttachDocuments { tabs.append(.file) }
         let canSendLocationAndContact = chatVM.canSendLocationAndContact
         if canSendLocationAndContact { tabs.append(.location) }
+        // ChatControllerOpenAttachmentMenu: Reply after Location in a chat with a person once there are shortcuts.
+        if case .user = chatVM.customChat.type, chatVM.canWriteBasicMessages,
+           !QuickReplyStore.shared.shortcuts(for: TDLib.shared.activeUpdateSource).isEmpty
+        {
+            tabs.append(.quickReply)
+        }
         if chatVM.canCreatePoll { tabs.append(.poll) }
         if chatVM.canCreateChecklist { tabs.append(.checklist) }
         if canSendLocationAndContact { tabs.append(.contact) }
@@ -10530,6 +10536,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .poll: showPollCreator()
         case .checklist: showChecklistComposer()
         case .contact: showContactPicker()
+        case .quickReply: showQuickReplyPicker()
         case .app(let bot):
             closeAttachmentSheet { [weak self] in self?.openAttachmentMenuBot(bot) }
         }
@@ -11033,6 +11040,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
         showInAttachmentSheet(picker, tab: .contact)
+    }
+
+    /// QuickReplySetupScreen in its `.select` mode: a shortcut closes the sheet and goes to the chat (sendShortcut).
+    private func showQuickReplyPicker() {
+        let picker = QuickRepliesViewController()
+        picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        picker.onSelect = { [weak self] shortcutID in
+            self?.closeAttachmentSheet { [weak self] in self?.chatVM.sendQuickReply(shortcutID: shortcutID) }
+        }
+        showInAttachmentSheet(picker, tab: .quickReply)
     }
 
     /// Telegram's attachment menu Poll: the poll creator in the sheet, with a channel's defaults in channels.

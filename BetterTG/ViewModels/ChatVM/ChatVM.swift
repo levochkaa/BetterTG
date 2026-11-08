@@ -4876,6 +4876,24 @@ import UIKit
         }
     }
 
+    /// The attachment menu's Reply: the shortcut's messages go to the chat and the input stays.
+    func sendQuickReply(shortcutID: Int) {
+        guard locationContextIsCurrent, canWriteBasicMessages else { return }
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.sendQuickReplyShortcutMessages(
+                    chatId: chatID,
+                    shortcutId: shortcutID,
+                    sendingId: 0,
+                ))
+            } catch {
+                self?.sendErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     /// CommandChatInputContextPanelNode's insert arrow: "/command " replaces the typed command.
     func insertBotCommand(_ command: ChatBotCommand) {
         showsBotCommandMenu = false

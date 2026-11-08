@@ -486,7 +486,8 @@ struct PollDraftMedia {
         case .app,
              .checklist,
              .contact,
-             .poll:
+             .poll,
+             .quickReply:
             return
         }
         currentTab = tab

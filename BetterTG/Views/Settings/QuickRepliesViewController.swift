@@ -95,6 +95,12 @@ import UIKit
 /// its first message and how many follow. A shortcut opens its messages; holding it offers Edit Shortcut and Delete,
 /// and swiping deletes it after Delete Quick Reply.
 final class QuickRepliesViewController: SettingsListViewController {
+    /// QuickReplySetupScreen's `.select` mode for the attachment menu: a shortcut is picked rather than opened, and
+    /// there is no New Quick Reply or editing.
+    var onSelect: ((Int) -> Void)?
+    /// The attachment sheet's Cancel closed it.
+    var onDismiss: (() -> Void)?
+
     private var cancellable: AnyCancellable?
 
     private var shortcuts: [TDNativeQuickReplyShortcut] {
@@ -104,6 +110,15 @@ final class QuickRepliesViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("QuickReply.Title")
+        if onSelect != nil {
+            navigationItem.leftBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Cancel"),
+                primaryAction: UIAction { [weak self] _ in
+                    let onDismiss = self?.onDismiss
+                    self?.dismiss(animated: true) { onDismiss?() }
+                },
+            )
+        }
         cancellable = QuickReplyStore.shared
             .changes
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
@@ -113,6 +128,15 @@ final class QuickRepliesViewController: SettingsListViewController {
     }
 
     override func makeSections() -> [SettingsSection] {
+        if let onSelect {
+            return [SettingsSection(rows: shortcuts.map { shortcut in
+                SettingsRow(
+                    title: "/" + shortcut.name,
+                    detail: QuickReplyStore.preview(shortcut.firstMessage.content),
+                    style: .subtitle,
+                ) { onSelect(shortcut.id) }
+            })]
+        }
         var sections = [SettingsSection(rows: [SettingsRow(
             title: L10n.telegram("QuickReply.InlineCreateAction"),
             style: .action(destructive: false),
@@ -140,7 +164,7 @@ final class QuickRepliesViewController: SettingsListViewController {
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point _: CGPoint,
     ) -> UIContextMenuConfiguration? {
-        guard indexPath.section == 1, let shortcut = shortcuts[safe: indexPath.row] else { return nil }
+        guard onSelect == nil, indexPath.section == 1, let shortcut = shortcuts[safe: indexPath.row] else { return nil }
         return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
             UIMenu(children: [
                 UIAction(

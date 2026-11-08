@@ -12,7 +12,8 @@ import UIKit
 /// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll, Checklist
 /// and Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) and Link
 /// (AttachmentButtonType.link) are a poll option's (presentPollAttachmentScreen). App (AttachmentButtonType.app) is an
-/// attachment menu bot, after Gallery.
+/// attachment menu bot, after Gallery. Reply (AttachmentButtonType.quickReply) lists the account's quick replies in a
+/// chat with a person, after Location.
 enum AttachmentSheetTab: Equatable {
     case gallery
     case file
@@ -20,6 +21,7 @@ enum AttachmentSheetTab: Equatable {
     case poll
     case checklist
     case contact
+    case quickReply
     case sticker
     case link
     case app(AttachmentMenuBotButton)
@@ -32,6 +34,7 @@ enum AttachmentSheetTab: Equatable {
         case .poll: L10n.telegram("Attachment.Poll")
         case .checklist: L10n.telegram("Attachment.Todo")
         case .contact: L10n.telegram("Attachment.Contact")
+        case .quickReply: L10n.telegram("Attachment.Reply")
         case .sticker: L10n.telegram("Attachment.Sticker")
         case .link: L10n.telegram("Attachment.Link")
         case .app(let bot): bot.name
@@ -46,6 +49,7 @@ enum AttachmentSheetTab: Equatable {
         case .poll: "chart.bar.fill"
         case .checklist: "checklist"
         case .contact: "person.crop.circle.fill"
+        case .quickReply: "arrowshape.turn.up.left.fill"
         case .sticker: "face.smiling"
         case .link: "link"
         case .app: "app.fill"
