@@ -10,11 +10,20 @@ import UIKit
 /// its change over the period, green for growth and red for a fall; then its graphs in ChannelStatsController's order,
 /// each under its title, an asynchronous one loading through getStatisticalGraph. While the server prepares the
 /// statistics it shows Preparing stats.
+///
+/// For a channel post it is MessageStatsController (getMessageStatistics): Message Statistics with the post's Views,
+/// Public Shares, Reactions and Private Shares, its interactions and reactions graphs and the channels that shared it
+/// publicly (getMessagePublicForwards).
 final class ChannelStatisticsViewController: SettingsListViewController {
     private struct GraphEntry {
         let title: String
         let kind: StatisticsGraphKind
-        let graph: KeyPath<TDNativeChatStatisticsChannel, TDNativeStatisticalGraph>
+    }
+
+    /// A public share's channel and the shared message.
+    private struct PublicShare {
+        let message: Message
+        let chat: Chat
     }
 
     /// A post's views, shares and reactions (chatStatisticsInteractionInfo).
@@ -25,27 +34,36 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     }
 
     /// channelStatsControllerEntries' graphs.
-    private static let graphEntries = [
-        GraphEntry(title: "Stats.GrowthTitle", kind: .lines, graph: \.memberCountGraph),
-        GraphEntry(title: "Stats.FollowersTitle", kind: .lines, graph: \.joinGraph),
-        GraphEntry(title: "Stats.NotificationsTitle", kind: .lines, graph: \.muteGraph),
-        GraphEntry(title: "Stats.ViewsByHoursTitle", kind: .hourlyStep, graph: \.viewCountByHourGraph),
-        GraphEntry(title: "Stats.ViewsBySourceTitle", kind: .bars, graph: \.viewCountBySourceGraph),
-        GraphEntry(title: "Stats.FollowersBySourceTitle", kind: .bars, graph: \.joinBySourceGraph),
-        GraphEntry(title: "Stats.LanguagesTitle", kind: .pie, graph: \.languageGraph),
-        GraphEntry(title: "Stats.InteractionsTitle", kind: .twoAxisStep, graph: \.messageInteractionGraph),
-        GraphEntry(
-            title: "Stats.InstantViewInteractionsTitle",
-            kind: .twoAxisStep,
-            graph: \.instantViewInteractionGraph,
-        ),
-        GraphEntry(title: "Stats.ReactionsByEmotionTitle", kind: .bars, graph: \.messageReactionGraph),
-        GraphEntry(title: "Stats.StoryInteractionsTitle", kind: .twoAxisStep, graph: \.storyInteractionGraph),
-        GraphEntry(title: "Stats.StoryReactionsByEmotionTitle", kind: .bars, graph: \.storyReactionGraph),
+    private static let channelGraphEntries = [
+        GraphEntry(title: "Stats.GrowthTitle", kind: .lines),
+        GraphEntry(title: "Stats.FollowersTitle", kind: .lines),
+        GraphEntry(title: "Stats.NotificationsTitle", kind: .lines),
+        GraphEntry(title: "Stats.ViewsByHoursTitle", kind: .hourlyStep),
+        GraphEntry(title: "Stats.ViewsBySourceTitle", kind: .bars),
+        GraphEntry(title: "Stats.FollowersBySourceTitle", kind: .bars),
+        GraphEntry(title: "Stats.LanguagesTitle", kind: .pie),
+        GraphEntry(title: "Stats.InteractionsTitle", kind: .twoAxisStep),
+        GraphEntry(title: "Stats.InstantViewInteractionsTitle", kind: .twoAxisStep),
+        GraphEntry(title: "Stats.ReactionsByEmotionTitle", kind: .bars),
+        GraphEntry(title: "Stats.StoryInteractionsTitle", kind: .twoAxisStep),
+        GraphEntry(title: "Stats.StoryReactionsByEmotionTitle", kind: .bars),
+    ]
+
+    /// messageStatsControllerEntries' graphs, with uppercased titles.
+    private static let messageGraphEntries = [
+        GraphEntry(title: "Stats.MessageInteractionsTitle", kind: .twoAxisStep),
+        GraphEntry(title: "Stats.MessageReactionsTitle", kind: .bars),
     ]
 
     private let chat: Chat
+    /// The post whose statistics show, or nil for the channel's.
+    private let message: Message?
     private var statistics: TDNativeChatStatisticsChannel?
+    private var messageLoaded = false
+    /// getMessagePublicForwards: the total and the channels' messages.
+    private var publicShareCount: Int?
+    private var publicShares = [PublicShare]()
+    private var publicSharesSection: Int?
     private var failed = false
     /// Each graph's state by its entry; a graph with no data or error text has none and no section.
     private var graphStates = [Int: StatisticsGraphView.State]()
@@ -56,8 +74,20 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private var posts = [(Message, PostInteractions)]()
     private var postsSection: Int?
 
+    private var graphEntries: [GraphEntry] {
+        message == nil ? Self.channelGraphEntries : Self.messageGraphEntries
+    }
+
     init(chat: Chat, client _: TDLibClient) {
         self.chat = chat
+        self.message = nil
+        super.init()
+    }
+
+    /// A channel post's statistics.
+    init(message: Message, chat: Chat) {
+        self.chat = chat
+        self.message = message
         super.init()
     }
 
@@ -67,11 +97,18 @@ final class ChannelStatisticsViewController: SettingsListViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("ChannelInfo.Stats")
-        load()
+        title = L10n.telegram(message == nil ? "ChannelInfo.Stats" : "Stats.MessageTitle")
+        if message == nil {
+            load()
+        } else {
+            loadMessage()
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
+        if let message {
+            return messageSections(message)
+        }
         guard let statistics else {
             return [SettingsSection(
                 footer: failed ? nil : L10n.telegram("Stats.LoadingText").replacing("\n", with: " "),
@@ -105,11 +142,7 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             header: L10n.telegram("Stats.Overview") + "  " + Self.periodText(statistics.period),
             rows: rows,
         )]
-        graphSections = [:]
-        for (index, entry) in Self.graphEntries.enumerated() where graphStates[index] != nil {
-            graphSections[sections.count] = index
-            sections.append(SettingsSection(header: L10n.telegram(entry.title), rows: [SettingsRow(title: "")]))
-        }
+        appendGraphSections(to: &sections)
         postsSection = nil
         if !posts.isEmpty {
             postsSection = sections.count
@@ -159,7 +192,18 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             return UITableView.automaticDimension
         }
         let width = tableView.bounds.width - tableView.layoutMargins.left - tableView.layoutMargins.right
-        return StatisticsGraphView.height(width: width, kind: Self.graphEntries[index].kind, state: state)
+        return StatisticsGraphView.height(width: width, kind: graphEntries[index].kind, state: state)
+    }
+
+    /// StatsMessageItem's action: a recent post opens its own statistics.
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard indexPath.section == postsSection, posts.indices.contains(indexPath.row) else {
+            super.tableView(tableView, didSelectRowAt: indexPath)
+            return
+        }
+        tableView.deselectRow(at: indexPath, animated: true)
+        let controller = ChannelStatisticsViewController(message: posts[indexPath.row].0, chat: chat)
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     /// compactNumericCountString: 1234 reads 1.2K, under a thousand the whole number.
@@ -184,12 +228,72 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         return "\(format(period.startDate)) – \(format(period.endDate))".uppercased()
     }
 
+    private func appendGraphSections(to sections: inout [SettingsSection]) {
+        graphSections = [:]
+        for (index, entry) in graphEntries.enumerated() where graphStates[index] != nil {
+            graphSections[sections.count] = index
+            sections.append(SettingsSection(
+                header: L10n.telegram(entry.title).uppercased(),
+                rows: [SettingsRow(title: "")],
+            ))
+        }
+    }
+
+    /// messageStatsControllerEntries: OVERVIEW with StatsOverviewItem's MessageStats values (Private Shares are the
+    /// shares that aren't public, with a tilde), the graphs, then PUBLIC SHARES.
+    private func messageSections(_ message: Message) -> [SettingsSection] {
+        guard messageLoaded else {
+            return [SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram(failed ? "Login.UnknownError" : "Stats.LoadingTitle"),
+                style: .status(.secondaryLabel),
+                accessory: failed ? .none : .activity,
+            )])]
+        }
+        let info = message.interactionInfo
+        let forwards = info?.forwardCount ?? 0
+        let reactions = info?.reactions?.reactions.reduce(0) { $0 + $1.totalCount } ?? 0
+        let value: (String, String) -> SettingsRow = { key, text in
+            SettingsRow(title: L10n.telegram(key), detail: text, style: .value)
+        }
+        var sections = [SettingsSection(
+            header: L10n.telegram("Stats.MessageOverview").uppercased(),
+            rows: [
+                value("Stats.Message.Views", Self.compact(Double(info?.viewCount ?? 0))),
+                value("Stats.Message.PublicShares", publicShareCount.map { Self.compact(Double($0)) } ?? "–"),
+                value("Stats.Message.Reactions", Self.compact(Double(reactions))),
+                value(
+                    "Stats.Message.PrivateShares",
+                    publicShareCount.map { "~" + Self.compact(Double(max(0, forwards - $0))) } ?? "–",
+                ),
+            ],
+        )]
+        appendGraphSections(to: &sections)
+        publicSharesSection = nil
+        if !publicShares.isEmpty {
+            publicSharesSection = sections.count
+            sections.append(SettingsSection(
+                header: L10n.telegram("Stats.MessagePublicForwardsTitle").uppercased(),
+                rows: publicShares.map { share in
+                    let views = share.message.interactionInfo?.viewCount ?? 0
+                    return SettingsRow(
+                        title: share.chat.title,
+                        detail: views == 0
+                            ? L10n.telegram("Stats.MessageViews.NoViews")
+                            : L10n.telegramPlural("Stats.MessageViews", count: views),
+                        style: .peer(SettingsPeer(chat: share.chat)),
+                    )
+                },
+            ))
+        }
+        return sections
+    }
+
     private func graphView(_ index: Int) -> StatisticsGraphView? {
         if let view = graphViews[index] {
             return view
         }
         guard let state = graphStates[index] else { return nil }
-        let view = StatisticsGraphView(kind: Self.graphEntries[index].kind, state: state)
+        let view = StatisticsGraphView(kind: graphEntries[index].kind, state: state)
         graphViews[index] = view
         return view
     }
@@ -279,6 +383,47 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
     }
 
+    /// MessageStatsContext with ChannelStatsPublicForwardsContext's first page: the post's graphs, then the public
+    /// shares and the channels they're in.
+    private func loadMessage() {
+        guard let message else { return }
+        let client = client
+        let chatID = chat.id
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        Task { [weak self] in
+            async let statistics = try? client.send(TDNativeRequests.getMessageStatistics(
+                chatId: chatID,
+                messageId: message.id,
+                isDark: isDark,
+            ))
+            async let forwards = try? client.send(TDNativeRequests.getMessagePublicForwards(
+                chatId: chatID,
+                messageId: message.id,
+                offset: "",
+                limit: 50,
+            ))
+            let (result, shares) = await (statistics, forwards)
+            var resolved = [PublicShare]()
+            for forward in shares?.forwards ?? [] {
+                guard case .publicForwardMessage(let item) = forward,
+                      let chat = try? await client.getChat(chatId: item.message.chatId)
+                else { continue }
+                resolved.append(PublicShare(message: item.message, chat: chat))
+            }
+            guard let self, contextIsCurrent else { return }
+            if let result {
+                messageLoaded = true
+                setGraph(result.messageInteractionGraph, at: 0)
+                setGraph(result.messageReactionGraph, at: 1)
+                publicShareCount = shares?.totalCount
+                publicShares = resolved
+            } else {
+                failed = true
+            }
+            reload()
+        }
+    }
+
     private func load() {
         let client = client
         let chatID = chat.id
@@ -288,8 +433,14 @@ final class ChannelStatisticsViewController: SettingsListViewController {
             guard let self, contextIsCurrent else { return }
             if case .chatStatisticsChannel(let channel)? = result {
                 statistics = channel
-                for (index, entry) in Self.graphEntries.enumerated() {
-                    setGraph(channel[keyPath: entry.graph], at: index)
+                let graphs = [
+                    channel.memberCountGraph, channel.joinGraph, channel.muteGraph, channel.viewCountByHourGraph,
+                    channel.viewCountBySourceGraph, channel.joinBySourceGraph, channel.languageGraph,
+                    channel.messageInteractionGraph, channel.instantViewInteractionGraph, channel.messageReactionGraph,
+                    channel.storyInteractionGraph, channel.storyReactionGraph,
+                ]
+                for (index, graph) in graphs.enumerated() {
+                    setGraph(graph, at: index)
                 }
                 loadPosts(channel.recentInteractions)
             } else {

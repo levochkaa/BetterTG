@@ -12387,6 +12387,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let banAction = banMenuAction(for: message) {
             elements.append(banAction)
         }
+        // ChatInterfaceStateContextMenus: View Statistics for a channel post with statistics, after Report.
+        if message.properties.canGetStatistics, chatVM.customChat.supergroup?.isChannel == true {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextViewStats"),
+                image: UIImage(systemName: "chart.bar.xaxis"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                let controller = ChannelStatisticsViewController(message: message.message, chat: chatVM.customChat.chat)
+                navigationController?.pushViewController(controller, animated: true)
+            })
+        }
         if canSelectMessage(message) {
             // Telegram's Select takes the message under the finger, an album's item included, and Select All takes
             // the whole group.

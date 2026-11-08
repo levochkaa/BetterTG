@@ -146,6 +146,13 @@ private final class StatisticsPlotView: UIView {
 
     private static let labelFont = UIFont.systemFont(ofSize: 11)
 
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeZone = .gmt
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeZone = .gmt
@@ -505,8 +512,11 @@ private final class StatisticsPlotView: UIView {
     /// HorizontalScalesRenderer with updateHorizontalLimitLabels' stride: every 2ⁿth point back from the last, at
     /// least 50 pt apart, as "MMM d" or an hour as "9:00", ending at its point.
     private func drawDates() {
+        // ChartScaleType: days at least 50 pt apart as "MMM d", an hourly or five-minute graph's times 40 pt apart as
+        // "HH:mm".
+        let isTimed = data.step < 86400 && (data.x.first ?? 0) > 24
         let numberOfItems = (range.upperBound - range.lowerBound) / data.step
-        let maximumNumberOfItems = Double(chartFrame.width / 50)
+        let maximumNumberOfItems = Double(chartFrame.width / (isTimed ? 40 : 50))
         let tempStride = max(1, Int((numberOfItems / maximumNumberOfItems).rounded(.up)))
         var stride = 1
         while stride < tempStride {
@@ -521,7 +531,7 @@ private final class StatisticsPlotView: UIView {
             guard value > range.lowerBound else { break }
             let text = value <= 24
                 ? "\(Int(value)):00"
-                : Self.dayFormatter.string(from: Date(timeIntervalSince1970: value))
+                : (isTimed ? Self.timeFormatter : Self.dayFormatter).string(from: Date(timeIntervalSince1970: value))
             let string = NSAttributedString(string: text, attributes: attributes)
             let size = string.size()
             let x = xPosition(value) - size.width

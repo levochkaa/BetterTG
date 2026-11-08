@@ -4696,3 +4696,13 @@
 "Stats.MessageViews_3_10" = "%@ views";
 "Stats.MessageViews_many" = "%@ views";
 "Stats.MessageViews_any" = "%@ views";
+"Stats.MessageTitle" = "Message Statistics";
+"Stats.MessageOverview" = "Overview";
+"Stats.MessageInteractionsTitle" = "Interactions";
+"Stats.MessagePublicForwardsTitle" = "Public Shares";
+"Conversation.ContextViewStats" = "View Statistics";
+"Stats.Message.Views" = "Views";
+"Stats.Message.PublicShares" = "Public Shares";
+"Stats.Message.PrivateShares" = "Private Shares";
+"Stats.MessageReactionsTitle" = "REACTIONS";
+"Stats.Message.Reactions" = "Reactions";
