@@ -28,10 +28,13 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
     private static let lookupDelay = Duration.milliseconds(500)
     private static let statusSection = 2
     private static let shareSection = 3
+    private static let noteSection = 4
 
     private var firstName = ""
     private var lastName = ""
     private var phoneNumber = ""
+    private var note = ""
+    private var noteLimit = 128
     private var lookup = Lookup.idle
     private var sharesPhoneNumber = false
     private var isSaving = false
@@ -54,6 +57,14 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
         if !phoneNumber.isEmpty { phoneNumberChanged(phoneNumber) }
         navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
         updateDoneButton()
+        let client = client
+        Task { [weak self] in
+            if case .optionValueInteger(let value)? = try? await client.send(
+                TDNativeRequests.getOption(name: "user_note_text_length_max"),
+            ), value.value > 0 {
+                self?.noteLimit = Int(value.value)
+            }
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -82,6 +93,7 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
             ) { [weak self] text in self?.phoneNumberChanged(text) }))]),
             SettingsSection(rows: statusRows()),
             shareSection(),
+            noteSection(),
         ]
     }
 
@@ -97,6 +109,17 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
         self.firstName = firstName
         self.lastName = lastName
         self.phoneNumber = phoneNumber
+    }
+
+    /// The note only the account sees, for a person found on Telegram (NewContactScreen's noteSection).
+    private func noteSection() -> SettingsSection {
+        guard lookup.isFound else { return SettingsSection(rows: []) }
+        return SettingsSection(rows: [SettingsRow(title: "", style: .input(SettingsTextInput(
+            text: note,
+            placeholder: L10n.telegram("AddContact.NotePlaceholder"),
+            maxLength: noteLimit,
+            isMultiline: true,
+        ) { [weak self] text in self?.note = text }))])
     }
 
     private func statusRows() -> [SettingsRow] {
@@ -159,7 +182,7 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
         guard value != lookup else { return }
         lookup = value
         if !value.isFound { sharesPhoneNumber = false }
-        reload(sections: IndexSet([Self.statusSection, Self.shareSection]))
+        reload(sections: IndexSet([Self.statusSection, Self.shareSection, Self.noteSection]))
     }
 
     private func updateDoneButton() {
@@ -179,7 +202,10 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
         let contact = ImportedContact(
             firstName: first,
             lastName: lastName.trimmingCharacters(in: .whitespacesAndNewlines),
-            note: FormattedText(entities: [], text: ""),
+            note: FormattedText(
+                entities: [],
+                text: lookup.isFound ? note.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            ),
             phoneNumber: "+" + digits,
         )
         let foundUserID: Int64? =

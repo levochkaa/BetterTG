@@ -4176,3 +4176,4 @@
 "Community.Edit.PermissionOnlyAdminsInfo" = "Chats suggested by community members require admin approval.";
 "Settings.SetPhoto" = "Set Photo";
 "Settings.ChangePhoto" = "Change Photo";
+"AddContact.NotePlaceholder" = "Add notes only visible to you";
