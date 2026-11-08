@@ -200,12 +200,15 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         }
         if story != nil {
             title = L10n.telegram("Stats.StoryTitle")
-            // Opened over a story, the screen leads its own stack and closes.
+            // Opened over a story, the screen leads its own stack and closes; opened from a list, the story's icon
+            // stands on the right and opens it.
             if navigationController?.viewControllers.first === self {
                 navigationItem.leftBarButtonItem = UIBarButtonItem(
                     title: L10n.telegram("Common.Close"),
                     primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
                 )
+            } else if let story {
+                navigationItem.rightBarButtonItem = storyIconItem(story)
             }
             loadStory()
             return
@@ -729,6 +732,42 @@ final class ChannelStatisticsViewController: SettingsListViewController {
 
     /// The story's OVERVIEW as StatsOverviewItem shows it with the story's views: Views, Public Shares, Reactions and
     /// Private Shares, then its graphs and the public shares.
+    /// StoryIconNode: the story's media in a 30 pt circle 3 pt in, inside a 1.5 pt unseen ring, 36 pt in all, in
+    /// the middle of the bar's 44 pt button; a tap opens the story.
+    private func storyIconItem(_ story: Story) -> UIBarButtonItem {
+        let button = UIButton(type: .custom)
+        button.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
+        button.accessibilityLabel = L10n.telegram("Message.Story")
+        let image = TDImageLoadingView()
+        image.frame = CGRect(x: 7, y: 7, width: 30, height: 30)
+        image.layer.cornerRadius = 15
+        image.clipsToBounds = true
+        image.isUserInteractionEnabled = false
+        StatisticsPostCell.loadThumbnail(of: story, into: image, client: client)
+        button.addSubview(image)
+        let ring = StoryAvatarRingView(activeLineWidth: 1.5, inactiveLineWidth: 1.5)
+        ring.style = .unseen
+        ring.frame = CGRect(x: 4, y: 4, width: 36, height: 36)
+        ring.isUserInteractionEnabled = false
+        button.addSubview(ring)
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 44),
+            button.heightAnchor.constraint(equalToConstant: 44),
+        ])
+        let client = client
+        button.addAction(UIAction { [weak self, weak image] _ in
+            guard let self, let image else { return }
+            StoryViewerController.present(
+                .story(chatID: story.posterChatId, storyID: story.id),
+                client: client,
+                from: self,
+                sourceView: image,
+                sourceIsAvatar: true,
+            )
+        }, for: .touchUpInside)
+        return UIBarButtonItem(customView: button)
+    }
+
     private func storySections(_ story: Story) -> [SettingsSection] {
         guard messageLoaded else {
             return [SettingsSection(rows: [SettingsRow(
@@ -1313,6 +1352,33 @@ private final class StatisticsPostCell: UITableViewCell {
         }
     }
 
+    /// The story's photo, or its video's thumbnail.
+    static func loadThumbnail(of story: Story, into view: TDImageLoadingView, client: TDLibClient) {
+        let origin = TDImageOrigin.captured(client: client)
+        switch story.content {
+        case .storyContentPhoto(let value):
+            if let file = StoryMedia.photoFile(value.photo) {
+                view.load(
+                    file: file,
+                    placeholderData: value.photo.minithumbnail?.data,
+                    maximumPixelSize: 160,
+                    origin: origin,
+                )
+            }
+        case .storyContentVideo(let value):
+            if let thumbnail = value.video.thumbnail {
+                view.load(
+                    file: thumbnail.file,
+                    placeholderData: value.video.minithumbnail?.data,
+                    maximumPixelSize: 160,
+                    origin: origin,
+                )
+            }
+        default:
+            break
+        }
+    }
+
     /// compactNumericCountString.
     private static func compact(_ value: Int) -> String {
         if value >= 1000 {
@@ -1347,29 +1413,7 @@ private final class StatisticsPostCell: UITableViewCell {
         forwardsIcon.isHidden = forwards == 0
         thumbnailView.isHidden = false
         isStory = true
-        let origin = TDImageOrigin.captured(client: client)
-        switch story.content {
-        case .storyContentPhoto(let value):
-            if let file = StoryMedia.photoFile(value.photo) {
-                thumbnailView.load(
-                    file: file,
-                    placeholderData: value.photo.minithumbnail?.data,
-                    maximumPixelSize: 160,
-                    origin: origin,
-                )
-            }
-        case .storyContentVideo(let value):
-            if let thumbnail = value.video.thumbnail {
-                thumbnailView.load(
-                    file: thumbnail.file,
-                    placeholderData: value.video.minithumbnail?.data,
-                    maximumPixelSize: 160,
-                    origin: origin,
-                )
-            }
-        default:
-            break
-        }
+        Self.loadThumbnail(of: story, into: thumbnailView, client: client)
         let ring = storyRing ?? StoryAvatarRingView(activeLineWidth: 1.5, inactiveLineWidth: 1.5)
         ring.style = .unseen
         ring.isUserInteractionEnabled = false
