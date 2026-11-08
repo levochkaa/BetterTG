@@ -4830,3 +4830,7 @@
 "Story.Privacy.Choose" = "choose";
 "Story.Privacy.ShareStory" = "Share Story";
 "Story.Privacy.PostStory" = "Post Story";
+"Story.Privacy.ExcludePeople" = "exclude people";
+"Story.Privacy.ExcludePeopleExceptNames" = "except %@";
+"Story.Privacy.EditList" = "edit list";
+"Story.Privacy.ExcludedPeople" = "Excluded People";

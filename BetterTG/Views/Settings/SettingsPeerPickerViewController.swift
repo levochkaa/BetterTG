@@ -23,6 +23,10 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
     var pickerTitle: String?
     /// People only, for choices that name private chats, such as a business bot's chats.
     var listsOnlyPeople = false
+    /// The people checked as the picker opens, such as a story's close friends.
+    var initiallySelectedUserIDs = [Int64]()
+    /// Done also with nobody checked, for a list that may be emptied.
+    var allowsEmptySelection = false
 
     private let excludedUserIDs: Set<Int64>
     private let excludedChatIDs: Set<Int64>
@@ -50,7 +54,8 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
             title: L10n.telegram("Common.Cancel"), style: .plain, target: self, action: #selector(cancelPressed),
         )
         navigationItem.rightBarButtonItem = UIBarButtonItem.telegramDone(target: self, action: #selector(donePressed))
-        navigationItem.rightBarButtonItem?.isEnabled = false
+        selectedUserIDs = initiallySelectedUserIDs
+        navigationItem.rightBarButtonItem?.isEnabled = allowsEmptySelection || !selectedUserIDs.isEmpty
         if onPickUser != nil { navigationItem.rightBarButtonItem = nil }
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
@@ -164,7 +169,8 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
         } else {
             selectedChatIDs.append(id)
         }
-        navigationItem.rightBarButtonItem?.isEnabled = !selectedUserIDs.isEmpty || !selectedChatIDs.isEmpty
+        navigationItem.rightBarButtonItem?.isEnabled = allowsEmptySelection || !selectedUserIDs.isEmpty
+            || !selectedChatIDs.isEmpty
         reload()
     }
 

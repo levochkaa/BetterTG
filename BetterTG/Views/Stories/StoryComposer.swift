@@ -248,14 +248,22 @@ private final class StoryShareViewController: SettingsListViewController {
     private let caption: String
     private var audience = Audience.everyone
     private var selectedUserIDs = [Int64]()
+    /// The people left out under Everyone and Contacts (exceptUserIds).
+    private var excludedFromEveryone = [Int64]()
+    private var excludedFromContacts = [Int64]()
+    /// The account's close friends (getCloseFriends), edited with setCloseFriends.
+    private var closeFriendIDs = [Int64]()
+    private var firstNames = [Int64: String]()
     private var allowsScreenshots = true
     private var keepsOnPage = true
     private var isPosting = false
 
     private var privacy: TDNativeStoryPrivacySettings {
         switch audience {
-        case .everyone: .storyPrivacySettingsEveryone(TDNativeStoryPrivacySettingsEveryone(exceptUserIds: []))
-        case .contacts: .storyPrivacySettingsContacts(TDNativeStoryPrivacySettingsContacts(exceptUserIds: []))
+        case .everyone:
+            .storyPrivacySettingsEveryone(TDNativeStoryPrivacySettingsEveryone(exceptUserIds: excludedFromEveryone))
+        case .contacts:
+            .storyPrivacySettingsContacts(TDNativeStoryPrivacySettingsContacts(exceptUserIds: excludedFromContacts))
         case .closeFriends: .storyPrivacySettingsCloseFriends
         case .selected:
             .storyPrivacySettingsSelectedUsers(TDNativeStoryPrivacySettingsSelectedUsers(userIds: selectedUserIDs))
@@ -275,17 +283,29 @@ private final class StoryShareViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Story.Privacy.ShareStory")
+        let client = client
+        Task { [weak self] in
+            let users = try? await client.send(TDNativeRequests.getCloseFriends())
+            guard let self, contextIsCurrent, let users else { return }
+            closeFriendIDs = users.userIds
+            reload()
+        }
     }
 
     override func makeSections() -> [SettingsSection] {
+        let excluded: ([Int64]) -> String = { ids in
+            ids.isEmpty
+                ? L10n.telegram("Story.Privacy.ExcludePeople")
+                : L10n.telegram("Story.Privacy.ExcludePeopleExceptNames", self.names(ids))
+        }
         let audiences: [(Audience, String, String?)] = [
-            (.everyone, "Story.Privacy.CategoryEveryone", nil),
-            (.contacts, "Story.Privacy.CategoryContacts", nil),
-            (.closeFriends, "Story.Privacy.CategoryCloseFriends", nil),
+            (.everyone, "Story.Privacy.CategoryEveryone", excluded(excludedFromEveryone)),
+            (.contacts, "Story.Privacy.CategoryContacts", excluded(excludedFromContacts)),
+            (.closeFriends, "Story.Privacy.CategoryCloseFriends", L10n.telegram("Story.Privacy.EditList")),
             (
                 .selected,
                 "Story.Privacy.CategorySelectedContacts",
-                selectedUserIDs.isEmpty ? L10n.telegram("Story.Privacy.Choose") : nil,
+                selectedUserIDs.isEmpty ? L10n.telegram("Story.Privacy.Choose") : names(selectedUserIDs),
             ),
         ]
         return [
@@ -328,23 +348,73 @@ private final class StoryShareViewController: SettingsListViewController {
         ]
     }
 
+    /// ShareWithPeersScreen's category subtitles: exclude people or except the names, edit list, choose or the names.
+    private func names(_ ids: [Int64]) -> String {
+        ids.compactMap { firstNames[$0] }.joined(separator: ", ")
+    }
+
+    /// A tap chooses the category; on the chosen one it opens its list (Telegram's subtitle link): the people to
+    /// leave out, the close friends or the selected contacts. Selected Contacts opens it at once while empty.
     private func choose(_ audience: Audience) {
-        guard audience == .selected else {
+        guard self.audience == audience || audience == .selected && selectedUserIDs.isEmpty else {
             self.audience = audience
             reload()
             return
         }
-        // Selected Contacts: the people chosen in the contact picker.
+        let current: [Int64]
+        let title: String
+        switch audience {
+        case .contacts,
+             .everyone:
+            current = audience == .everyone ? excludedFromEveryone : excludedFromContacts
+            title = L10n.telegram("Story.Privacy.ExcludedPeople")
+        case .closeFriends:
+            current = closeFriendIDs
+            title = L10n.telegram("Story.Privacy.CategoryCloseFriends")
+        case .selected:
+            current = selectedUserIDs
+            title = L10n.telegram("Story.Privacy.CategorySelectedContacts")
+        }
         let picker = SettingsPeerPickerViewController(excludedUserIDs: [], excludedChatIDs: [])
         picker.listsOnlyPeople = true
-        picker.pickerTitle = L10n.telegram("Story.Privacy.CategorySelectedContacts")
-        picker.onDone = { [weak self] userIDs, _ in
-            guard let self else { return }
+        picker.pickerTitle = title
+        picker.initiallySelectedUserIDs = current
+        picker.allowsEmptySelection = audience != .selected
+        picker.onDone = { [weak self] userIDs, _ in self?.applyList(userIDs, to: audience) }
+        present(TelegramNavigationController(rootViewController: picker), animated: true)
+    }
+
+    private func applyList(_ userIDs: [Int64], to audience: Audience) {
+        switch audience {
+        case .everyone: excludedFromEveryone = userIDs
+        case .contacts: excludedFromContacts = userIDs
+        case .closeFriends:
+            // setCloseFriends: the list belongs to the account, not to this story.
+            closeFriendIDs = userIDs
+            let client = client
+            Task { _ = try? await client.send(TDNativeRequests.setCloseFriends(userIds: userIDs)) }
+        case .selected:
             selectedUserIDs = userIDs
             if !userIDs.isEmpty { self.audience = .selected }
+        }
+        reload()
+        loadNames(userIDs)
+    }
+
+    private func loadNames(_ ids: [Int64]) {
+        let missing = ids.filter { firstNames[$0] == nil }
+        guard !missing.isEmpty else { return }
+        let client = client
+        Task { [weak self] in
+            var found = [Int64: String]()
+            for id in missing {
+                guard let user = try? await client.getUser(userId: id) else { continue }
+                found[id] = user.firstName.isEmpty ? user.lastName : user.firstName
+            }
+            guard let self, contextIsCurrent else { return }
+            firstNames.merge(found) { $1 }
             reload()
         }
-        navigationController?.pushViewController(picker, animated: true)
     }
 
     /// The canvas as a JPEG for postStory from the account's Saved Messages, active for a day.
