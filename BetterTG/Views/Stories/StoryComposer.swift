@@ -414,7 +414,8 @@ private final class StoryPlayerView: UIView {
 
 /// MediaEditorScreen's preview: the story on black with 12 pt corners, Close and Next in the bar, and the caption
 /// field over the story's bottom (Add a caption...); Next goes on to Share Story.
-private final class StoryPreviewViewController: UIViewController, UITextViewDelegate {
+private final class StoryPreviewViewController: UIViewController, UITextViewDelegate,
+UIColorPickerViewControllerDelegate {
     private let media: StoryDraft
     private let client: TDLibClient
     private let accountID: UUID?
@@ -430,6 +431,8 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
     private let playerView = StoryPlayerView()
     /// MediaEditorScreen's entities over the story, in story points.
     private let entitiesView = StoryEntitiesView()
+    /// TextSizeSliderComponent at the screen's leading edge while a text is edited.
+    private let sizeSlider = StoryTextSizeSlider()
     /// The keyboard's top in the view, its bottom while the keyboard is down.
     private var keyboardTop = CGFloat.greatestFiniteMagnitude
     private var keyboardObservation: AnyCancellable?
@@ -550,9 +553,21 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
                 else { return }
                 keyboardTop = view.convert(window.convert(frame, from: nil), from: nil).minY
                 entitiesView.updateEditingPosition()
+                layoutSizeSlider()
             }
+        sizeSlider.alpha = 0
+        view.addSubview(sizeSlider)
+        sizeSlider.onChange = { [weak self] value in
+            guard let self, let entity = entitiesView.editingEntity else { return }
+            entity.fontSize = value
+            entity.update()
+            entitiesView.updateEditingPosition()
+        }
+        entitiesView.settingsBar.onColor = { [weak self] in self?.presentColorPicker() }
         entitiesView.onEditingChange = { [weak self] isEditing in
             guard let self else { return }
+            if isEditing, let entity = entitiesView.editingEntity { sizeSlider.value = entity.fontSize }
+            UIView.animate(withDuration: 0.2) { self.sizeSlider.alpha = isEditing ? 1 : 0 }
             navigationItem.rightBarButtonItems = isEditing ? [doneItem] : [nextItem, textItem]
             navigationItem.leftBarButtonItem = isEditing ? nil : closeItem
             UIView.animate(withDuration: 0.2) {
@@ -604,6 +619,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        layoutSizeSlider()
         // The entities' story points scaled onto the story.
         let scale = imageView.bounds.width / StoryEntitiesView.size.width
         entitiesView.transform = CGAffineTransform(scaleX: scale, y: scale)
@@ -612,6 +628,21 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
 
     func textViewDidChange(_ textView: UITextView) {
         placeholder.isHidden = !textView.text.isEmpty
+    }
+
+    func colorPickerViewController(
+        _: UIColorPickerViewController,
+        didSelect color: UIColor,
+        continuously _: Bool,
+    ) {
+        guard let entity = entitiesView.editingEntity else { return }
+        entity.color = color
+        entity.update()
+        entitiesView.settingsBar.refresh()
+    }
+
+    func colorPickerViewControllerDidFinish(_: UIColorPickerViewController) {
+        entitiesView.editingEntity?.resumeEditing()
     }
 
     /// presentTimeoutSetup: Choose how long the story will be visible, then 6, 12, 24 and 48 Hours with a check on
@@ -657,6 +688,31 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
             }
         }
         timerButton.menu = UIMenu(title: L10n.telegram("Story.Editor.ExpirationText"), children: options)
+    }
+
+    /// The slider's place: the leading edge, centred between the top inset and the keyboard or the bottom inset.
+    private func layoutSizeSlider() {
+        let top = view.safeAreaInsets.top
+        let bottom = min(view.bounds.height - view.safeAreaInsets.bottom, keyboardTop)
+        sizeSlider.frame = CGRect(
+            x: view.safeAreaInsets.left,
+            y: top + (bottom - top) / 2 - 120,
+            width: 30,
+            height: 240,
+        )
+    }
+
+    /// presentColorPicker, as the system's colour picker: editing pauses while it is up.
+    private func presentColorPicker() {
+        guard let entity = entitiesView.editingEntity else { return }
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        // The editor's dark ColorPickerScreen.
+        picker.overrideUserInterfaceStyle = .dark
+        picker.selectedColor = entity.color
+        picker.delegate = self
+        entity.suspendEditing()
+        present(picker, animated: true)
     }
 
     private func next() {
