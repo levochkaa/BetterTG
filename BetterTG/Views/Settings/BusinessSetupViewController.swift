@@ -1,5 +1,6 @@
 // BusinessSetupViewController.swift
 
+import Combine
 import MapKit
 import TDLibKit
 import UIKit
@@ -905,7 +906,9 @@ UICollectionViewDelegateFlowLayout, TelegramNavigationSearchProvider, UISearchRe
     private var allStickers = [Sticker]()
     /// StickerPaneSearchContentNode's packs above the found stickers, each with ADD or ADDED.
     private var packs = [TDNativeStickerSetInfo]()
-    private var installedPackIDs = Set<Int64>()
+    /// The installed regular packs once updateInstalledStickerSets says, which ADD and a pack's preview both change.
+    private var installedPackIDs: Set<Int64>?
+    private var installedCancellable: AnyCancellable?
     private var searchTask: Task<Void, Never>?
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
@@ -931,6 +934,17 @@ UICollectionViewDelegateFlowLayout, TelegramNavigationSearchProvider, UISearchRe
         telegramNavigationSearch.obscuresBackgroundDuringPresentation = false
         telegramNavigationSearch.searchResultsUpdater = self
         telegramNavigationSearch.searchBar.placeholder = L10n.telegram("Common.Search")
+        installedCancellable = nc
+            .publisher(for: .updateInstalledStickerSets)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self,
+                      let update = TdScopedUpdate<TDNativeUpdateInstalledStickerSets>(notification: note),
+                      update.source == TDLib.shared.activeUpdateSource,
+                      case .stickerTypeRegular = update.value.stickerType else { return }
+                installedPackIDs = Set(update.value.stickerSetIds)
+                if !packs.isEmpty { collectionView.reloadSections(IndexSet(integer: 0)) }
+            }
         collectionView.backgroundColor = .clear
         collectionView.dataSource = self
         collectionView.delegate = self
@@ -983,7 +997,7 @@ UICollectionViewDelegateFlowLayout, TelegramNavigationSearchProvider, UISearchRe
             if let cell = cell as? StickerPackSearchCell, let pack = packs[safe: indexPath.item] {
                 cell.configure(
                     pack: pack,
-                    isInstalled: pack.isInstalled || installedPackIDs.contains(pack.id),
+                    isInstalled: installedPackIDs?.contains(pack.id) ?? pack.isInstalled,
                     client: client,
                 ) { [weak self] in self?.install(pack) }
             }
@@ -1057,7 +1071,7 @@ UICollectionViewDelegateFlowLayout, TelegramNavigationSearchProvider, UISearchRe
                 isInstalled: true,
                 isArchived: false,
             ))) != nil, let self else { return }
-            installedPackIDs.insert(pack.id)
+            installedPackIDs = (installedPackIDs ?? Set(packs.filter(\.isInstalled).map(\.id))).union([pack.id])
             collectionView.reloadSections(IndexSet(integer: 0))
         }
     }
