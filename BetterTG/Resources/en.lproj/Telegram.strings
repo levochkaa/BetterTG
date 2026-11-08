@@ -935,6 +935,7 @@
 "DialogList.Read" = "Read";
 "ChatList.ArchiveAction" = "Archive";
 "ChatList.UnarchiveAction" = "Unarchive";
+"ChatList.Archive" = "Archive";
 "Conversation.DiscussionStarted" = "Discussion started";
 "Conversation.DiscussionNotStarted" = "No comments here yet...";
 "FolderLinkPreview.TitleAddFolder" = "Add Folder";

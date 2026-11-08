@@ -14,7 +14,7 @@ enum MainTab: Int, CaseIterable {
     var title: String {
         switch self {
         case .chats: L10n.telegram("DialogList.Title")
-        case .archive: L10n.telegram("ChatList.ArchiveAction")
+        case .archive: L10n.telegram("ChatList.Archive")
         case .settings: L10n.telegram("Settings.Title")
         }
     }
