@@ -203,7 +203,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             }
         }
 
-        accountCancellable = NotificationCenter.default
+        accountCancellable = nc
             .publisher(for: .telegramAccountsChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in

@@ -86,7 +86,7 @@ import UIKit
                 self?.stop(unless: nil)
             }
             .store(in: &cancellables)
-        NotificationCenter.default
+        nc
             .publisher(for: .voiceRecordingWillStart)
             .merge(with: NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification))
             .receive(on: DispatchQueue.main)

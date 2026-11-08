@@ -485,7 +485,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 self?.pauseForCompetingPlayback()
             }
             .store(in: &cancellables)
-        NotificationCenter.default
+        nc
             .publisher(for: .voiceRecordingWillStart)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.pauseForCompetingPlayback() }
