@@ -21,6 +21,8 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
     var onPickUser: ((Int64) -> Void)?
     /// The title in place of Add Users.
     var pickerTitle: String?
+    /// People only, for choices that name private chats, such as a business bot's chats.
+    var listsOnlyPeople = false
 
     private let excludedUserIDs: Set<Int64>
     private let excludedChatIDs: Set<Int64>
@@ -67,7 +69,7 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
             )])]
         }
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let candidates = onPickUser == nil ? items : items.filter(\.isUser)
+        let candidates = onPickUser == nil && !listsOnlyPeople ? items : items.filter(\.isUser)
         let visible = normalized.isEmpty
             ? candidates
             : candidates.filter { $0.peer.title.localizedCaseInsensitiveContains(normalized) }

@@ -54,6 +54,10 @@ final class BusinessSetupViewController: SettingsListViewController {
                     feature("Business.Intro", "Business.IntroInfo", symbol: "hand.wave", tint: .systemPink) {
                         [weak self] in self?.openIntro()
                     },
+                    feature("Business.ChatbotsItem", "Business.ChatbotsInfo", symbol: "cpu", tint: .systemIndigo) {
+                        [weak self] in
+                        self?.navigationController?.pushViewController(ChatbotSetupViewController(), animated: true)
+                    },
                 ],
             ),
             SettingsSection(

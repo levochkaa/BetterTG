@@ -21,6 +21,7 @@ public typealias BasicGroupFullInfo = TDNativeBasicGroupFullInfo
 public typealias Birthdate = TDNativeBirthdate
 public typealias BlockList = TDNativeBlockList
 public typealias BotInfo = TDNativeBotInfo
+public typealias BusinessBotRights = TDNativeBusinessBotRights
 public typealias Call = TDNativeCall
 public typealias CallDiscardReason = TDNativeCallDiscardReason
 public typealias Chat = TDNativeChat
