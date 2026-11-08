@@ -347,6 +347,7 @@ enum PrivacyKind: CaseIterable {
     case profilePhoto
     case bio
     case birthday
+    case savedMusic
     case forwards
     case calls
     case invites
@@ -358,6 +359,7 @@ enum PrivacyKind: CaseIterable {
         case .profilePhoto: .userPrivacySettingShowProfilePhoto
         case .bio: .userPrivacySettingShowBio
         case .birthday: .userPrivacySettingShowBirthdate
+        case .savedMusic: .userPrivacySettingShowProfileAudio
         case .forwards: .userPrivacySettingShowLinkInForwardedMessages
         case .calls: .userPrivacySettingAllowCalls
         case .invites: .userPrivacySettingAllowChatInvites
@@ -371,6 +373,7 @@ enum PrivacyKind: CaseIterable {
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto")
         case .bio: L10n.telegram("Privacy.Bio")
         case .birthday: L10n.telegram("Privacy.Birthday")
+        case .savedMusic: L10n.telegram("Privacy.SavedMusic")
         case .forwards: L10n.telegram("Privacy.Forwards")
         case .calls: L10n.telegram("Privacy.Calls")
         case .invites: L10n.telegram("PrivacySettings.InviteItem")
@@ -386,7 +389,8 @@ enum PrivacyKind: CaseIterable {
         case .bio,
              .birthday,
              .forwards,
-             .profilePhoto: rowTitle
+             .profilePhoto,
+             .savedMusic: rowTitle
         }
     }
 
@@ -397,6 +401,7 @@ enum PrivacyKind: CaseIterable {
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto.WhoCanSeeMyPhoto")
         case .bio: L10n.telegram("Privacy.Bio.WhoCanSeeMyBio")
         case .birthday: L10n.telegram("Privacy.Birthday.WhoCanSeeMyBio")
+        case .savedMusic: L10n.telegram("Privacy.SavedMusic.WhoCanSeeMyMusic")
         case .forwards: L10n.telegram("Privacy.Forwards.WhoCanForward")
         case .calls: L10n.telegram("Privacy.Calls.WhoCanCallMe")
         case .invites: L10n.telegram("Privacy.GroupsAndChannels.WhoCanAddMe")
@@ -411,6 +416,7 @@ enum PrivacyKind: CaseIterable {
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto.CustomHelp")
         case .bio: L10n.telegram("Privacy.Bio.CustomHelp")
         case .birthday: L10n.telegram("Privacy.Birthday.CustomHelp")
+        case .savedMusic: L10n.telegram("Privacy.SavedMusic.CustomHelp")
         case .forwards: L10n.telegram("Privacy.Forwards.CustomHelp")
         case .calls: L10n.telegram("Privacy.Calls.CustomHelp")
         case .invites: L10n.telegram("Privacy.GroupsAndChannels.CustomHelp")
@@ -426,7 +432,8 @@ enum PrivacyKind: CaseIterable {
              .birthday,
              .lastSeen,
              .phoneNumber,
-             .profilePhoto: L10n.telegram("PrivacyLastSeenSettings.NeverShareWith")
+             .profilePhoto,
+             .savedMusic: L10n.telegram("PrivacyLastSeenSettings.NeverShareWith")
         }
     }
 
@@ -439,7 +446,8 @@ enum PrivacyKind: CaseIterable {
              .birthday,
              .lastSeen,
              .phoneNumber,
-             .profilePhoto: L10n.telegram("PrivacyLastSeenSettings.AlwaysShareWith")
+             .profilePhoto,
+             .savedMusic: L10n.telegram("PrivacyLastSeenSettings.AlwaysShareWith")
         }
     }
 }

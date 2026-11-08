@@ -4290,3 +4290,6 @@
 "ChatList.FrozenAccount.Text" = "Tap to view details and submit an appeal.";
 "FrozenAccount.Violation.TextNew" = "Your account was frozen for breaking Telegram's [Terms and Conditions]().";
 "FrozenAccount.Violation.TextNew_URL" = "https://telegram.org/tos";
+"Privacy.SavedMusic" = "Saved Music";
+"Privacy.SavedMusic.WhoCanSeeMyMusic" = "WHO CAN SEE MY SAVED MUSIC";
+"Privacy.SavedMusic.CustomHelp" = "You can restrict who can see your saved music with granular precision.";
