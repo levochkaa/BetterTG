@@ -489,7 +489,7 @@ cleanup:
     return result < 0 ? result : 0;
 }
 
-int BetterTGFFmpegIsOggOpusFile(const char *path) {
+static int BetterTGFFmpegCheckOggOpusFile(const char *path, int requireMono) {
     if (path == NULL || path[0] == '\0') {
         return 0;
     }
@@ -539,5 +539,13 @@ int BetterTGFFmpegIsOggOpusFile(const char *path) {
     av_frame_free(&frame);
     avcodec_free_context(&decoder);
     avformat_close_input(&format);
-    return isOpus && isMono && is48KHz && hasDuration && decodedFrame ? 1 : 0;
+    return isOpus && (isMono || !requireMono) && is48KHz && hasDuration && decodedFrame ? 1 : 0;
+}
+
+int BetterTGFFmpegIsOggOpusFile(const char *path) {
+    return BetterTGFFmpegCheckOggOpusFile(path, 1);
+}
+
+int BetterTGFFmpegIsPlayableOggOpusFile(const char *path) {
+    return BetterTGFFmpegCheckOggOpusFile(path, 0);
 }

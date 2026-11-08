@@ -32,6 +32,8 @@ int BetterTGFFmpegTranscodeVoiceNote(
 
 // Returns 1 only for a decodable mono 48 kHz Ogg/Opus file with positive duration.
 int BetterTGFFmpegIsOggOpusFile(const char *path);
+// Ogg Opus at 48 kHz in any channel layout the playback decoder takes, such as an animated emoji's stereo sound.
+int BetterTGFFmpegIsPlayableOggOpusFile(const char *path);
 
 typedef struct BetterTGFFmpegAudioDecodeJob BetterTGFFmpegAudioDecodeJob;
 

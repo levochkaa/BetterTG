@@ -11,6 +11,60 @@ import UIKit
     @MainActor enum ThreadReplyProbe {
         private static let title = "BetterTG thread test"
 
+        /// `-ui-probe-emoji-sounds`: which animated emoji TDLib gives a sound (getAnimatedEmoji), to try the tap's
+        /// sound.
+        static func listEmojiSoundsIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-emoji-sounds") else { return }
+            Task {
+                try? await ProbeFixtures.waitForActiveAccount()
+                let client = TDLib.shared.activeClient
+                let candidates = [
+                    "🎃",
+                    "🍆",
+                    "🎉",
+                    "👻",
+                    "🥳",
+                    "🎆",
+                    "🎇",
+                    "🔥",
+                    "💋",
+                    "😘",
+                    "🤡",
+                    "💩",
+                    "👍",
+                    "❤️",
+                    "🍑",
+                    "😂",
+                    "🎄",
+                    "☃️",
+                    "🦃",
+                    "🐔",
+                    "🐶",
+                    "🐱",
+                    "🐷",
+                    "🐸",
+                    "🐮",
+                    "🦆",
+                ]
+                var withSound = [String]()
+                for emoji in candidates {
+                    if let animated = try? await client.send(TDNativeRequests.getAnimatedEmoji(emoji: emoji)),
+                       animated.sound != nil
+                    {
+                        withSound.append(emoji)
+                    }
+                }
+                let result = "Emoji sounds: " + withSound.joined(separator: " ")
+                if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? Data(result.utf8).write(
+                        to: directory.appendingPathComponent("emoji-sounds.txt"),
+                        options: .atomic,
+                    )
+                }
+                log(result)
+            }
+        }
+
         static func runIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-thread-reply") else { return }
             Task {

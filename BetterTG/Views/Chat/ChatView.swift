@@ -454,6 +454,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The interaction effects of big animated emoji on screen
     /// (ChatMessageAnimatedStickerItemNode.additionalAnimationNodes).
     private var activeEmojiEffects = [TGSStickerView]()
+    /// The sound of the last tapped animated emoji, kept while it plays.
+    private var emojiSoundPlayer: AVAudioPlayer?
     #if DEBUG
         private var messageNavigationGeometry: ChatMessageNavigationGeometry?
         private var viewportCompletionProbe: ChatViewportCompletionProbe?
@@ -7564,20 +7566,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.pollAnswered(outcome, messageID: messageID)
             }
         case .animatedEmojiTapped(let messageID, let sourceView):
-            let ownSticker: Sticker? =
+            let animatedEmoji: AnimatedEmoji? =
                 if case .messageAnimatedEmoji(let emoji) = message.sourceMessages
                         .first(where: { $0.id == messageID })?
                         .content
                 {
-                    emoji.animatedEmoji.sticker
+                    emoji.animatedEmoji
                 } else {
                     nil
                 }
+            if let sound = animatedEmoji?.sound { playEmojiSound(sound) }
             playAnimatedEmojiInteraction(
                 messageID: messageID,
                 sourceView: sourceView,
                 isIncoming: !message.message.isOutgoing,
-                ownSticker: ownSticker,
+                ownSticker: animatedEmoji?.sticker,
             )
         case .diceSucceeded:
             // ChatController's animateDiceSuccess: a haptic and confetti.
@@ -8194,6 +8197,39 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             #endif
             guard let effect, let self, let sourceView, sourceView.window === view.window else { return }
             playEmojiEffect(effect, around: sourceView, isIncoming: isIncoming)
+        }
+    }
+
+    /// ChatMessageAnimatedStickerItemNode plays an emoji's sound with an ambient MediaPlayer: it mixes with other
+    /// audio and keeps quiet with the ring switch off. The session goes ambient only while the app plays nothing else;
+    /// otherwise the sound joins what plays.
+    private func playEmojiSound(_ file: File) {
+        let client = chatVM.client
+        Task { [weak self] in
+            var path = file.local.isDownloadingCompleted ? file.local.path : ""
+            if path.isEmpty,
+               let downloaded = try? await client.downloadFile(
+                   fileId: file.id,
+                   limit: 0,
+                   offset: 0,
+                   priority: 32,
+                   synchronous: true,
+               ),
+               downloaded.local.isDownloadingCompleted
+            {
+                path = downloaded.local.path
+            }
+            guard !path.isEmpty else { return }
+            let url = await FFmpegAudioPlaybackCache.shared.playableURL(for: URL(fileURLWithPath: path))
+            guard let self, view.window != nil, let player = try? AVAudioPlayer(contentsOf: url) else { return }
+            let session = AVAudioSession.sharedInstance()
+            if session.category == .soloAmbient || session.category == .ambient {
+                try? session.setCategory(.ambient)
+                try? session.setActive(true)
+            }
+            emojiSoundPlayer = player
+            player.prepareToPlay()
+            player.play()
         }
     }
 

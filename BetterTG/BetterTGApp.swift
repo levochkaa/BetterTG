@@ -71,6 +71,7 @@ import UIKit
             ChatListRowIconsProbe.runIfRequested()
             ChatListForumRowProbe.runIfRequested()
             ThreadReplyProbe.runIfRequested()
+            ThreadReplyProbe.listEmojiSoundsIfRequested()
             ChatTitleIconsProbe.runIfRequested()
             MessageStatusLineProbe.runIfRequested()
             MessageReadReportProbe.runIfRequested()

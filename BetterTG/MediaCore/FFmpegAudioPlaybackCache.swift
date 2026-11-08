@@ -102,7 +102,7 @@ actor FFmpegAudioPlaybackCache {
                 try fileManager.removeItem(at: cacheURL)
             }
             let isOggOpus = await Task.detached(priority: .utility) {
-                sourceURL.path.withCString { BetterTGFFmpegIsOggOpusFile($0) == 1 }
+                sourceURL.path.withCString { BetterTGFFmpegIsPlayableOggOpusFile($0) == 1 }
             }.value
             try Task.checkCancellation()
             guard isOggOpus else { return sourceURL }
