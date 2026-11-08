@@ -69,6 +69,11 @@ final class ChatListCell: UITableViewCell {
         didSet { updateStoryInteraction() }
     }
 
+    /// ChatListItem's tags: the chat list shows the chat's coloured folders under its text; search leaves them out.
+    var showsFolderTags = false
+    /// The folder the list shows, whose tag the rows leave out.
+    var currentFolderID: Int?
+
     /// Opens a forum's unread topic from its highlighted line (ChatListItem's compoundTextButtonNode,
     /// `openForumThread`). Without it, as in search, the topic isn't selectable.
     var onOpenTopic: ((Int) -> Void)?
@@ -99,6 +104,9 @@ final class ChatListCell: UITableViewCell {
     /// ChatListItem's `forumThread`: the topic of a forum's last message, then its other recent topics, on their own
     /// line above the text.
     private let topicsLineView = ChatListForumTopicsLineView()
+    private let folderTagsView = ChatListFolderTagsView()
+    /// The folder tags under the text, which replace the forum's topics and the text's second place.
+    private var folderTags = [(id: Int, name: String, colorId: Int)]()
     private var messageBelowTopicConstraint: NSLayoutConstraint!
     private var messageTrailingConstraint: NSLayoutConstraint!
     /// ChatListItem's compound highlight and button over an unread first topic and the text, with the disclosure
@@ -359,6 +367,11 @@ final class ChatListCell: UITableViewCell {
                 view.reset()
             }
         }
+        folderTags = showsFolderTags && usesCardStyle
+            ? TelegramChatListStore.shared.folderTags(chatID: chat.id).filter { $0.id != currentFolderID }
+            : []
+        folderTagsView.configure(folderTags)
+        folderTagsView.isHidden = folderTags.isEmpty
         messageLabel.attributedText = withCustomEmoji(
             activityText(for: chat, client: client) ?? summaryText(for: chat, client: client),
             chatID: chat.id,
@@ -484,7 +497,8 @@ final class ChatListCell: UITableViewCell {
         let chatID = chat.id
         var entries = [ChatListForumTopicsLineView.Entry]()
         var selectableTopicID: Int?
-        if chat.supergroup?.isForum == true, chat.draftMessage == nil,
+        // Tags take the forum's topics' place (ChatListItem drops forumTopicData with tags).
+        if folderTags.isEmpty, chat.supergroup?.isForum == true, chat.draftMessage == nil,
            let message = chat.lastMessage, case .messageTopicForum(let topic) = message.topicId
         {
             let topicID = topic.forumTopicId
@@ -527,8 +541,11 @@ final class ChatListCell: UITableViewCell {
         let styleConstraints = usesCardStyle ? cardTextConstraints : plainTextConstraints
         let messageTop = styleConstraints.first { $0.firstItem === messageLabel }
         let cardTitleBottom = cardTextConstraints.first { $0.firstItem === titleLabel }
-        // A card centres the three lines as it centres two.
-        cardTitleBottom?.constant = showsTopic ? -12 : -2
+        let cardMessageTop = cardTextConstraints.first { $0.firstItem === messageLabel }
+        // A card centres the three lines as it centres two; tags go under the text.
+        let showsTags = !folderTags.isEmpty
+        cardTitleBottom?.constant = showsTopic ? -12 : showsTags ? -10 : -2
+        cardMessageTop?.constant = showsTags ? -6 : 2
         if showsTopic {
             messageTop?.isActive = false
             messageBelowTopicConstraint.isActive = true
@@ -747,6 +764,7 @@ final class ChatListCell: UITableViewCell {
             avatarView, storyRingView, titleLabel, titleIconsView, headerAccessoryRow, messageLabel, trailingBadges,
             separatorView,
             topicsLineView,
+            folderTagsView,
         ] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
@@ -1197,6 +1215,10 @@ final class ChatListCell: UITableViewCell {
             topicsLineView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             topicsLineView.trailingAnchor.constraint(equalTo: trailingBadges.leadingAnchor, constant: -6),
             topicsLineView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            // ChatListItem's tag list sits 2 pt under the text line.
+            folderTagsView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            folderTagsView.trailingAnchor.constraint(lessThanOrEqualTo: trailingBadges.leadingAnchor, constant: -6),
+            folderTagsView.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 2),
         ])
         messageBelowTopicConstraint = messageLabel.topAnchor.constraint(
             equalTo: topicsLineView.bottomAnchor,

@@ -1053,6 +1053,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             cell.onOpenTopic = { [weak self] topicID in
                 self?.openTopic(topicID, of: id)
             }
+            cell.showsFolderTags = true
+            // The page's own folder leaves its tag out.
+            cell.currentFolderID = folder.id
             cell.configure(
                 chat: chat,
                 isMuted: rootVM.isMuted(chat),

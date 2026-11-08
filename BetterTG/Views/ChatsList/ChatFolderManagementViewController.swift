@@ -17,6 +17,8 @@ final class ChatFoldersViewController: UITableViewController {
     private var chatCountTasks = [Int: Task<Void, Never>]()
     private var recommendedFolders = [TDNativeRecommendedChatFolder]()
     private var didRequestRecommendedFolders = false
+    /// Show Folder Tags needs Premium; without it the switch is locked off.
+    private var isPremium = false
 
     private var customFolders: [CustomFolder] {
         folders.filter {
@@ -38,9 +40,16 @@ final class ChatFoldersViewController: UITableViewController {
         }
     }
 
-    /// The folders, then the recommended ones while there are any. Where the folder tabs go is in BetterTG's
-    /// settings, as Swiftgram keeps Folder Tabs at Bottom in its own.
-    private var sectionCount: Int { visibleRecommendedFolders.isEmpty ? 1 : 2 }
+    /// The folders, then the recommended ones while there are any, then Show Folder Tags. Where the folder tabs go
+    /// is in BetterTG's settings, as Swiftgram keeps Folder Tabs at Bottom in its own.
+    private var sectionCount: Int { visibleRecommendedFolders.isEmpty ? 2 : 3 }
+
+    private var tagsSection: Int { sectionCount - 1 }
+
+    /// TDLib's are_tags_enabled, shown off without Premium.
+    private var areTagsEnabled: Bool {
+        isPremium && TelegramChatListStore.shared.folderConfiguration?.areTagsEnabled == true
+    }
 
     convenience init(rootVM: RootVM, actionAuthority: ChatListActionAuthority? = nil) {
         self.init(session: .live(rootVM: rootVM, authority: actionAuthority))
@@ -76,6 +85,26 @@ final class ChatFoldersViewController: UITableViewController {
             refreshChatCounts()
             loadRecommendedFolders()
         }.store(in: &cancellables)
+        TelegramChatListStore.shared
+            .changes
+            .filter {
+                if case .folders = $0 {
+                    true
+                } else {
+                    false
+                }
+            }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                tableView.reloadSections(IndexSet(integer: tagsSection), with: .none)
+            }
+            .store(in: &cancellables)
+        Task { [weak self] in
+            let isPremium = await (try? TDLib.shared.activeClient.getMe())?.isPremium ?? false
+            guard let self, isPremium != self.isPremium else { return }
+            self.isPremium = isPremium
+            tableView.reloadSections(IndexSet(integer: tagsSection), with: .none)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -86,18 +115,21 @@ final class ChatFoldersViewController: UITableViewController {
     override func numberOfSections(in _: UITableView) -> Int { sectionCount }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? customFolders.count : visibleRecommendedFolders.count
+        if section == tagsSection { return 1 }
+        return section == 0 ? customFolders.count : visibleRecommendedFolders.count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 1 ? L10n.telegram("ChatListFolderSettings.RecommendedFoldersSection") : nil
+        isRecommendedSection(section) ? L10n.telegram("ChatListFolderSettings.RecommendedFoldersSection") : nil
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        section == 0 && customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
+        if section == tagsSection { return L10n.telegram("ChatListFilterList.ShowTagsFooter") }
+        return section == 0 && customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if indexPath.section == tagsSection { return showTagsCell(tableView, at: indexPath) }
         guard indexPath.section == 0 else { return recommendedFolderCell(tableView, at: indexPath) }
         let cell = tableView.dequeueReusableCell(withIdentifier: "FolderCell", for: indexPath)
         let folder = customFolders[indexPath.row]
@@ -112,7 +144,10 @@ final class ChatFoldersViewController: UITableViewController {
         configuration.image = folder.icon?.image
         configuration.imageProperties.tintColor = .systemBlue
         cell.contentConfiguration = configuration
+        // The cell may come back from Show Folder Tags with its switch.
+        cell.accessoryView = nil
         cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
         return cell
     }
 
@@ -149,6 +184,10 @@ final class ChatFoldersViewController: UITableViewController {
         return UISwipeActionsConfiguration(actions: [delete])
     }
 
+    private func isRecommendedSection(_ section: Int) -> Bool {
+        section == 1 && !visibleRecommendedFolders.isEmpty
+    }
+
     /// Counts each folder whose definition changed since it was last counted.
     private func refreshChatCounts() {
         guard let reader = session.reader, session.isCurrent else { return }
@@ -181,6 +220,49 @@ final class ChatFoldersViewController: UITableViewController {
             guard let self, session.isCurrent else { return }
             recommendedFolders = folders
             tableView.reloadData()
+        }
+    }
+
+    /// ChatListFilterPresetListController's displayTags: Show Folder Tags, locked without Premium.
+    private func showTagsCell(_ tableView: UITableView, at indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "FolderCell", for: indexPath)
+        var configuration = cell.defaultContentConfiguration()
+        configuration.text = L10n.telegram("ChatListFilterList.ShowTags")
+        if !isPremium {
+            configuration.image = UIImage(systemName: "lock.fill")
+            configuration.imageProperties.tintColor = .secondaryLabel
+            configuration.imageProperties.maximumSize = CGSize(width: 14, height: 14)
+        }
+        cell.contentConfiguration = configuration
+        cell.accessoryType = .none
+        cell.selectionStyle = .none
+        let toggle = UISwitch()
+        toggle.isOn = areTagsEnabled
+        toggle.addAction(UIAction { [weak self, weak toggle] _ in
+            guard let self, let toggle else { return }
+            setTagsEnabled(toggle.isOn, toggle: toggle)
+        }, for: .valueChanged)
+        cell.accessoryView = toggle
+        return cell
+    }
+
+    /// toggleChatFolderTags; without Premium the switch goes back with Premium.FolderTagsInfo.
+    private func setTagsEnabled(_ isEnabled: Bool, toggle: UISwitch) {
+        guard isPremium, session.scope(owner: self).isCurrent else {
+            toggle.setOn(false, animated: true)
+            TelegramUndoToast.show(
+                text: L10n.telegram("Premium.FolderTagsInfo"),
+                in: view.window ?? view,
+                bottomInset: 12,
+                undo: nil,
+            )
+            return
+        }
+        let client = TDLib.shared.activeClient
+        Task { [weak toggle] in
+            let done = await (try? client.send(TDNativeRequests.toggleChatFolderTags(areTagsEnabled: isEnabled)))
+                != nil
+            if !done { toggle?.setOn(!isEnabled, animated: true) }
         }
     }
 
@@ -375,6 +457,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private var inviteLinks = [TDNativeChatFolderInviteLink]()
     /// Chats the owner added to this shared folder that the user hasn't joined yet (`getChatFolderNewChats`).
     private var newChatIDs = [Int64]()
+    /// Folder colours need Premium; without it the colours are locked.
+    private var isPremium = false
     private lazy var nameField: UITextField = {
         let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
         field.placeholder = L10n.telegram("ChatListFolder.NamePlaceholder")
@@ -389,7 +473,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     /// its name and chosen chats. Every folder ends with its invite links, which probe sessions without TDLib omit.
     private var sections: [Section] {
         let rules: [Section] = draft.isShareable ? [.name, .chats] : [.name, .includedTypes, .chats, .excludedTypes]
-        return session.reader == nil ? rules : rules + [.inviteLinks]
+        // FOLDER COLOR follows the rules, before the links (tagColorHeader).
+        return session.reader == nil ? rules + [.tagColor] : rules + [.tagColor, .inviteLinks]
     }
 
     /// Telegram's hasLinks: the folder has links, or TDLib says the user shares it.
@@ -448,8 +533,19 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         let linkPress = UILongPressGestureRecognizer(target: self, action: #selector(inviteLinkLongPressed(_:)))
         tableView.addGestureRecognizer(linkPress)
         sessionObservation = session.bind(self)
+        tableView.register(FolderTagColorCell.self, forCellReuseIdentifier: FolderTagColorCell.reuseIdentifier)
+        tableView.register(
+            FolderTagHeaderView.self,
+            forHeaderFooterViewReuseIdentifier: FolderTagHeaderView.reuseIdentifier,
+        )
         loadInviteLinks()
         loadNewChats()
+        Task { [weak self] in
+            let isPremium = await (try? TDLib.shared.activeClient.getMe())?.isPremium ?? false
+            guard let self, isPremium != self.isPremium else { return }
+            self.isPremium = isPremium
+            reloadTagColor()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -465,10 +561,37 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        sections[section].title
+        // FOLDER COLOR's header view sets its own title.
+        sections[section] == .tagColor ? nil : sections[section].title
+    }
+
+    /// ChatListFilterTagSectionHeaderItem: FOLDER COLOR with the folder's tag on the right in its colour, NO TAG
+    /// without one, or PREMIUM EXPIRED for a coloured folder without Premium.
+    override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard sections[section] == .tagColor,
+              let header = tableView.dequeueReusableHeaderFooterView(
+                  withIdentifier: FolderTagHeaderView.reuseIdentifier,
+              ) as? FolderTagHeaderView
+        else { return nil }
+        let name = (nameField.text?.isEmpty == false ? nameField.text : draft.name.text.text) ?? ""
+        let badge: FolderTagHeaderView.Badge? =
+            if isPremium {
+                draft.colorId >= 0
+                    ? .tag(name.uppercased(), FolderTagPalette.color(draft.colorId))
+                    : .text(L10n.telegram("ChatListFilter.TagLabelNoTag"))
+            } else if draft.colorId >= 0 {
+                .text(L10n.telegram("ChatListFilter.TagLabelPremiumExpired"))
+            } else {
+                nil
+            }
+        header.configure(title: L10n.telegram("ChatListFilter.TagSectionTitle"), badge: badge)
+        return header
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        if sections[section] == .tagColor {
+            return L10n.telegram("ChatListFilter.TagSectionFooter")
+        }
         if sections[section] == .inviteLinks {
             return L10n.telegram(hasInviteLinks ? "ChatListFilter.LinkListInfo" : "ChatListFilter.LinkListInfoNew")
         }
@@ -477,6 +600,14 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if case .tagColor = editorRow(at: indexPath) {
+            let cell = tableView.dequeueReusableCell(withIdentifier: FolderTagColorCell.reuseIdentifier, for: indexPath)
+            (cell as? FolderTagColorCell)?.configure(
+                selected: isPremium && draft.colorId >= 0 ? draft.colorId : nil,
+                isLocked: !isPremium,
+            ) { [weak self] colorId in self?.chooseTagColor(colorId) }
+            return cell
+        }
         let cell = tableView.dequeueReusableCell(withIdentifier: "FolderEditorCell", for: indexPath)
         let row = editorRow(at: indexPath)
         var configuration = cell.defaultContentConfiguration()
@@ -522,6 +653,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             link.image = UIImage(systemName: "link.circle.fill")
             cell.contentConfiguration = link
             cell.accessoryType = .disclosureIndicator
+        case .tagColor:
+            break
         case .newChats:
             var newChats = cell.defaultContentConfiguration()
             newChats.text = L10n.telegramPlural("ChatList.PanelNewChatsAvailable", count: newChatIDs.count)
@@ -561,6 +694,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             openInviteLink(inviteLinks[index])
         case .newChats:
             openNewChats()
+        case .tagColor:
+            break
         }
     }
 
@@ -614,6 +749,29 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
     private func editorRow(at indexPath: IndexPath) -> Row {
         rows(in: sections[indexPath.section])[indexPath.row]
+    }
+
+    /// PeerNameColorItem's choice: the folder's colour, or none; without Premium, the tooltip about it.
+    private func chooseTagColor(_ colorId: Int) {
+        guard isPremium else {
+            TelegramUndoToast.show(
+                text: L10n.telegram("ChatListFilter.TagPremiumRequiredTooltipText").withoutTelegramMarkup,
+                in: view.window ?? view,
+                bottomInset: 12,
+                undo: nil,
+            )
+            return
+        }
+        guard colorId != draft.colorId else { return }
+        draft = draft.replacing(colorId: colorId)
+        reloadTagColor()
+    }
+
+    private func reloadTagColor() {
+        guard isViewLoaded, let index = sections.firstIndex(of: .tagColor) else { return }
+        UIView.performWithoutAnimation {
+            tableView.reloadSections(IndexSet(integer: index), with: .none)
+        }
     }
 
     private func rows(in section: Section) -> [Row] {
@@ -1410,6 +1568,11 @@ extension ChatFolder {
         )
     }
 
+    /// The folder with its tag colour, -1 for none.
+    func replacing(colorId: Int) -> ChatFolder {
+        replacing(colorId: colorId, name: nil)
+    }
+
     func replacingIncludedChatIDs(_ selected: Set<Int64>) -> ChatFolder {
         // A chat that stays selected keeps its pin and place; a deselected pinned chat leaves the folder.
         let pinned = pinnedChatIds.filter(selected.contains)
@@ -1467,6 +1630,7 @@ extension ChatFolder {
     }
 
     private func replacing(
+        colorId: Int? = nil,
         name: ChatFolderName? = nil,
         excludeArchived: Bool? = nil,
         excludeMuted: Bool? = nil,
@@ -1481,7 +1645,7 @@ extension ChatFolder {
         pinnedChatIds: [Int64]? = nil,
     ) -> ChatFolder {
         ChatFolder(
-            colorId: colorId,
+            colorId: colorId ?? self.colorId,
             excludeArchived: excludeArchived ?? self.excludeArchived,
             excludeMuted: excludeMuted ?? self.excludeMuted,
             excludeRead: excludeRead ?? self.excludeRead,
@@ -1529,6 +1693,7 @@ private extension ChatFolderEditorViewController {
         case includedTypes
         case chats
         case excludedTypes
+        case tagColor
         case inviteLinks
 
         // MARK: Internal
@@ -1539,6 +1704,7 @@ private extension ChatFolderEditorViewController {
             case .includedTypes: L10n.betterTG("Folders.IncludedTypes")
             case .chats: L10n.betterTG("Folders.SelectedChats")
             case .excludedTypes: L10n.betterTG("Folders.Exclude")
+            case .tagColor: L10n.telegram("ChatListFilter.TagSectionTitle")
             case .inviteLinks: L10n.telegram("ChatListFilter.SectionShare")
             }
         }
@@ -1550,6 +1716,7 @@ private extension ChatFolderEditorViewController {
             case .includedTypes: ChatFolderInclusion.allCases.map(Row.include)
             case .chats: shareable ? [.includedChats] : [.includedChats, .excludedChats]
             case .excludedTypes: ChatFolderExclusion.allCases.map(Row.exclude)
+            case .tagColor: [.tagColor]
             case .inviteLinks: []
             }
         }
@@ -1565,6 +1732,7 @@ private extension ChatFolderEditorViewController {
         case createInviteLink
         case inviteLink(Int)
         case newChats
+        case tagColor
 
         // MARK: Internal
 
@@ -1579,7 +1747,8 @@ private extension ChatFolderEditorViewController {
             case .exclude(let type): type.title
             case .createInviteLink,
                  .inviteLink,
-                 .newChats: ""
+                 .newChats,
+                 .tagColor: ""
             }
         }
 

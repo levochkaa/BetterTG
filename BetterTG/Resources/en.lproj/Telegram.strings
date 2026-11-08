@@ -4351,3 +4351,11 @@
 "Conversation.Translation.TranslationBarHiddenGroupText" = "Translation bar is now hidden for this group.";
 "Conversation.Translation.TranslationBarHiddenChannelText" = "Translation bar is now hidden for this channel.";
 "Conversation.Translation.Settings" = "Settings";
+"ChatListFilter.TagLabelNoTag" = "NO TAG";
+"ChatListFilter.TagLabelPremiumExpired" = "PREMIUM EXPIRED";
+"ChatListFilter.TagSectionTitle" = "FOLDER COLOR";
+"ChatListFilter.TagSectionFooter" = "This color will be used for the folder's tag in the chat list";
+"ChatListFilter.TagPremiumRequiredTooltipText" = "Subscribe to **Telegram Premium** to select folder color.";
+"ChatListFilterList.ShowTags" = "Show Folder Tags";
+"ChatListFilterList.ShowTagsFooter" = "Display folder names for each chat in the chat list.";
+"Premium.FolderTagsInfo" = "Add colorful labels to chats for faster access with Telegram Premium.";

@@ -337,6 +337,20 @@ import TDLibKit
             .map(\.id)
     }
 
+    /// chatListItemTags: the coloured folders holding the chat, in the folders' order, while folder tags are on.
+    func folderTags(chatID: Int64) -> [(id: Int, name: String, colorId: Int)] {
+        guard let configuration = folderConfiguration, configuration.areTagsEnabled, let record = records[chatID]
+        else { return [] }
+        let folderIDs = Set(record.chatLists.compactMap { list -> Int? in
+            if case .chatListFolder(let folder) = list { return folder.chatFolderId }
+            return nil
+        })
+        return configuration.chatFolders.compactMap { info in
+            guard info.colorId >= 0, folderIDs.contains(info.id) else { return nil }
+            return (info.id, info.name.text.text, info.colorId)
+        }
+    }
+
     /// Whether `customChat(id:in:)` would return the chat, without building it.
     func listsChat(id: Int64, in list: ChatList) -> Bool {
         guard let record = records[id], record.positions.contains(where: { $0.list == list && $0.order != 0 })
