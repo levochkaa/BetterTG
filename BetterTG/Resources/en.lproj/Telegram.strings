@@ -4441,3 +4441,11 @@
 "ProfileColorSetup.AccountColorInfoLabel" = "Choose a color for your profile";
 "ProfileColorSetup.TitleName" = "Name";
 "ProfileColorSetup.TitleProfile" = "Profile";
+"Stars.Transaction.Via" = "Via";
+"Stars.Transaction.To" = "To";
+"Stars.Transaction.From" = "From";
+"Stars.Transaction.Id" = "Transaction ID";
+"Stars.Transaction.Date" = "Date";
+"Stars.Transaction.Terms" = "Review the [Terms of Service]() for Stars.";
+"Stars.Transaction.CopiedId" = "Transaction ID copied to clipboard.";
+"Stars.Transaction.Refund" = "Refund";

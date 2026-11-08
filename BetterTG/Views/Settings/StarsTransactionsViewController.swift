@@ -38,14 +38,22 @@ import UIKit
 /// was for and when, and the amount in green for Stars received or in red for Stars spent. BetterTG sells
 /// no Stars, so the screen has no Buy or Gift buttons.
 final class StarsTransactionsViewController: SettingsListViewController {
-    private struct Row {
+    struct Row {
+        let id: String
         let title: String
         let subtitle: String?
         let date: String
+        let timestamp: Int
         let amount: StarAmount
         let isRefund: Bool
         let peer: SettingsPeer?
+        /// The peer the Stars went to or came from, which the details name.
+        let counterpart: SettingsPeer?
         let symbol: String?
+
+        var isIncome: Bool {
+            amount.starCount > 0 || (amount.starCount == 0 && amount.nanostarCount > 0)
+        }
     }
 
     private enum PeerID {
@@ -100,6 +108,7 @@ final class StarsTransactionsViewController: SettingsListViewController {
                 detail: [row.subtitle, row.date].compactMap(\.self).joined(separator: "\n"),
                 style: row.peer.map { .peer($0) } ?? .subtitle,
                 symbol: row.peer == nil ? row.symbol : nil,
+                action: { [weak self] in self?.openDetails(row) },
                 trailingView: Self.amountView(row.amount, isRefund: row.isRefund),
             )
         })]
@@ -111,6 +120,31 @@ final class StarsTransactionsViewController: SettingsListViewController {
               scrollView.contentOffset.y > scrollView.contentSize.height - scrollView.bounds.height * 2
         else { return }
         load(reset: false)
+    }
+
+    /// The amount with its sign and a star: green for Stars received, red for Stars spent.
+    static func amountView(_ amount: StarAmount, isRefund _: Bool) -> SettingsTrailingView {
+        SettingsTrailingView {
+            let isIncome = amount.starCount > 0 || (amount.starCount == 0 && amount.nanostarCount > 0)
+            let label = UILabel()
+            let sign = isIncome ? "+" : "−"
+            let magnitude = StarAmount(
+                nanostarCount: abs(amount.nanostarCount),
+                starCount: abs(amount.starCount),
+            )
+            let text = NSMutableAttributedString(
+                string: sign + StarsBalanceStore.text(magnitude) + " ",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 17, weight: .medium),
+                    .foregroundColor: isIncome ? UIColor.systemGreen : UIColor.systemRed,
+                ],
+            )
+            let star = NSTextAttachment(image: UIImage(systemName: "star.fill")?
+                .withTintColor(.systemOrange, renderingMode: .alwaysOriginal) ?? UIImage())
+            text.append(NSAttributedString(attachment: star))
+            label.attributedText = text
+            return label
+        }
     }
 
     /// The transaction's peer and wording: a title for the services, otherwise the peer's name over the subtitle.
@@ -276,29 +310,12 @@ final class StarsTransactionsViewController: SettingsListViewController {
         }
     }
 
-    /// The amount with its sign and a star: green for Stars received, red for Stars spent.
-    private static func amountView(_ amount: StarAmount, isRefund _: Bool) -> SettingsTrailingView {
-        SettingsTrailingView {
-            let isIncome = amount.starCount > 0 || (amount.starCount == 0 && amount.nanostarCount > 0)
-            let label = UILabel()
-            let sign = isIncome ? "+" : "−"
-            let magnitude = StarAmount(
-                nanostarCount: abs(amount.nanostarCount),
-                starCount: abs(amount.starCount),
-            )
-            let text = NSMutableAttributedString(
-                string: sign + StarsBalanceStore.text(magnitude) + " ",
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 17, weight: .medium),
-                    .foregroundColor: isIncome ? UIColor.systemGreen : UIColor.systemRed,
-                ],
-            )
-            let star = NSTextAttachment(image: UIImage(systemName: "star.fill")?
-                .withTintColor(.systemOrange, renderingMode: .alwaysOriginal) ?? UIImage())
-            text.append(NSAttributedString(attachment: star))
-            label.attributedText = text
-            return label
-        }
+    /// StarsTransactionScreen as a sheet.
+    private func openDetails(_ row: Row) {
+        let navigation = UINavigationController(rootViewController: StarsTransactionDetailViewController(row: row))
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        navigation.sheetPresentationController?.prefersGrabberVisible = true
+        present(navigation, animated: true)
     }
 
     /// StarsBalanceComponent: the star, Telegram Stars, the balance in 48 pt and "your balance", then the tabs.
@@ -399,12 +416,15 @@ final class StarsTransactionsViewController: SettingsListViewController {
             .formatted(date: .abbreviated, time: .shortened)
         if transaction.isRefund { date += " – " + L10n.telegram("Stars.Intro.Transaction.Refund") }
         return Row(
+            id: transaction.id,
             title: described.title ?? peer?.title ?? L10n.telegram("Stars.Intro.Transaction.Unsupported.Title"),
             subtitle: described.title == nil ? described.subtitle : described.subtitle ?? peer?.title,
             date: date,
+            timestamp: transaction.date,
             amount: transaction.starAmount,
             isRefund: transaction.isRefund,
             peer: described.title == nil ? peer : nil,
+            counterpart: peer,
             symbol: described.symbol,
         )
     }
@@ -423,5 +443,82 @@ final class StarsTransactionsViewController: SettingsListViewController {
             peers[chatID] = peer
             return peer
         }
+    }
+}
+
+// MARK: - StarsTransactionDetailViewController
+
+/// StarsTransactionScreen for one transaction: what it was with the amount, then From or To with the peer (Via for a
+/// service), the transaction ID, which a tap copies, the date, and Refund for a refund, over Review the Terms of
+/// Service for Stars.
+final class StarsTransactionDetailViewController: SettingsListViewController {
+    private let row: StarsTransactionsViewController.Row
+
+    init(row: StarsTransactionsViewController.Row) {
+        self.row = row
+        super.init()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            systemItem: .close,
+            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
+        )
+    }
+
+    override func makeSections() -> [SettingsSection] {
+        var details = [SettingsRow]()
+        if let peer = row.counterpart {
+            details.append(SettingsRow(
+                title: L10n.telegram(row.isIncome ? "Stars.Transaction.From" : "Stars.Transaction.To"),
+                detail: peer.title,
+            ))
+        } else if let subtitle = row.subtitle {
+            details.append(SettingsRow(title: L10n.telegram("Stars.Transaction.Via"), detail: subtitle))
+        }
+        let id = row.id
+        details.append(SettingsRow(
+            title: L10n.telegram("Stars.Transaction.Id"),
+            detail: id,
+        ) { [weak self] in self?.copyID(id) })
+        details.append(SettingsRow(
+            title: L10n.telegram("Stars.Transaction.Date"),
+            detail: Date(timeIntervalSince1970: TimeInterval(row.timestamp))
+                .formatted(date: .abbreviated, time: .shortened),
+        ))
+        if row.isRefund {
+            details.append(SettingsRow(title: L10n.telegram("Stars.Transaction.Refund")))
+        }
+        return [
+            SettingsSection(rows: [SettingsRow(
+                title: row.title,
+                detail: row.subtitle,
+                style: row.peer.map { .peer($0) } ?? .subtitle,
+                symbol: row.peer == nil ? row.symbol : nil,
+                trailingView: StarsTransactionsViewController.amountView(row.amount, isRefund: row.isRefund),
+            )]),
+            SettingsSection(
+                footer: L10n.telegram("Stars.Transaction.Terms"),
+                rows: details,
+                footerLinks: ["default": {
+                    if let url = URL(string: "https://telegram.org/tos") { UIApplication.shared.open(url) }
+                }],
+            ),
+        ]
+    }
+
+    private func copyID(_ id: String) {
+        UIPasteboard.general.string = id
+        TelegramUndoToast.show(
+            text: L10n.telegram("Stars.Transaction.CopiedId"),
+            in: view,
+            bottomInset: 12,
+            undo: nil,
+        )
     }
 }
