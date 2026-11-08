@@ -117,6 +117,8 @@ import TDLibKit
             changedPeers(.supergroup(value.supergroup.id))
         case .updateCommunity(let value):
             communities[value.community.id] = value.community
+        case .updateAvailableMessageEffects(let value):
+            MessageEffectStore.shared.receive(value, clientID: clientID)
         case .updateSavedMessagesTopic(let value):
             savedMessagesTopics[value.topic.id] = value.topic
             savedMessagesTopicChanges.send(value.topic.id)

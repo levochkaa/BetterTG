@@ -22,6 +22,8 @@ struct MessageStatusLine: Equatable {
     var replyCount: String?
     /// The pin icon there for a pinned message without replies.
     var isPinned = false
+    /// The message effect's emoji, first in the line (ChatMessageDateAndStatusNode's messageEffect).
+    var effectEmoji: String?
 
     init(
         viewCount: String? = nil,
@@ -29,12 +31,14 @@ struct MessageStatusLine: Equatable {
         delivery: MessageDeliveryState = .none,
         replyCount: String? = nil,
         isPinned: Bool = false,
+        effectEmoji: String? = nil,
     ) {
         self.viewCount = viewCount
         self.text = text
         self.delivery = delivery
         self.replyCount = replyCount
         self.isPinned = isPinned
+        self.effectEmoji = effectEmoji
     }
 
     /// `isChannel` is true when the message belongs to a broadcast channel. `showsThreadInfo` is
@@ -48,6 +52,7 @@ struct MessageStatusLine: Equatable {
         isPinned: Bool = false,
         time: String,
         delivery: MessageDeliveryState = .none,
+        effectEmoji: String? = nil,
     ) -> MessageStatusLine {
         var date = time
         if let signature = authorSignature(of: message, isChannel: isChannel) {
@@ -68,6 +73,7 @@ struct MessageStatusLine: Equatable {
             delivery: delivery,
             replyCount: replies > 0 ? compactNumericCountString(replies) : nil,
             isPinned: replies == 0 && isPinned && showsThreadInfo,
+            effectEmoji: effectEmoji,
         )
     }
 
@@ -100,6 +106,14 @@ struct MessageStatusLine: Equatable {
     func attributedText(font: UIFont, color: UIColor, checkColor: UIColor? = nil) -> NSAttributedString {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let result = NSMutableAttributedString()
+        if let effectEmoji, !effectEmoji.isEmpty {
+            // A 12 pt icon with ChatMessageDateAndStatusNode's 13 pt slot before the rest.
+            result.append(NSAttributedString(string: effectEmoji, attributes: [
+                .font: font.withSize(font.pointSize * 12 / 11),
+                .kern: 2,
+                .baselineOffset: -0.5,
+            ]))
+        }
         func icon(_ name: String, kern: CGFloat) -> NSAttributedString? {
             let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
             guard let image = UIImage(systemName: name, withConfiguration: configuration)?

@@ -66,6 +66,65 @@ import UIKit
             }
         }
 
+        /// `-ui-probe-message-effect`: sends "BetterTG effect test" to Saved Messages with the first free reaction
+        /// effect, to try the status icon and the effect's animation.
+        static func sendMessageEffectIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-effect") else { return }
+            Task {
+                var result: String
+                do {
+                    try await ProbeFixtures.waitForActiveAccount()
+                    let client = TDLib.shared.activeClient
+                    try await Task.sleep(for: .seconds(2))
+                    var effectID: Int64?
+                    for id in MessageEffectStore.shared.availableReactionEffectIDs {
+                        let effect = try await client.send(TDNativeRequests.getMessageEffect(effectId: id))
+                        if !effect.isPremium {
+                            effectID = id
+                            break
+                        }
+                    }
+                    guard let effectID, let me = TDLib.shared.activeAccount?.userID else {
+                        throw NSError(domain: "probe", code: 1)
+                    }
+                    let sent = try await client.send(TDNativeRequests.sendMessage(
+                        chatId: me,
+                        topicId: nil,
+                        replyTo: nil,
+                        options: TDNativeMessageSendOptions(
+                            suggestedPostInfo: nil,
+                            disableNotification: false,
+                            fromBackground: false,
+                            protectContent: false,
+                            allowPaidBroadcast: false,
+                            paidMessageStarCount: 0,
+                            updateOrderOfInstalledStickerSets: false,
+                            schedulingState: nil,
+                            effectId: effectID,
+                            sendingId: 0,
+                            onlyPreview: false,
+                        ),
+                        replyMarkup: nil,
+                        inputMessageContent: .inputMessageText(InputMessageText(
+                            clearDraft: false,
+                            linkPreviewOptions: nil,
+                            text: FormattedText(entities: [], text: "BetterTG effect test"),
+                        )),
+                    ))
+                    result = "Message effect probe sent \(sent.id) with effect \(effectID)"
+                } catch {
+                    result = "Message effect probe failed: \(error)"
+                }
+                if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? Data(result.utf8).write(
+                        to: directory.appendingPathComponent("message-effect-probe.txt"),
+                        options: .atomic,
+                    )
+                }
+                log(result)
+            }
+        }
+
         /// `-ui-probe-emoji-sounds`: which animated emoji TDLib gives a sound (getAnimatedEmoji), to try the tap's
         /// sound.
         static func listEmojiSoundsIfRequested() {

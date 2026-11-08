@@ -224,6 +224,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         didSet { quickReactionRecognizer.isEnabled = onQuickReaction != nil }
     }
 
+    /// ChatMessageBubbleItemNode's tap on a bubble with a message effect: the effect plays again.
+    var onEffectTap: (() -> Void)? {
+        didSet { effectTapRecognizer.isEnabled = onEffectTap != nil }
+    }
+
     /// ChatMessageBubbleItemNode's `.peer` location: a chat's own history shows reply counts and pins in the status;
     /// set before `configure`, off in threads and topics.
     var showsThreadStatus = true
@@ -318,6 +323,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         return recognizer
     }()
 
+    private lazy var effectTapRecognizer: UITapGestureRecognizer = {
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(effectTapped(_:)))
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.isEnabled = false
+        recognizer.delegate = self
+        return recognizer
+    }()
+
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
         target: self,
         action: #selector(swipeToReply(_:)),
@@ -338,6 +352,24 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var pendingBubbleMerge = MessageBubbleMerge()
     /// The configured message's side, for the media corners its merged neighbours narrow.
     private var timelineIsOutgoing = false
+
+    /// messageEffectTargetView: the shown status line, whose effect icon stands at its start.
+    var messageEffectTargetView: UIView? {
+        let candidates: [UIView] = [
+            textView.statusView,
+            timestampLabel,
+            mediaTimestampLabel,
+            freestandingTimestampLabel,
+        ]
+        return candidates.first { view in
+            var current: UIView? = view
+            while let shown = current, shown !== contentView {
+                if shown.isHidden || shown.alpha == 0 { return false }
+                current = shown.superview
+            }
+            return view.window != nil && view.bounds.width > 0
+        }
+    }
 
     var contextPreviewView: UIView { bubbleContainerView }
 
@@ -624,6 +656,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleView.isHidden = true
         onSwipeToReply = nil
         onQuickReaction = nil
+        onEffectTap = nil
         onMediaTap = nil
         onSelectionToggle = nil
         onAlbumItemSelectionToggle = nil
@@ -1035,6 +1068,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             isPinned: message.isPinned,
             time: timestamp,
             delivery: delivery,
+            effectEmoji: MessageEffectStore.shared.effect(message.message.effectId, client: client)?.emoji,
         )
         let timestampColor: UIColor = delivery == .failed ? .systemRed : .secondaryLabel
         if let formatted = displayedFormattedText {
@@ -1329,10 +1363,22 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
+        // The effect's tap leaves double taps and the content's own taps to work.
+        if gestureRecognizer === effectTapRecognizer || otherGestureRecognizer === effectTapRecognizer { return true }
         guard gestureRecognizer === swipeToReplyRecognizer || otherGestureRecognizer === swipeToReplyRecognizer else {
             return false
         }
         return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
+    }
+
+    @objc private func effectTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        var view = bubbleView.hitTest(recognizer.location(in: bubbleView), with: nil)
+        while let current = view, current !== bubbleView {
+            if current is UIControl { return }
+            view = current.superview
+        }
+        onEffectTap?()
     }
 
     /// Controls such as reaction chips, buttons and links keep their own taps.
@@ -1546,6 +1592,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         swipeToReplyRecognizer.isEnabled = false
         contentView.addGestureRecognizer(swipeToReplyRecognizer)
         bubbleView.addGestureRecognizer(quickReactionRecognizer)
+        bubbleView.addGestureRecognizer(effectTapRecognizer)
     }
 
     @objc private func swipeToReply(_ recognizer: TelegramSwipeToReplyRecognizer) {

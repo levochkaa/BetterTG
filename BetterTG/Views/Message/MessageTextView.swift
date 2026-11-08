@@ -78,6 +78,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var lastLayoutWidth = CGFloat.zero
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
     private let statusLabel = UILabel()
+
     private var status = MessageStatusLine(text: "")
     private var statusColor = UIColor.secondaryLabel
     private var customEmojiPlacements = [CustomEmojiPlacement]()
@@ -96,6 +97,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var expandedQuoteBlocks = Set<Int>()
     private lazy var collapsedLayout = MessageCollapsedTextLayout(next: layoutManager.delegate)
     private let blockDecorationView = MessageTextBlockDecorationView()
+
+    /// The status line drawn in the text's last line, where a message effect starts.
+    var statusView: UIView {
+        statusLabel
+    }
 
     #if DEBUG
         var debugQuoteHighlightCount: Int { quoteHighlightViews.count }

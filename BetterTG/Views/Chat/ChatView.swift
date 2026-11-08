@@ -454,6 +454,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The interaction effects of big animated emoji on screen
     /// (ChatMessageAnimatedStickerItemNode.additionalAnimationNodes).
     private var activeEmojiEffects = [TGSStickerView]()
+    /// Messages whose effect played on its own (seenOneTimeAnimatedMedia), and the newest message read when the chat
+    /// opened: an incoming effect after it plays once as it shows.
+    private var playedMessageEffects = Set<Int64>()
+    private var effectUnreadBoundary = Int64.max
+    /// Effects to play once TDLib has described them.
+    private var pendingMessageEffects = [Int64: (messageID: Int64, isIncoming: Bool)]()
     /// The sound of the last tapped animated emoji, kept while it plays.
     private var emojiSoundPlayer: AVAudioPlayer?
     #if DEBUG
@@ -835,6 +841,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureDataSource()
         observeState()
         configureSponsoredMessages()
+        configureMessageEffects()
         // Power Saving's autoplay settings pause or resume the inline playback on screen.
         NotificationCenter.default
             .publisher(for: EnergyUsage.didChange)
@@ -1715,6 +1722,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             allowsInlineVideoPlayback: false,
         )
         applyPendingQuoteHighlight(to: cell, displayedMessageID: displayedMessageID)
+        autoplayMessageEffectIfNeeded(displayedMessageID)
         updateInlineVideoPlaybackVisibility()
         acknowledgeCommittedVisibleMessages(requestHistory: true)
     }
@@ -4533,6 +4541,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
                         }
+                        let effectID = message.message.effectId
+                        let messageID = message.message.id
+                        let isIncoming = !message.message.isOutgoing
+                        cell.onEffectTap = effectID != 0 && !row.inputs.selectionActive
+                            ? { [weak self] in
+                                self?.playMessageEffect(effectID, messageID: messageID, isIncoming: isIncoming)
+                            }
+                            : nil
                         cell.onQuickReaction = row.inputs.canAddReactions && !row.inputs.selectionActive
                             ? { [weak self, weak cell] in
                                 guard let self,
@@ -8371,6 +8387,83 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return nil
         }
         return find(cell.contentView).map { ($0, !message.message.isOutgoing) }
+    }
+
+    private func configureMessageEffects() {
+        effectUnreadBoundary = chatVM.customChat.chat.lastReadInboxMessageId
+        MessageEffectStore.shared
+            .loaded
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] effectID in self?.messageEffectLoaded(effectID) }
+            .store(in: &cancellables)
+    }
+
+    private func messageEffectLoaded(_ effectID: Int64) {
+        let ids = chatVM.messages.filter { $0.message.effectId == effectID }.map(\.displayedID)
+        reconfigureMessages(ids: ids)
+        if let pending = pendingMessageEffects.removeValue(forKey: effectID) {
+            DispatchQueue.main.async { [weak self] in
+                self?.playMessageEffect(effectID, messageID: pending.messageID, isIncoming: pending.isIncoming)
+            }
+        }
+    }
+
+    /// ChatMessageBubbleItemNode's visibility check: an unread incoming message's effect plays the first time it
+    /// shows.
+    private func autoplayMessageEffectIfNeeded(_ displayedID: DisplayedMessageID) {
+        guard presentationMode == .full, let message = message(for: displayedID)?.message, message.effectId != 0,
+              !message.isOutgoing, message.id > effectUnreadBoundary,
+              playedMessageEffects.insert(message.id).inserted else { return }
+        let effectID = message.effectId
+        let messageID = message.id
+        DispatchQueue.main.async { [weak self] in
+            self?.playMessageEffect(effectID, messageID: messageID, isIncoming: true)
+        }
+    }
+
+    /// ChatMessageItemView.playEffectAnimation: the effect's animation at 380 pt around the status line's effect
+    /// icon, 0.3 of its width toward the bubble's middle and 10 pt up, mirrored for an incoming message.
+    private func playMessageEffect(_ effectID: Int64, messageID: Int64, isIncoming: Bool) {
+        guard let effect = MessageEffectStore.shared.effect(effectID, client: chatVM.client) else {
+            pendingMessageEffects[effectID] = (messageID, isIncoming)
+            return
+        }
+        guard activeEmojiEffects.count < 4, let file = MessageEffectStore.animationFile(of: effect),
+              let displayedID = chatVM.messages
+                .first(where: { $0.sourceMessages.contains { $0.id == messageID } })?
+                .displayedID,
+              let indexPath = dataSource.indexPath(for: .message(displayedID)),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+              let target = cell.messageEffectTargetView else { return }
+        let icon = target.convert(
+            CGRect(x: 0, y: 0, width: target.bounds.height, height: target.bounds.height),
+            to: view,
+        )
+        let side: CGFloat = 380
+        let frame = CGRect(x: icon.midX - side / 2, y: icon.midY - side / 2, width: side, height: side)
+            .offsetBy(dx: isIncoming ? side * 0.3 : -side * 0.3, dy: -10)
+        let animation = TGSStickerView(frame: frame)
+        animation.isUserInteractionEnabled = false
+        if isIncoming { animation.transform = CGAffineTransform(scaleX: -1, y: 1) }
+        view.addSubview(animation)
+        activeEmojiEffects.append(animation)
+        animation.configure(file: file, client: chatVM.client, thumbnail: nil, displaySize: frame.size, onTap: nil)
+        animation.isUserInteractionEnabled = false
+        animation.playbackMode = .once(startedAt: CACurrentMediaTime())
+        animation.onFirstFrameReady = { [weak self, weak animation] in
+            guard let animation else { return }
+            animation.playbackMode = .once(startedAt: CACurrentMediaTime())
+            let duration = animation.animationDuration ?? 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self, weak animation] in
+                guard let animation else { return }
+                self?.removeEmojiEffect(animation)
+            }
+        }
+        animation.setPlaybackVisible(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self, weak animation] in
+            guard let animation else { return }
+            self?.removeEmojiEffect(animation)
+        }
     }
 
     private func removeEmojiEffect(_ effect: TGSStickerView) {
