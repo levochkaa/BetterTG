@@ -127,7 +127,21 @@ TelegramEmbeddedNavigationChrome {
                     showChats: { [weak self] in self?.show(.chats) },
                 )
             case .settings: chats.showAccountSwitcher(from: source, tracking: gesture, anchor: tabBar)
-            case .archive: break
+            case .archive:
+                guard let archive = controller(for: .archive) as? ArchiveViewController else { return }
+                // The archive's bar menu items; a choice brings the archive up first, as Chats' menu does Chats.
+                let actions = archive.archiveMenuActions { [weak self] action in
+                    self?.show(.archive)
+                    action()
+                }
+                presentTelegramContextMenu(
+                    sourceView: source,
+                    actions: actions,
+                    tracking: gesture,
+                    presentationStyle: .menuOnly,
+                    menuAnchorView: tabBar,
+                    menuSpacing: FolderPickerView.controlTopInset / 2,
+                )
             }
         }
         chats.onTabBarHiddenChange = { [weak self] hidden in self?.setTabBarHidden(hidden) }
@@ -212,7 +226,7 @@ TelegramEmbeddedNavigationChrome {
             items: tabs.map { MainTabBarView.Item(title: $0.title, image: $0.image) },
             selectedIndex: tabs.firstIndex(of: selectedTab) ?? 0,
         )
-        tabBar.holdableIndices = Set([MainTab.chats, .settings].compactMap { tabs.firstIndex(of: $0) })
+        tabBar.holdableIndices = Set([MainTab.chats, .archive, .settings].compactMap { tabs.firstIndex(of: $0) })
         tabBar.showsTitles = BetterTGSettings.shared.showsTabNames
         chats.setTabShortcuts(
             archive: !tabs.contains(.archive) && rootVM.archive != nil,

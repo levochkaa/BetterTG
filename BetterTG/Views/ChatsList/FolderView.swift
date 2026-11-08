@@ -49,6 +49,8 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private var storyPeers = [Int64: SettingsPeer]()
     private var storyTitles = [Int64: String]()
     private let storyRowView = StoryPeerListExpandedView()
+    /// Ends the list's selection while it lasts.
+    private var editingDone: (() -> Void)?
     private var storyPeerTask: Task<Void, Never>?
 
     var navigationClientSource: TdUpdateSource? { actionAuthority.scope(owner: self).source }
@@ -74,14 +76,17 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             preservingViewport: true,
         )
         var openMoreMenu: (() -> Void)?
+        var editPressed: (() -> Void)?
+        // As a tab the archive leads with Chats' Edit; pushed, with Back.
         self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
             placeholder: L10n.betterTG("Folders.SearchIn", folder.name.lowercased()),
-            leftImage: isTabRoot ? nil : UIImage(systemName: "chevron.left"),
+            leftImage: isTabRoot ? UIBarButtonItem.editImage : UIImage(systemName: "chevron.left"),
             rightImage: UIImage(systemName: "ellipsis"),
-            leftAction: { NavigationStorage.shared.pop() },
+            leftAction: isTabRoot ? { editPressed?() } : { NavigationStorage.shared.pop() },
             rightAction: { openMoreMenu?() },
             showsBackButton: !isTabRoot,
+            leftAccessibilityLabel: isTabRoot ? L10n.telegram("Common.Edit") : nil,
             rightAccessibilityLabel: L10n.telegram("Common.More"),
             opensSearchFromButton: !BetterTGSettings.shared.searchBarAtTop,
         )
@@ -89,6 +94,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         // The name the back button's history menu shows for this folder.
         title = folder.name
         openMoreMenu = { [weak self] in self?.openArchiveMoreMenu() }
+        editPressed = { [weak self] in self?.editPressed() }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -207,30 +213,27 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         )
     }
 
-    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, then How Does It Work? and Select Chats for an
-    /// archive with chats.
-    private func openArchiveMoreMenu() {
-        let client = TDLib.shared.activeClient
+    /// The archive's own items, Archive Settings and How Does It Work?, for its bar's menu and its tab's. `run` takes
+    /// each choice, so the tab's menu can bring the archive up first.
+    func archiveMenuActions(run: @escaping (@escaping () -> Void) -> Void) -> [TelegramContextMenuAction] {
         var actions = [TelegramContextMenuAction(
             title: L10n.telegram("ChatList.Archive.ContextSettings"),
             image: UIImage(systemName: "slider.horizontal.3"),
-        ) { [weak self] in self?.openArchiveSettings() }]
+        ) { [weak self] in run { self?.openArchiveSettings() } }]
         if !folderController.isEmpty {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.Archive.ContextInfo"),
                 image: UIImage(systemName: "questionmark.circle"),
-            ) { [weak self] in
-                Task { [weak self] in
-                    let settings = try? await client.send(TDNativeRequests.getArchiveChatListSettings())
-                    guard let self, TDLib.shared.activeClient.id == client.id else { return }
-                    let info = ArchiveInfoViewController(
-                        keepsUnmutedArchived: settings?.keepUnmutedChatsArchived ?? false,
-                    ) { [weak self] in self?.openArchiveSettings() }
-                    present(info, animated: true)
-                }
-            })
+            ) { [weak self] in run { self?.openArchiveInfo() } })
         }
-        if !folderController.isEmpty {
+        return actions
+    }
+
+    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, then How Does It Work? for an archive with chats,
+    /// and Select Chats while the archive is pushed; as a tab it has Chats' Edit instead.
+    private func openArchiveMoreMenu() {
+        var actions = archiveMenuActions(run: { $0() })
+        if !folderController.isEmpty, !isTabRoot {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.ContextSelectChats"),
                 image: UIImage(systemName: "checkmark.circle"),
@@ -243,8 +246,29 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         )
     }
 
+    private func openArchiveInfo() {
+        let client = TDLib.shared.activeClient
+        Task { [weak self] in
+            let settings = try? await client.send(TDNativeRequests.getArchiveChatListSettings())
+            guard let self, TDLib.shared.activeClient.id == client.id else { return }
+            let info = ArchiveInfoViewController(
+                keepsUnmutedArchived: settings?.keepUnmutedChatsArchived ?? false,
+            ) { [weak self] in self?.openArchiveSettings() }
+            present(info, animated: true)
+        }
+    }
+
     private func openArchiveSettings() {
         navigationController?.pushViewController(ArchiveSettingsViewController(), animated: true)
+    }
+
+    /// Chats' Edit: the list's selection, and Done ends it.
+    private func editPressed() {
+        if let editingDone {
+            editingDone()
+        } else {
+            folderController.beginEditing()
+        }
     }
 
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
@@ -284,10 +308,22 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private func installFolderController() {
         folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
         folderController.onSelectionEditingChange = { [weak self] title, done in
-            self?.navigationBarView.animateGlassChange {
-                self?.navigationBarView.setEditing(title: title, done: done)
+            guard let self else { return }
+            editingDone = done
+            let isTabRoot = isTabRoot
+            let bar = navigationBarView
+            bar.animateGlassChange {
+                // As a tab the Edit turns into Done, as Chats' does; pushed, the bar shows its own Done.
+                bar.setEditing(title: title, done: done, showsDone: !isTabRoot)
+                if isTabRoot {
+                    bar.setLeftIcon(
+                        done == nil ? UIBarButtonItem.editImage : UIBarButtonItem.doneImage,
+                        accessibilityLabel: L10n.telegram(done == nil ? "Common.Edit" : "Common.Done"),
+                        isProminent: done != nil,
+                    )
+                }
             }
-            self?.onTabBarHiddenChange?(done != nil)
+            onTabBarHiddenChange?(done != nil)
         }
         folderController.selectionToolbarTakesTabBarPlace = isTabRoot
         folderController.onSearchScrollOffsetChange = { [weak self] offset in
