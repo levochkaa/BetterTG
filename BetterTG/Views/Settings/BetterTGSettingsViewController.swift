@@ -108,7 +108,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 header: L10n.betterTG("BetterTGSettings.Tabs"),
                 footer: L10n.betterTG("BetterTGSettings.WideTabBarInfo"),
                 rows: [
-                    toggle("BetterTGSettings.HideTabBar", isOn: settings.hidesTabBar) { settings.hidesTabBar = $0 },
+                    toggle("BetterTGSettings.TabBar", isOn: tabsShown) { settings.hidesTabBar = !$0 },
                     toggle("BetterTGSettings.ArchiveTab", isOn: settings.showsArchiveTab, isEnabled: tabsShown) {
                         settings.showsArchiveTab = $0
                     },
@@ -130,13 +130,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                     toggle("BetterTGSettings.SearchBarAtTop", isOn: settings.searchBarAtTop) {
                         settings.searchBarAtTop = $0
                     },
-                ],
-            ),
-            SettingsSection(
-                header: L10n.telegram("AutoDownloadSettings.Stories"),
-                rows: [
-                    toggle("BetterTGSettings.HideStories", isOn: settings.hidesStories) {
-                        settings.hidesStories = $0
+                    toggle("BetterTGSettings.Stories", isOn: !settings.hidesStories) {
+                        settings.hidesStories = !$0
                     },
                 ],
             ),
@@ -166,7 +161,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         return row
     }
 
-    /// Hide Tab Bar turns the tab rows off and on: those rows redraw, and the switch that changed keeps animating.
+    /// Tab Bar turns the tab rows off and on: those rows redraw, and the switch that changed keeps animating.
     private func refreshAvailability() {
         let previous = sections
         rebuildSections()

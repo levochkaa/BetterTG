@@ -716,7 +716,7 @@
 "StorageManagement.DescriptionAppUsage" = "BetterTG uses %@%% of your free disk space.";
 
 "BetterTGSettings.Tabs" = "Tabs";
-"BetterTGSettings.HideTabBar" = "Hide Tab Bar";
+"BetterTGSettings.TabBar" = "Tab Bar";
 "BetterTGSettings.ArchiveTab" = "Archive Tab";
 "BetterTGSettings.SettingsTab" = "Settings Tab";
 "BetterTGSettings.TabNames" = "Tab Names";
@@ -725,4 +725,4 @@
 "BetterTGSettings.ChatList" = "Chat List";
 "BetterTGSettings.SearchBarAtTop" = "Search Bar at Top";
 "BetterTGSettings.SearchBarAtTopInfo" = "Chats and the archive show the search field under the bar instead of the search button.";
-"BetterTGSettings.HideStories" = "Hide Stories";
+"BetterTGSettings.Stories" = "Stories";
