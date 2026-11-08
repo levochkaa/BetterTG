@@ -305,7 +305,9 @@ private final class MessageReactionButton: UIControl {
             unreadDot.widthAnchor.constraint(equalToConstant: 5),
             unreadDot.heightAnchor.constraint(equalToConstant: 5),
         ])
-        addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        // A tap recognizer rather than touchUpInside: in the chat's history the control saw the touch end inside
+        // without sending its action.
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         longPressRecognizer.minimumPressDuration = 0.4
         longPressRecognizer.isEnabled = false
         addGestureRecognizer(longPressRecognizer)
