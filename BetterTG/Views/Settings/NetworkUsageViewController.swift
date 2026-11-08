@@ -8,7 +8,8 @@ import UIKit
 /// Telegram's DataUsageScreen: the share of each category in PieChartComponent's ring with the total inside, Data
 /// Usage and since when, then the categories by size with their shares (a tap shows Incoming and Outgoing), the
 /// network's totals sent and received, and Reset Statistics (resetNetworkStatistics) after Telegram's confirmation.
-/// All, Mobile and Wi-Fi switch in the bar.
+/// All, Mobile and Wi-Fi switch under the header and stay at the bar's row once scrolled there, the header fading as
+/// the switch nears it; the bar has no title, as DataUsageScreen's.
 final class NetworkUsageViewController: SettingsListViewController {
     /// DataUsageScreen.Category with its colour, Settings icon and title.
     enum Category: String, CaseIterable {
@@ -95,10 +96,13 @@ final class NetworkUsageViewController: SettingsListViewController {
         var total: Int64 { sent + received }
     }
 
+    private static let segmentedHeight: CGFloat = 36
+
     private var statistics: TDNativeNetworkStatistics?
     private var network = Network.all
     private var expanded = Set<Category>()
     private let headerView = UsageChartHeaderView()
+    private let headerContainer = UIView()
     private let segmentedControl = TelegramSegmentedControl(items: [
         L10n.telegram("DataUsage.TopSectionAll"),
         L10n.telegram("DataUsage.TopSectionMobile"),
@@ -124,7 +128,8 @@ final class NetworkUsageViewController: SettingsListViewController {
             updateHeader(animated: true)
             reload()
         }
-        navigationItem.titleView = segmentedControl
+        headerContainer.addSubview(headerView)
+        tableView.addSubview(segmentedControl)
         updateHeader(animated: false)
         load()
     }
@@ -132,11 +137,22 @@ final class NetworkUsageViewController: SettingsListViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let width = tableView.bounds.width
-        let height = headerView.height(for: width)
-        if headerView.frame.size != CGSize(width: width, height: height) {
-            headerView.frame = CGRect(x: 0, y: 0, width: width, height: height)
-            tableView.tableHeaderView = headerView
+        // DataUsageScreen: the switch 20 pt under the description and the categories 26 pt under it; the first
+        // section's own top spacing takes part of that.
+        let height = headerView.height(for: width) + Self.segmentedHeight + 24
+        if tableView.tableHeaderView !== headerContainer || headerContainer.frame.size != CGSize(
+            width: width,
+            height: height,
+        ) {
+            headerContainer.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            headerView.frame = CGRect(x: 0, y: 0, width: width, height: headerView.height(for: width))
+            tableView.tableHeaderView = headerContainer
         }
+        updateSegmentedControl()
+    }
+
+    override func scrollViewDidScroll(_: UIScrollView) {
+        updateSegmentedControl()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -248,6 +264,34 @@ final class NetworkUsageViewController: SettingsListViewController {
              .fileTypeUnknown:
             return .files
         }
+    }
+
+    /// DataUsageScreen.updateScrolling: the switch keeps its place under the header until it reaches the middle of
+    /// the bar's row, then stays there over the bar; the header's contents fade over the last 60 pt before it does.
+    private func updateSegmentedControl() {
+        let chrome = tableView.subviews.lazy.compactMap { $0 as? TelegramClassicNavigationChrome }.first
+        chrome?.titleAlpha = 0
+        // Centred in the band between the side insets, 36 pt from them at most.
+        let insets = tableView.safeAreaInsets
+        let band = tableView.bounds.width - insets.left - insets.right
+        let width = min(band - 36 * 2, segmentedControl.intrinsicContentSize.width)
+        let naturalY = headerContainer.frame.minY + headerView.frame.maxY
+        var y = naturalY
+        if let chrome {
+            let rowCenter = chrome.frame.maxY - TelegramGlassPlatter.barBottomInset - 22
+            let dockedY = rowCenter - Self.segmentedHeight / 2
+            y = max(naturalY, dockedY)
+            headerView.alpha = min(1, max(0, (naturalY - dockedY) / 60))
+            // overNavigationContainer: over the bar's background, as the bar stays over the list by zPosition.
+            segmentedControl.layer.zPosition = chrome.layer.zPosition + 1
+            tableView.bringSubviewToFront(segmentedControl)
+        }
+        segmentedControl.frame = CGRect(
+            x: (insets.left + (band - width) / 2).rounded(),
+            y: y,
+            width: width,
+            height: Self.segmentedHeight,
+        )
     }
 
     /// The network's usage by category.
