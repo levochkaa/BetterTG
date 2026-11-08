@@ -589,8 +589,7 @@ private final class StoryPlayerView: UIView {
 
 /// MediaEditorScreen's preview: the story on black with 12 pt corners, Close and Next in the bar, and the caption
 /// field over the story's bottom (Add a caption...); Next goes on to Share Story.
-private final class StoryPreviewViewController: UIViewController, UITextViewDelegate,
-UIColorPickerViewControllerDelegate {
+private final class StoryPreviewViewController: UIViewController, UITextViewDelegate {
     private var media: StoryDraft
     private let client: TDLibClient
     private let accountID: UUID?
@@ -909,11 +908,7 @@ UIColorPickerViewControllerDelegate {
         placeholder.isHidden = !textView.text.isEmpty
     }
 
-    func colorPickerViewController(
-        _: UIColorPickerViewController,
-        didSelect color: UIColor,
-        continuously _: Bool,
-    ) {
+    private func colorPicked(_ color: UIColor) {
         if isDrawing {
             drawingColors[drawingTool] = color
             applyDrawingTool()
@@ -923,10 +918,6 @@ UIColorPickerViewControllerDelegate {
         entity.color = color
         entity.update()
         entitiesView.settingsBar.refresh()
-    }
-
-    func colorPickerViewControllerDidFinish(_: UIColorPickerViewController) {
-        entitiesView.editingEntity?.resumeEditing()
     }
 
     /// presentTimeoutSetup: Choose how long the story will be visible, then 6, 12, 24 and 48 Hours with a check on
@@ -1094,22 +1085,20 @@ UIColorPickerViewControllerDelegate {
         )
     }
 
-    /// presentColorPicker, as the system's colour picker: editing pauses while it is up.
+    /// presentColorPicker: ColorPickerScreen over the editor; editing pauses while it is up.
     private func presentColorPicker() {
-        let picker = UIColorPickerViewController()
-        // ColorPickerScreen's Opacity slider.
-        picker.supportsAlpha = true
-        // The editor's dark ColorPickerScreen.
-        picker.overrideUserInterfaceStyle = .dark
-        picker.delegate = self
+        let color: UIColor
         if isDrawing {
-            guard let color = drawingColors[drawingTool] else { return }
-            picker.selectedColor = color
+            guard let drawingColor = drawingColors[drawingTool] else { return }
+            color = drawingColor
         } else {
             guard let entity = entitiesView.editingEntity else { return }
-            picker.selectedColor = entity.color
+            color = entity.color
             entity.suspendEditing()
         }
+        let picker = StoryColorPickerViewController(color: color)
+        picker.onChange = { [weak self] color in self?.colorPicked(color) }
+        picker.onDismiss = { [weak self] in self?.entitiesView.editingEntity?.resumeEditing() }
         present(picker, animated: true)
     }
 
