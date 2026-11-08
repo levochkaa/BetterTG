@@ -1099,7 +1099,32 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         let picker = StoryColorPickerViewController(color: color)
         picker.onChange = { [weak self] color in self?.colorPicked(color) }
         picker.onDismiss = { [weak self] in self?.entitiesView.editingEntity?.resumeEditing() }
+        picker.onEyedropper = { [weak self] in self?.presentEyedropper() }
         present(picker, animated: true)
+    }
+
+    /// presentEyedropper: the story as it stands, its frame with the drawing and the entities over it, under a loupe
+    /// that picks the colour it is let go on.
+    private func presentEyedropper() {
+        Task { [weak self] in
+            guard let self else { return }
+            let frame = await currentStoryImage()
+            let size = StoryEntitiesView.size
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                if let frame { UIImage(cgImage: frame).draw(in: CGRect(origin: .zero, size: size)) }
+                self.entitiesView.layer.render(in: context.cgContext)
+            }
+            let eyedropper = StoryEyedropperView(image: image)
+            eyedropper.frame = imageView.convert(imageView.bounds, to: view)
+            eyedropper.onPick = { [weak self] color in
+                self?.colorPicked(color)
+                self?.entitiesView.editingEntity?.resumeEditing()
+            }
+            view.addSubview(eyedropper)
+        }
     }
 
     /// DrawingScreen in and out: the tools, the swatch and the size slider come in place of the caption and the

@@ -20,6 +20,8 @@ final class StoryColorPickerViewController: UIViewController, UIGestureRecognize
 
     var onChange: ((UIColor) -> Void)?
     var onDismiss: (() -> Void)?
+    /// The eyedropper's button: the sheet leaves and the editor samples its own picture.
+    var onEyedropper: (() -> Void)?
 
     private var color: UIColor
     /// Where the spectrum's knob stands, while the colour came from the spectrum.
@@ -28,6 +30,7 @@ final class StoryColorPickerViewController: UIViewController, UIGestureRecognize
     private var keyboardHeight: CGFloat = 0
 
     private let closeGlass = UIVisualEffectView()
+    private let eyedropperGlass = UIVisualEffectView()
     private let titleLabel = UILabel()
     private let modeControl = UISegmentedControl()
     private let gridView = StoryColorGridView()
@@ -81,6 +84,25 @@ final class StoryColorPickerViewController: UIViewController, UIGestureRecognize
         close.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
         closeGlass.contentView.addSubview(close)
         view.addSubview(closeGlass)
+        let eyedropperEffect = UIGlassEffect(style: .regular)
+        eyedropperEffect.isInteractive = true
+        eyedropperGlass.effect = eyedropperEffect
+        eyedropperGlass.cornerConfiguration = .capsule()
+        eyedropperGlass.clipsToBounds = true
+        let eyedropper = UIButton(type: .system)
+        eyedropper.setImage(UIImage(named: "MediaEditor/Eyedropper"), for: .normal)
+        eyedropper.tintColor = .white
+        eyedropper.accessibilityLabel = "Eyedropper"
+        eyedropper.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
+        eyedropper.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            let onEyedropper = onEyedropper
+            // The sheet's own dismissal hands over to the eyedropper instead of resuming editing.
+            onDismiss = nil
+            dismiss(animated: true) { onEyedropper?() }
+        }, for: .touchUpInside)
+        eyedropperGlass.contentView.addSubview(eyedropper)
+        view.addSubview(eyedropperGlass)
         titleLabel.text = L10n.telegram("Paint.ColorTitle")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = .white
@@ -218,6 +240,7 @@ final class StoryColorPickerViewController: UIViewController, UIGestureRecognize
         let inset = band.minX + Self.sideInset
         let right = band.maxX - Self.sideInset
         closeGlass.frame = CGRect(x: inset, y: 16, width: 44, height: 44)
+        eyedropperGlass.frame = CGRect(x: right - 44, y: 16, width: 44, height: 44)
         titleLabel.frame = CGRect(x: band.minX + 50, y: 16, width: width - 100, height: 44)
         let modeHeight = modeControl.intrinsicContentSize.height
         modeControl.frame = CGRect(x: inset, y: 76, width: right - inset, height: modeHeight)
@@ -1001,5 +1024,194 @@ private final class StoryPaletteSwatch: UIControl {
             circle.add(animation, forKey: "path")
         }
         circle.path = path
+    }
+}
+
+// MARK: - StoryEyedropperView
+
+/// EyedropperView: a 148 pt loupe in the middle of the story, its picture 15 times larger under a grid, inside a 5 pt
+/// white ring (grey on a near-white colour) and a 12 pt band of the colour under its middle square. A drag carries it;
+/// letting go picks that colour, and the loupe shrinks away.
+final class StoryEyedropperView: UIView {
+    private static let size: CGFloat = 148
+    private static let outerWidth: CGFloat = 12
+    private static let ringWidth: CGFloat = 5
+
+    var onPick: ((UIColor) -> Void)?
+
+    private let container = UIView()
+    private let shadow = CALayer()
+    private let clip = UIView()
+    private let zoomed: UIImageView
+    private let grid = CALayer()
+    private let outer = CALayer()
+    private let ring = CALayer()
+    private let selection = CALayer()
+    private let pixels: (data: [UInt8], width: Int, height: Int)
+    private var color: UIColor?
+    private var gridIsLight = true
+
+    /// `image` is the story at 1080 by 1920, drawn at scale 1.
+    init(image: UIImage) {
+        self.zoomed = UIImageView(image: image)
+        self.pixels = Self.pixels(of: image.cgImage)
+        super.init(frame: .zero)
+        let size = Self.size
+        let bounds = CGRect(x: 0, y: 0, width: size, height: size)
+        container.bounds = bounds
+        shadow.contents = Self.shadowImage().cgImage
+        shadow.frame = bounds.insetBy(dx: -60, dy: -60)
+        container.layer.addSublayer(shadow)
+        let inset = Self.outerWidth + Self.ringWidth
+        clip.frame = bounds.insetBy(dx: inset, dy: inset)
+        clip.clipsToBounds = true
+        clip.layer.cornerRadius = clip.frame.width / 2
+        zoomed.layer.magnificationFilter = .nearest
+        clip.addSubview(zoomed)
+        grid.opacity = 0.6
+        grid.frame = clip.bounds
+        grid.contents = Self.gridImage(size: clip.bounds.size, light: true).cgImage
+        clip.layer.addSublayer(grid)
+        container.addSubview(clip)
+        ring.frame = bounds.insetBy(dx: Self.outerWidth, dy: Self.outerWidth)
+        ring.cornerRadius = ring.frame.width / 2
+        ring.borderWidth = Self.ringWidth
+        ring.borderColor = UIColor.white.cgColor
+        container.layer.addSublayer(ring)
+        outer.frame = bounds
+        outer.cornerRadius = size / 2
+        outer.borderWidth = Self.outerWidth
+        container.layer.addSublayer(outer)
+        selection.borderColor = UIColor.white.cgColor
+        selection.borderWidth = 4
+        selection.cornerRadius = 2
+        selection.frame = CGRect(x: clip.frame.minX + 48, y: clip.frame.minY + 48, width: 17, height: 17)
+            .insetBy(dx: -0.5, dy: -0.5)
+        container.layer.addSublayer(selection)
+        addSubview(container)
+        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        container.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        updateColor()
+        container.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+        container.alpha = 0
+        UIView.animate(springDuration: 0.4, bounce: 0) { self.container.transform = .identity }
+        UIView.animate(withDuration: 0.2) { self.container.alpha = 1 }
+    }
+
+    private static func pixels(of image: CGImage?) -> (data: [UInt8], width: Int, height: Int) {
+        guard let image else { return ([0, 0, 0, 255], 1, 1) }
+        let width = image.width
+        let height = image.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        data.withUnsafeMutableBytes { buffer in
+            let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+            )
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return (data, width, height)
+    }
+
+    /// generateShadowImage: a 40 pt blur of 90% black around the loupe, 60 pt beyond it.
+    private static func shadowImage() -> UIImage {
+        let inset: CGFloat = 60
+        let side = size + inset * 2
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { context in
+            let cg = context.cgContext
+            cg.setShadow(offset: .zero, blur: 40, color: UIColor(white: 0, alpha: 0.9).cgColor)
+            cg.setFillColor(UIColor(white: 0, alpha: 0.1).cgColor)
+            cg.fillEllipse(in: CGRect(x: inset, y: inset, width: size, height: size))
+        }
+    }
+
+    /// generateGridImage: 1 pt lines every 14 pt from 7 pt, white or 0x505050.
+    private static func gridImage(size: CGSize, light: Bool) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            (light ? UIColor.white : UIColor(red: 0x50 / 255, green: 0x50 / 255, blue: 0x50 / 255, alpha: 1)).setFill()
+            var offset: CGFloat = 7
+            for _ in 0..<8 {
+                context.fill(CGRect(x: 0, y: offset, width: size.width, height: 1))
+                context.fill(CGRect(x: offset, y: 0, width: 1, height: size.height))
+                offset += 14
+            }
+        }
+    }
+
+    /// The story point under the loupe's middle, and the picture moved so that point sits there 15 times larger.
+    private func updateColor() {
+        guard bounds.width > 0 else { return }
+        let scale = bounds.width / CGFloat(pixels.width)
+        let point = CGPoint(x: container.center.x / scale, y: container.center.y / scale)
+        let zoom: CGFloat = 15
+        zoomed.transform = CGAffineTransform(scaleX: zoom, y: zoom)
+        zoomed.center = CGPoint(
+            x: clip.bounds.width / 2 + (zoomed.bounds.width / 2 - point.x) * zoom,
+            y: clip.bounds.height / 2 + (zoomed.bounds.height / 2 - point.y) * zoom,
+        )
+        setColor(color(at: point))
+    }
+
+    private func color(at point: CGPoint) -> UIColor {
+        let x = Int(point.x)
+        let y = Int(point.y)
+        guard x >= 0, x < pixels.width, y >= 0, y < pixels.height else { return .black }
+        let offset = (y * pixels.width + x) * 4
+        return UIColor(
+            red: CGFloat(pixels.data[offset]) / 255,
+            green: CGFloat(pixels.data[offset + 1]) / 255,
+            blue: CGFloat(pixels.data[offset + 2]) / 255,
+            alpha: 1,
+        )
+    }
+
+    private func setColor(_ color: UIColor) {
+        self.color = color
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        outer.borderColor = color.cgColor
+        selection.backgroundColor = color.cgColor
+        let isNearWhite = StoryTextEntityView.lightness(color) > 0.9
+        ring.borderColor = isNearWhite
+            ? UIColor(red: 0x99 / 255, green: 0x99 / 255, blue: 0x99 / 255, alpha: 1).cgColor
+            : UIColor.white.cgColor
+        if gridIsLight == isNearWhite {
+            gridIsLight = !isNearWhite
+            grid.contents = Self.gridImage(size: clip.bounds.size, light: gridIsLight).cgImage
+        }
+        CATransaction.commit()
+    }
+
+    @objc private func dragged(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .changed:
+            let translation = gesture.translation(in: self)
+            container.center = CGPoint(x: container.center.x + translation.x, y: container.center.y + translation.y)
+            gesture.setTranslation(.zero, in: self)
+            updateColor()
+        case .cancelled,
+             .ended:
+            guard let color else { return }
+            isUserInteractionEnabled = false
+            UIView.animate(withDuration: 0.2, animations: {
+                self.container.alpha = 0
+                self.container.transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+            }, completion: { _ in self.removeFromSuperview() })
+            onPick?(color)
+        default:
+            break
+        }
     }
 }
