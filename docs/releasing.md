@@ -21,7 +21,7 @@ BetterTG ships through TestFlight and the App Store with the [fastlane](https://
 - The app record in App Store Connect for the bundle ID in `Configuration/BetterTG.xcconfig`, or in `Configuration/Local.xcconfig` for a fork.
 - TestFlight groups: the `Internal` group gets every processed build; external lanes send to `External`, which has a public link, unless told otherwise.
 - Test Information in App Store Connect → TestFlight, which external testing needs: the beta description (say that the app uses the Telegram API), feedback email, privacy policy and the Beta App Review contact and notes. Sign-in needs a Telegram account. Telegram's test server lets App Review sign in without one (it refuses our own test-number sign-ins), so the notes, here and in App Review Information, walk the reviewer through it: ten quick taps on an empty area of the phone screen, Test Server, the number +99966 2 and four digits, the code 22222.
-- The app's name must not contain "Telegram" except as "Unofficial Telegram", under section 2.3 of the [Telegram API terms](https://core.telegram.org/api/terms).
+- The app's name is "BetterTG: Telegram Client", in Russian "BetterTG: клиент Telegram", as Swiftgram, Nicegram and iMe name theirs. Section 2.3 of the [Telegram API terms](https://core.telegram.org/api/terms) allows "Telegram" in the title only as "Unofficial Telegram", and section 4.2 lets Telegram revoke the API ID over it; Telegram hasn't enforced it on those clients. The description says in its first line that the app is unofficial and uses the Telegram API, as section 2.2 asks.
 
 Xcode creates the distribution certificate and profiles itself through the API key. The lanes use `/Applications/Xcode-27.2.0.app` unless `BETTERTG_XCODE` names another Xcode.
 
