@@ -803,6 +803,7 @@ UIColorPickerViewControllerDelegate {
         }
         entitiesView.settingsBar.onColor = { [weak self] in self?.presentColorPicker() }
         entitiesView.settingsBar.onFonts = { [weak self] source in self?.presentFontPicker(from: source) }
+        entitiesView.settingsBar.onKeyboard = { [weak self] in self?.toggleEmojiPanel() }
         entitiesView.onEditingChange = { [weak self] isEditing in
             guard let self else { return }
             if isEditing, let entity = entitiesView.editingEntity { sizeSlider.value = entity.fontSize }
@@ -1008,6 +1009,38 @@ UIColorPickerViewControllerDelegate {
             width: 30,
             height: 240,
         )
+    }
+
+    /// toggleInputMode: the composer's emoji panel, its emoji tabs only, in place of the keyboard, and back. Emoji go
+    /// into the text; a custom emoji goes in as its emoji, since the text doesn't draw custom emoji.
+    private func toggleEmojiPanel() {
+        guard let entity = entitiesView.editingEntity else { return }
+        if entity.isShowingEmojiPanel {
+            entity.setEmojiPanel(nil)
+            entitiesView.settingsBar.refresh()
+            return
+        }
+        guard let accountID = TDLib.shared.activeAccountID,
+              let ownID = TDLib.shared.activeAccount?.userID else { return }
+        let picker = ComposerMediaPickerViewController(accountID: accountID, chatID: ownID, client: client)
+        picker.presentationStyle = .input
+        picker.initialMode = .emoji
+        picker.allowsStickersAndGIFs = false
+        picker.presentationHost = self
+        picker.onEmoji = { [weak entity] emoji in entity?.insertEmoji(emoji) }
+        picker.onCustomEmoji = { [weak entity] sticker in entity?.insertEmoji(sticker.emoji) }
+        picker.onDeleteBackward = { [weak entity] in entity?.deleteBackward() }
+        picker.onSwitchToKeyboard = { [weak self] in self?.toggleEmojiPanel() }
+        let size = view.window?.bounds.size ?? view.bounds.size
+        let height = ReplyKeyboardInputView.standardHeight(
+            containerSize: size,
+            bottomInset: view.window?.safeAreaInsets.bottom ?? 0,
+        )
+        entity.setEmojiPanel(ComposerMediaInputViewController(
+            picker: picker,
+            size: CGSize(width: size.width, height: height),
+        ))
+        entitiesView.settingsBar.refresh()
     }
 
     /// presentFontPicker: Telegram's eight fonts, each named in itself at 17 pt, over the keyboard by the button.

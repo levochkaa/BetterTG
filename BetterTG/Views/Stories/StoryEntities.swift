@@ -238,8 +238,14 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
     var fontSize: CGFloat = 0.08
     var onChange: (() -> Void)?
 
-    private let textView: UITextView
+    private let textView: StoryEntityTextView
+
     private let layoutManager = StoryTextLayoutManager()
+
+    /// toggleInputMode: the emoji panel stands in for the keyboard.
+    var isShowingEmojiPanel: Bool {
+        textView.panelController != nil
+    }
 
     var isEmpty: Bool {
         textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -254,7 +260,7 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: CGSize(width: Self.textWidth, height: .greatestFiniteMagnitude))
         layoutManager.addTextContainer(container)
-        self.textView = UITextView(frame: .zero, textContainer: container)
+        self.textView = StoryEntityTextView(frame: .zero, textContainer: container)
         super.init(frame: CGRect(x: 0, y: 0, width: 224, height: 100))
         textView.backgroundColor = .clear
         textView.clipsToBounds = false
@@ -304,6 +310,20 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
         textView.resignFirstResponder()
         textView.isEditable = false
         textView.isSelectable = false
+    }
+
+    /// DrawingScreen.toggleInputMode: the emoji panel in place of the keyboard, or the keyboard back.
+    func setEmojiPanel(_ controller: UIInputViewController?) {
+        textView.panelController = controller
+        textView.reloadInputViews()
+    }
+
+    func insertEmoji(_ emoji: String) {
+        textView.insertText(emoji)
+    }
+
+    func deleteBackward() {
+        textView.deleteBackward()
     }
 
     /// suspendEditing and resumeEditing around the colour picker.
@@ -573,10 +593,13 @@ final class StoryTextSettingsBar: UIView {
     var onChange: (() -> Void)?
     /// presentFontPicker from the font button.
     var onFonts: ((UIView) -> Void)?
+    /// toggleKeyboard: the emoji panel and the keyboard in turn.
+    var onKeyboard: (() -> Void)?
 
     private let colorButton = StoryColorSwatchButton()
     private let styleButton = UIButton(type: .custom)
     private let alignmentButton = StoryAlignmentButton()
+    private let keyboardButton = UIButton(type: .system)
     private let fontButton = UIButton(type: .custom)
     private let fontLabel = UILabel()
     private let fontArrow = UIImageView(image: UIImage(named: "MediaEditor/FontArrow")?
@@ -606,7 +629,9 @@ final class StoryTextSettingsBar: UIView {
         }, for: .touchUpInside)
         fontArrow.tintColor = UIColor.white.withAlphaComponent(0.5)
         fontButton.addSubview(fontArrow)
-        for view in [colorButton, styleButton, alignmentButton, fontButton] {
+        keyboardButton.tintColor = .white
+        keyboardButton.addAction(UIAction { [weak self] _ in self?.onKeyboard?() }, for: .touchUpInside)
+        for view in [colorButton, styleButton, alignmentButton, keyboardButton, fontButton] {
             addSubview(view)
         }
         refresh()
@@ -623,6 +648,9 @@ final class StoryTextSettingsBar: UIView {
         colorButton.frame = CGRect(x: 2, y: (height - 44) / 2, width: 44, height: 44)
         styleButton.frame = CGRect(x: 48, y: (height - 44) / 2, width: 44, height: 44)
         alignmentButton.frame = CGRect(x: 92, y: (height - 44) / 2 + 1, width: 44, height: 44)
+        // 45 pt on, 3 pt further while it shows the keyboard key.
+        let showsKeyboardKey = entity?.isShowingEmojiPanel == true
+        keyboardButton.frame = CGRect(x: 137 + (showsKeyboardKey ? 3 : 0), y: (height - 44) / 2, width: 44, height: 44)
         let titleSize = fontLabel.sizeThatFits(bounds.size)
         let width = ceil(titleSize.width) + 40
         fontButton.frame = CGRect(x: bounds.width - 16 - width, y: (height - 30) / 2, width: width, height: 30)
@@ -647,6 +675,18 @@ final class StoryTextSettingsBar: UIView {
             }
         styleButton.setImage(UIImage(named: imageName), for: .normal)
         alignmentButton.alignment = entity.alignment
+        // input_anim_smileToKey and keyToSmile's ends: a smile over the keyboard, the keyboard over the panel.
+        let symbol = entity.isShowingEmojiPanel ? "keyboard" : "face.smiling"
+        keyboardButton.setImage(
+            UIImage(
+                systemName: symbol,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
+            ),
+            for: .normal,
+        )
+        keyboardButton.accessibilityLabel = L10n.telegram(
+            entity.isShowingEmojiPanel ? "VoiceOver.Keyboard" : "EmojiInput.TabEmoji",
+        )
         fontLabel.text = entity.fontTitle
         let size: CGFloat = 13
         fontLabel.font = entity.fontName.flatMap { UIFont(name: $0, size: size) }
@@ -1198,4 +1238,15 @@ final class StoryTextSizeSlider: UIView, UIGestureRecognizerDelegate {
             apply()
         }
     }
+}
+
+// MARK: - StoryEntityTextView
+
+/// DrawingTextView's input: the emoji panel's input view controller while toggleInputMode shows it.
+final class StoryEntityTextView: UITextView {
+    override var inputViewController: UIInputViewController? {
+        panelController ?? super.inputViewController
+    }
+
+    var panelController: UIInputViewController?
 }
