@@ -906,6 +906,10 @@ extension TDClient {
         return try await send(TDNativeRequests.getUserFullInfo(userId: userId))
     }
 
+    func getUserProfileAudios(limit: Int, offset: Int, userId: Int64) async throws -> TDNativeAudios {
+        try await send(TDNativeRequests.getUserProfileAudios(userId: userId, offset: offset, limit: limit))
+    }
+
     func getUserProfilePhotos(limit: Int, offset: Int, userId: Int64) async throws -> TDNativeChatPhotos {
         #if DEBUG
         if let demo = TDClientDemoResponses.answer?(

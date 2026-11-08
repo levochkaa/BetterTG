@@ -16,8 +16,9 @@ final class MusicPlayerViewController: UIViewController {
     /// The list's inset leaves room for three and a half 62 pt rows above the controls (containerLayoutUpdated).
     private static let rowHeight = CGFloat(62)
     private static let visibleRows = CGFloat(3.5)
-    /// effectiveHeaderHeight: the strip over the list that holds the grabber.
-    private static let headerHeight = CGFloat(38)
+    /// effectiveHeaderHeight: the strip over the list that holds the grabber, and a profile playlist's title too.
+    private static let chatHeaderHeight = CGFloat(38)
+    private static let profileHeaderHeight = CGFloat(78)
     private static let pageSize = 50
     private static let compactDetent = UISheetPresentationController.Detent.Identifier(
         rawValue: "BetterTG.musicPlayer.compact",
@@ -30,7 +31,11 @@ final class MusicPlayerViewController: UIViewController {
     private var currentItem: Media.NowPlaying?
     /// The chat's tracks loaded so far, by message ID.
     private var tracks = [Int64: Message]()
-    private var rows = [Message]()
+    private var rows = [TrackRow]()
+    /// The list is a user's profile music (Telegram's `.savedMusic` playlist), whose ID `chatID` holds.
+    private var isProfile: Bool
+    private let headerHeight: CGFloat
+    private let titleLabel = UILabel()
     /// OverlayAudioPlayerControllerNode's currentIsReversed: oldest tracks first outside the regular order.
     private var isReversed: Bool
     /// ChatHistoryEntriesForView shows no music playlist for a chat's only track.
@@ -59,6 +64,8 @@ final class MusicPlayerViewController: UIViewController {
         self.chatID = item.chatID
         self.initialMessageID = item.messageID
         self.isReversed = Media.shared.musicSettings.order != .regular
+        self.isProfile = item.isProfileAudio
+        self.headerHeight = item.isProfileAudio ? Self.profileHeaderHeight : Self.chatHeaderHeight
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
@@ -75,7 +82,12 @@ final class MusicPlayerViewController: UIViewController {
         configureList()
         configureControls()
         configureCloseButton()
-        loadTracks(around: initialMessageID)
+        configureTitle()
+        if isProfile {
+            applyRows(scrollingTo: initialMessageID)
+        } else {
+            loadTracks(around: initialMessageID)
+        }
         bind()
     }
 
@@ -101,12 +113,19 @@ final class MusicPlayerViewController: UIViewController {
         presenter.present(MusicPlayerViewController(accountID: accountID, item: item), animated: true)
     }
 
+    /// PeerInfoScreen's displaySavedMusic: the profile's playlist opens at `item`, which may still be downloading.
+    static func presentProfileMusic(from presenter: UIViewController, item: Media.NowPlaying) {
+        guard presenter.presentedViewController == nil, let accountID = item.accountID,
+              TDLib.shared.activeAccountID == accountID else { return }
+        presenter.present(MusicPlayerViewController(accountID: accountID, item: item), animated: true)
+    }
+
     /// The compact detent fits the header, three and a half tracks and the controls; the large one shows more of the
     /// list.
     private func sheetDetents() -> [UISheetPresentationController.Detent] {
         // The 1 pt is the separator over the controls.
         let listHeight = (hasList ? Self.rowHeight * Self.visibleRows : 0) + 1
-        let height = Self.headerHeight + listHeight + MusicPlayerControlsView.panelHeight
+        let height = headerHeight + listHeight + MusicPlayerControlsView.panelHeight
         let compact = UISheetPresentationController.Detent.custom(identifier: Self.compactDetent) { context in
             min(height, context.maximumDetentValue)
         }
@@ -157,7 +176,7 @@ final class MusicPlayerViewController: UIViewController {
         controlsView.onAlbumArt = { [weak self] in self?.showAlbumArt() }
 
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor, constant: Self.headerHeight),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor, constant: headerHeight),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: separator.topAnchor),
@@ -179,8 +198,45 @@ final class MusicPlayerViewController: UIViewController {
         view.addSubview(closeButton)
         NSLayoutConstraint.activate([
             closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            closeButton.centerYAnchor.constraint(equalTo: view.topAnchor, constant: Self.headerHeight / 2 + 2),
+            closeButton.centerYAnchor.constraint(
+                equalTo: view.topAnchor,
+                constant: isProfile
+                    ? 38
+                    : headerHeight / 2 + 2,
+            ),
         ])
+    }
+
+    /// The profile playlist's title: Your Playlist, or the user's name's playlist, between the header's buttons.
+    private func configureTitle() {
+        guard isProfile else { return }
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+        view.addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            titleLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            titleLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 70,
+            ),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -16),
+        ])
+        let userID = chatID
+        guard TDLib.shared.activeAccountID == accountID else { return }
+        if TDLib.shared.activeAccount?.userID == userID {
+            titleLabel.text = L10n.telegram("MediaPlayer.PlaylistYourTitle")
+            return
+        }
+        let client = TDLib.shared.activeClient
+        Task { [weak self] in
+            guard let user = try? await client.getUser(userId: userID), let self, chatID == userID else { return }
+            let name = user.firstName.isEmpty ? user.lastName : user.firstName
+            titleLabel.text = L10n.telegram("MediaPlayer.PlaylistTitle", name)
+        }
     }
 
     /// The controls follow SharedMediaPlayer's state; the list marks the playing and the downloading track.
@@ -195,6 +251,13 @@ final class MusicPlayerViewController: UIViewController {
             .$loadingMusic
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshRowStates() }
+            .store(in: &cancellables)
+        ProfileMusicPlaylist.shared
+            .changes
+            .sink { [weak self] in
+                guard let self, isProfile else { return }
+                applyRows()
+            }
             .store(in: &cancellables)
         // The player belongs to the account it opened in; Media stops that account's music when another one opens.
         TDLib.shared
@@ -226,9 +289,8 @@ final class MusicPlayerViewController: UIViewController {
         }
         let display: Media.NowPlayingDisplay? = item.flatMap { item in
             if let display = media.nowPlayingDisplay, display.item == item { return display }
-            guard let message = tracks[item.messageID], case .messageAudio(let content) = message.content
-            else { return nil }
-            return Media.NowPlayingDisplay.music(content.audio, item: item)
+            guard let row = rows.first(where: { matches(item, $0) }) else { return nil }
+            return Media.NowPlayingDisplay.music(row.audio, item: item)
         }
         controlsView.configure(MusicPlayerControlsView.Content(
             title: display?.title ?? "",
@@ -250,12 +312,22 @@ final class MusicPlayerViewController: UIViewController {
     /// A track the playlist moved to: the list loads around it unless it already holds it; another chat's track
     /// starts the list over.
     private func follow(_ item: Media.NowPlaying) {
-        if item.chatID != chatID {
+        if item.chatID != chatID || item.isProfileAudio != isProfile {
             chatID = item.chatID
+            isProfile = item.isProfileAudio
+            titleLabel.isHidden = !isProfile
             tracks = [:]
             rows = []
             tableView.reloadData()
-            loadTracks(around: item.messageID)
+            if isProfile {
+                applyRows(scrollingTo: item.messageID)
+            } else {
+                loadTracks(around: item.messageID)
+            }
+        } else if isProfile {
+            if let row = rows.firstIndex(where: { $0.id == item.messageID }) {
+                tableView.scrollToRow(at: IndexPath(row: row, section: 0), at: .none, animated: true)
+            }
         } else if tracks[item.messageID] == nil, loadTask == nil, loadedAnchor != item.messageID {
             loadTracks(around: item.messageID)
         }
@@ -374,8 +446,21 @@ final class MusicPlayerViewController: UIViewController {
 
     /// The list's order: newest tracks first, an album's tracks first to last within it (reverseGroups), in the
     /// regular order; oldest first otherwise.
-    private func orderedRows() -> [Message] {
+    private func orderedRows() -> [TrackRow] {
         guard hasList else { return [] }
+        if isProfile {
+            let playlist = ProfileMusicPlaylist.shared
+            guard playlist.owner == ProfileMusicPlaylist.Owner(accountID: accountID, userID: chatID) else { return [] }
+            let profileRows = playlist.audios.map { TrackRow(id: Int64($0.audio.id), audio: $0, message: nil) }
+            return isReversed ? profileRows.reversed() : profileRows
+        }
+        return orderedMessages().compactMap { message in
+            guard case .messageAudio(let content) = message.content else { return nil }
+            return TrackRow(id: message.id, audio: content.audio, message: message)
+        }
+    }
+
+    private func orderedMessages() -> [Message] {
         let newestFirst = tracks.values.sorted { $0.id > $1.id }
         if isReversed { return Array(newestFirst.reversed()) }
         var ordered = [Message]()
@@ -418,7 +503,7 @@ final class MusicPlayerViewController: UIViewController {
 
     /// A chat's only track leaves the list out and the sheet holds the controls alone.
     private func updateListPresence() {
-        let present = tracks.count > 1
+        let present = isProfile ? !ProfileMusicPlaylist.shared.audios.isEmpty : tracks.count > 1
         guard present != hasList else { return }
         hasList = present
         tableView.isHidden = !present
@@ -445,27 +530,45 @@ final class MusicPlayerViewController: UIViewController {
         }
     }
 
-    private func rowState(for message: Message) -> MusicPlayerTrackCell.State {
-        if let loading = VoicePlaylistContinuation.shared.loadingMusic, loading.accountID == accountID,
-           loading.chatID == message.chatId, loading.messageID == message.id
-        {
+    /// Whether `item` plays the row's track.
+    private func matches(_ item: Media.NowPlaying, _ row: TrackRow) -> Bool {
+        item.accountID == accountID && item.isProfileAudio == isProfile && item.chatID == chatID
+            && item.messageID == row.id
+    }
+
+    private func rowState(for row: TrackRow) -> MusicPlayerTrackCell.State {
+        if let loading = VoicePlaylistContinuation.shared.loadingMusic, matches(loading, row) {
             return .loading
         }
-        guard let currentItem, currentItem.chatID == message.chatId, currentItem.messageID == message.id else {
-            return .idle
-        }
+        guard let currentItem, matches(currentItem, row) else { return .idle }
         return Media.shared.isPlaying ? .playing : .paused
     }
 
     /// openChatMessage from the list: the playing track pauses or resumes; another one plays and the playlist goes
     /// on from it.
-    private func playTrack(_ message: Message) {
-        if let currentItem, currentItem.chatID == message.chatId, currentItem.messageID == message.id {
+    private func playTrack(_ row: TrackRow) {
+        if let currentItem, matches(currentItem, row) {
             Media.shared.togglePlayback()
             return
         }
         guard TDLib.shared.activeAccountID == accountID else { return }
-        VoicePlaylistContinuation.shared.playMusic(message, accountID: accountID, client: TDLib.shared.activeClient)
+        let client = TDLib.shared.activeClient
+        if let message = row.message {
+            VoicePlaylistContinuation.shared.playMusic(message, accountID: accountID, client: client)
+        } else {
+            VoicePlaylistContinuation.shared.playProfileAudio(
+                row.audio,
+                owner: ProfileMusicPlaylist.Owner(accountID: accountID, userID: chatID),
+                client: client,
+            )
+        }
+    }
+
+    private func loadMoreProfileTracks() {
+        guard isProfile, ProfileMusicPlaylist.shared.canLoadMore, TDLib.shared.activeAccountID == accountID
+        else { return }
+        let client = TDLib.shared.activeClient
+        Task { await ProfileMusicPlaylist.shared.loadMore(client: client) }
     }
 
     /// The album art display (albumArtTap): the cover grows from the controls to at most 360 pt over a blur, and a
@@ -544,7 +647,16 @@ final class MusicPlayerViewController: UIViewController {
     }
 }
 
-// MARK: UITableViewDataSource, UITableViewDelegate
+// MARK: - TrackRow
+
+/// A row of the player's list: a chat's music message, or a track of a user's profile music by its file ID.
+private struct TrackRow {
+    let id: Int64
+    let audio: Audio
+    let message: Message?
+}
+
+// MARK: - MusicPlayerViewController + UITableViewDataSource, UITableViewDelegate
 
 extension MusicPlayerViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
@@ -554,14 +666,18 @@ extension MusicPlayerViewController: UITableViewDataSource, UITableViewDelegate 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: MusicPlayerTrackCell.reuseIdentifier, for: indexPath)
         guard let trackCell = cell as? MusicPlayerTrackCell, indexPath.row < rows.count else { return cell }
-        let message = rows[indexPath.row]
-        trackCell.configure(message: message, accountID: accountID, state: rowState(for: message))
+        let row = rows[indexPath.row]
+        trackCell.configure(audio: row.audio, accountID: accountID, state: rowState(for: row))
         return trackCell
     }
 
     /// The list pages in more of the chat's tracks near either end: newer ones at the top in the regular order, older
     /// ones at the top otherwise.
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+        if isProfile {
+            if isReversed ? indexPath.row < 5 : indexPath.row >= rows.count - 5 { loadMoreProfileTracks() }
+            return
+        }
         if indexPath.row < 5 {
             if isReversed { loadOlderTracks() } else { loadNewerTracks() }
         }
@@ -687,13 +803,11 @@ private final class MusicPlayerTrackCell: UITableViewCell {
         state = nil
     }
 
-    func configure(message: Message, accountID: UUID, state: State) {
+    func configure(audio: Audio, accountID: UUID, state: State) {
         artView.cancel()
         artView.image = nil
         dimView.isHidden = true
         self.state = nil
-        guard case .messageAudio(let content) = message.content else { return }
-        let audio = content.audio
         let trackTitle = audio.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let performer = audio.performer.trimmingCharacters(in: .whitespacesAndNewlines)
         let fileName = audio.fileName.trimmingCharacters(in: .whitespacesAndNewlines)

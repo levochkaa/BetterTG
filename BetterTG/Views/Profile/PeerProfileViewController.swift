@@ -229,6 +229,8 @@ ClientRestorableNavigationEntry {
     private var communityTask: Task<Void, Never>?
     /// PeerInfoScreenCommentItem under the info block, as Bot.AddToChatInfo.
     private let infoFooterLabel = UILabel()
+    private let musicStripView = ProfileMusicStripView()
+    private var isOpeningMusic = false
     private var businessLocation: TDNativeBusinessLocation?
     private var infoBirthdate: TDNativeBirthdate?
     private var lastUserFullInfo: UserFullInfo?
@@ -2666,6 +2668,10 @@ ClientRestorableNavigationEntry {
 
         unofficialWarningView.isHidden = true
         headerStack.setCustomSpacing(20, after: actionStack)
+        musicStripView.isHidden = true
+        musicStripView.addTarget(self, action: #selector(musicStripPressed), for: .touchUpInside)
+        headerStack.addArrangedSubview(musicStripView)
+        headerStack.setCustomSpacing(16, after: musicStripView)
         headerStack.addArrangedSubview(unofficialWarningView)
         unofficialWarningView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         headerStack.setCustomSpacing(20, after: unofficialWarningView)
@@ -3660,6 +3666,7 @@ ClientRestorableNavigationEntry {
             photo: selectedPhoto,
         )
         applyGiftCount(info.giftCount)
+        applyProfileMusic(info.firstProfileAudio)
         loadPersonalChannel(info.personalChatId)
         applyUnofficialWarning(info.usesUnofficialApp)
         applyInfoRows(info)
@@ -3669,6 +3676,43 @@ ClientRestorableNavigationEntry {
         }
         if roleSignatureChanged, !photoIDWillChange, activeAvatarGallery != nil {
             resetAvatarGalleryForMetadataChange()
+        }
+    }
+
+    /// peerInfoProfileMusic: the strip under the buttons shows the user's first profile track.
+    private func applyProfileMusic(_ audio: Audio?) {
+        if let audio { musicStripView.configure(audio) }
+        guard musicStripView.isHidden != (audio == nil) else { return }
+        musicStripView.isHidden = audio == nil
+        (musicStripView.superview as? UIStackView)?.setCustomSpacing(audio == nil ? 20 : 4, after: actionStack)
+    }
+
+    /// displaySavedMusic: the playlist opens at the playing track of this profile's music, or plays the profile's
+    /// first track from the top and opens at it.
+    @objc private func musicStripPressed() {
+        guard let user = customChat.user, !isOpeningMusic else { return }
+        let owner = ProfileMusicPlaylist.Owner(accountID: accountID, userID: user.id)
+        if let item = Media.shared.nowPlaying, item.isProfileAudio, item.accountID == accountID,
+           item.chatID == user.id
+        {
+            MusicPlayerViewController.presentProfileMusic(from: self, item: item)
+            return
+        }
+        isOpeningMusic = true
+        let client = client
+        let fallback = lastUserFullInfo?.firstProfileAudio
+        Task { [weak self] in
+            let playlist = ProfileMusicPlaylist.shared
+            await playlist.reload(owner, client: client)
+            guard let self else { return }
+            isOpeningMusic = false
+            let first = playlist.owner == owner ? playlist.audios.first : nil
+            guard let audio = first ?? fallback else { return }
+            VoicePlaylistContinuation.shared.playProfileAudio(audio, owner: owner, client: client)
+            MusicPlayerViewController.presentProfileMusic(
+                from: self,
+                item: ProfileMusicPlaylist.item(audio, owner: owner),
+            )
         }
     }
 

@@ -20,6 +20,9 @@ final class Media: ObservableObject {
         /// standalone playlist (`.recentActions`) with the `.file` player type: alone, without Raise to Listen, its
         /// header opening the message.
         var isFile = false
+        /// A track of a user's profile music (Telegram's `.savedMusic` playlist): `chatID` holds the user's ID and
+        /// `messageID` the audio file's ID.
+        var isProfileAudio = false
     }
 
     /// The header text the note's chat gave it, so the header can name it over the chat list and in other chats.

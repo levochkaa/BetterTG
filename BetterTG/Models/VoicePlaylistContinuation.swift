@@ -16,6 +16,19 @@ import TDLibKit
     struct ChatKey: Hashable {
         let accountID: UUID?
         let chatID: Int64
+        /// A user's profile music, whose `chatID` is the user's ID.
+        var isProfile = false
+
+        init(accountID: UUID?, chatID: Int64, isProfile: Bool = false) {
+            self.accountID = accountID
+            self.chatID = chatID
+            self.isProfile = isProfile
+        }
+
+        /// The playlist a track belongs to.
+        init(_ item: Media.NowPlaying) {
+            self.init(accountID: item.accountID, chatID: item.chatID, isProfile: item.isProfileAudio)
+        }
     }
 
     /// SharedMediaPlaylistControlAction's track steps.
@@ -169,6 +182,63 @@ import TDLibKit
         return oldest
     }
 
+    /// PeerMessagesMediaPlaylist's custom (`.savedMusic`) navigation over the profile's music in its order: next goes
+    /// down the list in the regular order and up it in the reversed one, starting over when everything loops; the
+    /// random order picks a track it hasn't played, and its previous goes back through the ones it has.
+    private static func adjacentProfileAudio(
+        to item: Media.NowPlaying,
+        action: MusicControl,
+        settings: MusicPlaybackSettings,
+        played: MusicPlaybackStack,
+        client: TDLibClient,
+    ) async -> (Audio, StackStep)? {
+        guard let accountID = item.accountID else { return nil }
+        let playlist = ProfileMusicPlaylist.shared
+        let owner = ProfileMusicPlaylist.Owner(accountID: accountID, userID: item.chatID)
+        if playlist.owner != owner { await playlist.reload(owner, client: client) }
+        guard playlist.owner == owner else { return nil }
+        func loadAll() async {
+            var pages = 0
+            while playlist.canLoadMore, pages < 40 {
+                await playlist.loadMore(client: client)
+                pages += 1
+            }
+        }
+        switch settings.order {
+        case .random:
+            var unplayed = played
+            if action == .previous {
+                _ = unplayed.pop()
+                if let previousID = unplayed.pop(),
+                   let audio = playlist.audios.first(where: { Int64($0.audio.id) == previousID })
+                {
+                    return (audio, .returnTo)
+                }
+            }
+            await loadAll()
+            let playedIDs = Set(unplayed.ids)
+            if let pick = playlist.audios.filter({ !playedIDs.contains(Int64($0.audio.id)) }).randomElement() {
+                return (pick, .push)
+            }
+            return playlist.audio(for: item).map { ($0, .push) }
+        case .regular,
+             .reversed:
+            guard let index = playlist.audios.firstIndex(where: { Int64($0.audio.id) == item.messageID })
+            else { return nil }
+            let forward = (settings.order == .regular) == (action == .next)
+            if forward {
+                if index + 1 >= playlist.audios.count { await playlist.loadMore(client: client) }
+                if index + 1 < playlist.audios.count { return (playlist.audios[index + 1], .push) }
+                guard settings.looping == .all, let first = playlist.audios.first else { return nil }
+                return (first, .push)
+            }
+            if index > 0 { return (playlist.audios[index - 1], .push) }
+            guard settings.looping == .all else { return nil }
+            await loadAll()
+            return playlist.audios.last.map { ($0, .push) }
+        }
+    }
+
     /// A track outside `played`, as Postbox's findRandomMessage picks one. TDLib's sparse positions (every track up
     /// to 2,000 of them, evenly spread past that) stand in for Postbox's local tag index.
     private static func randomMusic(
@@ -227,7 +297,7 @@ import TDLibKit
         Media.shared.updateMusicSettings(settings)
         musicStack.clear()
         if let current = Media.shared.nowPlaying, current.isMusic {
-            musicStackChat = ChatKey(accountID: current.accountID, chatID: current.chatID)
+            musicStackChat = ChatKey(current)
             musicStack.push(current.messageID)
         }
     }
@@ -249,10 +319,22 @@ import TDLibKit
         }
     }
 
+    /// The profile's music strip or a track picked in its playlist: the user's track plays and the playlist goes on
+    /// through their profile music.
+    func playProfileAudio(_ audio: Audio, owner: ProfileMusicPlaylist.Owner, client: TDLibClient) {
+        guard TDLib.shared.activeAccountID == owner.accountID else { return }
+        task?.cancel()
+        loadingMusic = nil
+        let item = ProfileMusicPlaylist.item(audio, owner: owner)
+        task = Task { [weak self] in
+            await self?.playAudio(audio, item: item, client: client, requiresIdle: false, stackStep: nil)
+        }
+    }
+
     /// A track started from its bubble or the player's list begins a new playlist (PeerMessagesMediaPlaylist's loadItem
     /// at a message clears the stack); one this playlist stepped to is already on top of it.
     private func noteMusicStarted(_ item: Media.NowPlaying) {
-        let key = ChatKey(accountID: item.accountID, chatID: item.chatID)
+        let key = ChatKey(item)
         guard musicStackChat != key || musicStack.ids.last != item.messageID else { return }
         musicStackChat = key
         musicStack.clear()
@@ -318,11 +400,32 @@ import TDLibKit
         guard let accountID = item.accountID, TDLib.shared.activeAccountID == accountID else { return }
         let client = TDLib.shared.activeClient
         let settings = Media.shared.musicSettings
-        let played = musicStackChat == ChatKey(accountID: accountID, chatID: item.chatID)
-            ? musicStack
-            : MusicPlaybackStack()
+        let played = musicStackChat == ChatKey(item) ? musicStack : MusicPlaybackStack()
         task?.cancel()
         loadingMusic = nil
+        if item.isProfileAudio {
+            task = Task { [weak self] in
+                guard let (audio, step) = await Self.adjacentProfileAudio(
+                    to: item,
+                    action: action,
+                    settings: settings,
+                    played: played,
+                    client: client,
+                ), !Task.isCancelled, let self else { return }
+                let target = ProfileMusicPlaylist.item(
+                    audio,
+                    owner: ProfileMusicPlaylist.Owner(accountID: accountID, userID: item.chatID),
+                )
+                await playAudio(
+                    audio,
+                    item: target,
+                    client: client,
+                    requiresIdle: requiresIdle,
+                    stackStep: step,
+                )
+            }
+            return
+        }
         task = Task { [weak self] in
             let target: Message?
             var stackStep = StackStep.push
@@ -373,6 +476,18 @@ import TDLibKit
     ) async {
         guard case .messageAudio(let content) = message.content else { return }
         let item = Media.NowPlaying(accountID: accountID, chatID: message.chatId, messageID: message.id, isMusic: true)
+        await playAudio(content.audio, item: item, client: client, requiresIdle: requiresIdle, stackStep: stackStep)
+    }
+
+    /// Downloads a track and plays it as `item` with its header text.
+    private func playAudio(
+        _ audio: Audio,
+        item: Media.NowPlaying,
+        client: TDLibClient,
+        requiresIdle: Bool,
+        stackStep: StackStep?,
+    ) async {
+        guard let accountID = item.accountID else { return }
         // The playlist landing on the loaded track again (a single track looping all, a random order that played every
         // track) plays it over.
         if Media.shared.nowPlaying == item, !Media.shared.savedMediaPath.isEmpty {
@@ -382,7 +497,7 @@ import TDLibKit
         }
         loadingMusic = item
         let file = try? await client.downloadFile(
-            fileId: content.audio.audio.id,
+            fileId: audio.audio.id,
             limit: 0,
             offset: 0,
             priority: 32,
@@ -394,12 +509,12 @@ import TDLibKit
               !requiresIdle || Media.shared.savedMediaPath.isEmpty
         else { return }
         if let stackStep { record(stackStep, item: item) }
-        Media.shared.toggle(with: file.local.path, duration: content.audio.duration, item: item)
-        Media.shared.setDisplay(.music(content.audio, item: item))
+        Media.shared.toggle(with: file.local.path, duration: audio.duration, item: item)
+        Media.shared.setDisplay(.music(audio, item: item))
     }
 
     private func record(_ step: StackStep, item: Media.NowPlaying) {
-        let key = ChatKey(accountID: item.accountID, chatID: item.chatID)
+        let key = ChatKey(item)
         if musicStackChat != key {
             musicStackChat = key
             musicStack.clear()
