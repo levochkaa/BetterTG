@@ -3022,7 +3022,12 @@ ClientRestorableNavigationEntry {
         let progress = avatarFrame.height > 0
             ? min(1, max(0, (barBottom - avatarFrame.minY) / avatarFrame.height))
             : 0
-        let scale = 1 - progress * 0.5
+        // A pull grows the photo toward its expansion, up to 40% at the threshold where a release opens it.
+        let pull = -(collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        let growth = !isAvatarExpanded && avatarGalleryIsAvailable && storyRingView.style == nil
+            ? min(1, max(0, pull / Self.avatarExpandPullDistance)) * 0.4
+            : 0
+        let scale = (1 - progress * 0.5) * (1 + growth)
         if headerCollapseScale != scale {
             headerCollapseScale = scale
             applyAvatarTransform()
