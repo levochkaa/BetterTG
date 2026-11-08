@@ -74,6 +74,7 @@ public typealias DraftMessage = TDNativeDraftMessage
 public typealias DraftMessageContent = TDNativeDraftMessageContent
 public typealias DraftMessageContentText = TDNativeDraftMessageContentText
 public typealias EmojiReaction = TDNativeEmojiReaction
+public typealias FactCheck = TDNativeFactCheck
 public typealias FailedToAddMember = TDNativeFailedToAddMember
 public typealias File = TDNativeFile
 public typealias FileDownload = TDNativeFileDownload

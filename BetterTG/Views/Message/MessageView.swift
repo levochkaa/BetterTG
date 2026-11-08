@@ -270,6 +270,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     /// the media's capsule over the content's corner.
     private let freestandingTimestampLabel = MessageMediaStatusLabel()
     private let commentFooterView = MessageCommentFooterView()
+    private let factCheckView = MessageFactCheckView()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
     /// ChatMessageShareButton beside the bubble; nil kind hides it.
@@ -383,8 +384,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private var bubbleContentViews: [UIView] {
         [
-            senderNameView, forwardView, replyView, mediaView, structuredContentView, textView, reactionView,
-            timestampLabel, commentFooterView,
+            senderNameView, forwardView, replyView, mediaView, structuredContentView, textView, factCheckView,
+            reactionView, timestampLabel, commentFooterView,
         ]
     }
 
@@ -635,6 +636,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         inlineKeyboardView.isHidden = true
         commentFooterView.prepareForReuse()
         commentFooterView.isHidden = true
+        factCheckView.prepareForReuse()
+        factCheckView.isHidden = true
         forwardView.prepareForReuse()
         senderNameView.isHidden = true
         replyView.prepareForReuse()
@@ -1016,12 +1019,36 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.setAlbumSelection(selectionActive ? selectedAlbumItemIDs : nil, animated: reconfiguresSameMessage)
         setMessageHighlighted(highlightedMessageID, animated: reconfiguresSameMessage)
 
+        // ChatMessageFactCheckBubbleContentNode follows the text and carries the status, as a preview below it does.
+        var factCheck = message.message.factCheck.flatMap { $0.text.text.isEmpty ? nil : $0 }
+        #if DEBUG
+            // `-ui-probe-fact-check`: every text message carries a made-up check, to look at the block.
+            if factCheck == nil, ProcessInfo.processInfo.arguments.contains("-ui-probe-fact-check"),
+               case .messageText = message.message.content
+            {
+                factCheck = TDNativeFactCheck(
+                    text: TDNativeFormattedText(
+                        text: "This claim is missing context. Independent sources reported a different figure, and "
+                            + "the quoted statement was made in another year. Read the full review before sharing "
+                            + "the message further, as it has been edited since it was first published.",
+                        entities: [],
+                    ),
+                    countryCode: "DE",
+                )
+            }
+        #endif
         let previewBelowText: Bool =
             if case .linkPreview(let preview) = presentation.supplement {
                 !preview.showAboveText
             } else {
                 false
             }
+        let statusBelowText = previewBelowText || factCheck != nil
+        if let factCheck {
+            factCheckView.configure(factCheck, isExpanded: message.isFactCheckExpanded)
+            factCheckView.onExpand = { onContentAction(.expandFactCheck) }
+        }
+        factCheckView.isHidden = factCheck == nil
         if let textIndex = bubbleStack.arrangedSubviews.firstIndex(of: arrangedBubbleView(for: textView)),
            let structuredIndex = bubbleStack.arrangedSubviews
             .firstIndex(of: arrangedBubbleView(for: structuredContentView)),
@@ -1079,10 +1106,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.configure(
                 formattedText: formatted,
                 client: client,
-                statusText: previewBelowText ? "" : statusLine.text,
+                statusText: statusBelowText ? "" : statusLine.text,
                 statusColor: timestampColor,
-                statusViewCount: previewBelowText ? nil : statusLine.viewCount,
-                statusLine: previewBelowText ? nil : statusLine,
+                statusViewCount: statusBelowText ? nil : statusLine.viewCount,
+                statusLine: statusBelowText ? nil : statusLine,
                 maximumWidth: maximumTextWidth(for: bounds.width),
                 spoilersRevealed: message.spoilersRevealed,
                 spoilerState: textSpoilers.states[textSourceID],
@@ -1160,7 +1187,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         freestandingTimestampLabel.attributedText = mediaTimestampLabel.attributedText
         freestandingTimestampLabel.isHidden = !isFreestandingSupplement
         structuredContentView.bringSubviewToFront(freestandingTimestampLabel)
-        timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || isCentered
+        timestampLabel.isHidden = (displayedFormattedText != nil && !statusBelowText) || hasVisualMedia || isCentered
             || isFreestandingSupplement
         mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || isCentered
         mediaView.bringSubviewToFront(mediaTimestampLabel)

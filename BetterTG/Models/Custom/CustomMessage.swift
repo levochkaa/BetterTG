@@ -36,6 +36,8 @@ import TDLibKit
     /// The expandable quotes opened in this message's text, by block index (ChatMessageTextBubbleContentNode's
     /// expandedBlockIds).
     @Published var expandedQuoteBlocks = Set<Int>()
+    /// The fact check opened past its four lines (ChatMessageFactCheckBubbleContentNode's isExpanded).
+    @Published var isFactCheckExpanded = false
 
     var isReplyQuoteExpanded = false {
         didSet { renderRevision &+= 1 }
@@ -109,6 +111,7 @@ import TDLibKit
         self.reactionMutationInFlight = value.reactionMutationInFlight
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
         self.expandedQuoteBlocks = value.expandedQuoteBlocks
+        self.isFactCheckExpanded = value.isFactCheckExpanded
         self.serviceText = value.serviceText
     }
 

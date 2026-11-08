@@ -7671,6 +7671,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.collectionViewLayout.invalidateLayout()
         case .mediaTimestamp(let seconds):
             openMediaTimestamp(seconds, in: message)
+        case .expandFactCheck:
+            message.isFactCheckExpanded = true
         case .toggleTextQuote(let index):
             // ChatMessageTextBubbleContentNode's expandedBlockIds; the published change reconfigures the row.
             if message.expandedQuoteBlocks.contains(index) {

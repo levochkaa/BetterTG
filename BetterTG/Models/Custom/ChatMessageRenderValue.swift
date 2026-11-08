@@ -21,6 +21,7 @@ struct ChatMessageRenderValue: Equatable {
     let deliveryState: MessageDeliveryState
     let isReplyQuoteExpanded: Bool
     let expandedQuoteBlocks: Set<Int>
+    let isFactCheckExpanded: Bool
 
     var displayedID: DisplayedMessageID {
         message.mediaAlbumId == 0 ? .message(message.id) : .album(message.mediaAlbumId)
@@ -47,6 +48,7 @@ struct ChatMessageRenderValue: Equatable {
         self.deliveryState = value.deliveryState
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
         self.expandedQuoteBlocks = value.expandedQuoteBlocks
+        self.isFactCheckExpanded = value.isFactCheckExpanded
     }
 
     /// Materialize only for a renderer that needs CustomMessage. Never insert
