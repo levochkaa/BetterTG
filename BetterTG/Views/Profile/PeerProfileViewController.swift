@@ -189,6 +189,8 @@ ClientRestorableNavigationEntry {
     /// PeerInfoHeaderNode's expanded avatar: a pull past the threshold opens the photo across the width above the
     /// header, where the round photo had been; scrolling back into the list closes it.
     private let expandedAvatarView = ProfileAvatarView()
+    /// Holds the expanded photo under its name and strip, so only the photo slides as it pages.
+    private let expandedPhotoContainer = UIView()
     /// The name and status over the expanded photo's bottom edge, on a darkening gradient.
     private let expandedNameView = ProfileExpandedNameView()
     /// PeerInfoAvatarListContainerNode's photos and its strip of segments, paged in place by tapping the sides.
@@ -1405,7 +1407,7 @@ ClientRestorableNavigationEntry {
         updateHeaderCollapse()
         // Scrolling into the list closes the expanded photo.
         if isAvatarExpanded, scrollView.isDragging,
-           scrollView.contentOffset.y + scrollView.adjustedContentInset.top > expandedAvatarView.bounds.height * 0.5
+           scrollView.contentOffset.y + scrollView.adjustedContentInset.top > expandedPhotoContainer.bounds.height * 0.5
         {
             setAvatarExpanded(false)
         }
@@ -1482,8 +1484,8 @@ ClientRestorableNavigationEntry {
     /// PeerInfoAvatarListContainerNode's taps: the left third goes back, the right third forward, the middle opens
     /// the gallery.
     @objc private func expandedAvatarTapped(_ gesture: UITapGestureRecognizer) {
-        let x = gesture.location(in: expandedAvatarView).x
-        let width = expandedAvatarView.bounds.width
+        let x = gesture.location(in: expandedPhotoContainer).x
+        let width = expandedPhotoContainer.bounds.width
         let step = x < width / 3 ? -1 : x > width * 2 / 3 ? 1 : 0
         guard step != 0, expandedPhotos.count > 1 else {
             avatarPressed()
@@ -1501,6 +1503,13 @@ ClientRestorableNavigationEntry {
     private func showExpandedPhoto(step: Int) {
         expandedPhotoIndex = (expandedPhotoIndex + step + expandedPhotos.count) % expandedPhotos.count
         let item = expandedPhotos[expandedPhotoIndex]
+        // PeerInfoAvatarListContainerNode slides the next photo in from the side it comes from.
+        let transition = CATransition()
+        transition.type = .push
+        transition.subtype = step > 0 ? .fromRight : .fromLeft
+        transition.duration = 0.25
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        expandedAvatarView.layer.add(transition, forKey: "page")
         expandedAvatarView.configure(
             file: item.largestSize?.photo,
             minithumbnail: item.minithumbnail,
@@ -1544,7 +1553,7 @@ ClientRestorableNavigationEntry {
         titleRow.isHidden = expanded
         statusLabel.isHidden = currentStatusText.isEmpty || expanded
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            self.expandedAvatarView.alpha = expanded ? 1 : 0
+            self.expandedPhotoContainer.alpha = expanded ? 1 : 0
             self.profileHeaderView.layoutIfNeeded()
             self.updateProfileHeaderLayout()
         }
@@ -3069,35 +3078,41 @@ ClientRestorableNavigationEntry {
         view.addSubview(collectionView)
         collectionView.addSubview(profileCoverView)
         collectionView.addSubview(profileHeaderView)
-        expandedAvatarView.alpha = 0
+        expandedPhotoContainer.alpha = 0
+        expandedPhotoContainer.clipsToBounds = true
         expandedAvatarView.isSquare = true
-        expandedAvatarView.clipsToBounds = true
-        expandedAvatarView.isUserInteractionEnabled = true
-        expandedAvatarView.addGestureRecognizer(UITapGestureRecognizer(
+        expandedAvatarView.isUserInteractionEnabled = false
+        expandedAvatarView.frame = expandedPhotoContainer.bounds
+        expandedAvatarView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        expandedPhotoContainer.addSubview(expandedAvatarView)
+        expandedPhotoContainer.addGestureRecognizer(UITapGestureRecognizer(
             target: self,
             action: #selector(expandedAvatarTapped(_:)),
         ))
         for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: self, action: #selector(expandedAvatarSwiped(_:)))
             swipe.direction = direction
-            expandedAvatarView.addGestureRecognizer(swipe)
+            expandedPhotoContainer.addGestureRecognizer(swipe)
         }
         expandedPhotoIndicator.translatesAutoresizingMaskIntoConstraints = false
-        expandedAvatarView.addSubview(expandedPhotoIndicator)
+        expandedPhotoContainer.addSubview(expandedPhotoIndicator)
         NSLayoutConstraint.activate([
-            expandedPhotoIndicator.topAnchor.constraint(equalTo: expandedAvatarView.topAnchor, constant: 8),
-            expandedPhotoIndicator.leadingAnchor.constraint(equalTo: expandedAvatarView.leadingAnchor, constant: 8),
-            expandedPhotoIndicator.trailingAnchor.constraint(equalTo: expandedAvatarView.trailingAnchor, constant: -8),
+            expandedPhotoIndicator.topAnchor.constraint(equalTo: expandedPhotoContainer.topAnchor, constant: 8),
+            expandedPhotoIndicator.leadingAnchor.constraint(equalTo: expandedPhotoContainer.leadingAnchor, constant: 8),
+            expandedPhotoIndicator.trailingAnchor.constraint(
+                equalTo: expandedPhotoContainer.trailingAnchor,
+                constant: -8,
+            ),
             expandedPhotoIndicator.heightAnchor.constraint(equalToConstant: 2),
         ])
         expandedNameView.translatesAutoresizingMaskIntoConstraints = false
-        expandedAvatarView.addSubview(expandedNameView)
+        expandedPhotoContainer.addSubview(expandedNameView)
         NSLayoutConstraint.activate([
-            expandedNameView.leadingAnchor.constraint(equalTo: expandedAvatarView.leadingAnchor),
-            expandedNameView.trailingAnchor.constraint(equalTo: expandedAvatarView.trailingAnchor),
-            expandedNameView.bottomAnchor.constraint(equalTo: expandedAvatarView.bottomAnchor),
+            expandedNameView.leadingAnchor.constraint(equalTo: expandedPhotoContainer.leadingAnchor),
+            expandedNameView.trailingAnchor.constraint(equalTo: expandedPhotoContainer.trailingAnchor),
+            expandedNameView.bottomAnchor.constraint(equalTo: expandedPhotoContainer.bottomAnchor),
         ])
-        collectionView.addSubview(expandedAvatarView)
+        collectionView.addSubview(expandedPhotoContainer)
         scrollingArea.translatesAutoresizingMaskIntoConstraints = false
         scrollingArea.scrollView = collectionView
         scrollingArea.currentDate = { [weak self] in self?.topMediaMonth() }
@@ -3152,7 +3167,7 @@ ClientRestorableNavigationEntry {
         profileHeaderView.frame = CGRect(x: sideInsets.left, y: -headerHeight, width: width, height: headerHeight)
         // The expanded photo is square across the header's width, above it.
         let expandedSide = isAvatarExpanded ? width : 0
-        expandedAvatarView.frame = CGRect(
+        expandedPhotoContainer.frame = CGRect(
             x: sideInsets.left,
             y: -headerHeight - expandedSide,
             width: width,
