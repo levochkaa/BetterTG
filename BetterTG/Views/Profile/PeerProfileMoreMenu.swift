@@ -129,6 +129,9 @@ import UIKit
         if canSetAutoDelete {
             actions.append(autoDeleteAction())
         }
+        if let boost = boostAction() {
+            actions.append(boost)
+        }
         if let report = reportAction() {
             actions.append(report)
         }
@@ -140,6 +143,28 @@ import UIKit
         }
         actions.append(removalAction())
         return actions
+    }
+
+    // MARK: Boost
+
+    /// PeerInfoScreenPerformButtonAction's Boost Channel or Boost Group, which opens the levels screen (openBoost).
+    private func boostAction() -> TelegramContextMenuAction? {
+        guard case .supergroup(let supergroup) = customChat.type else { return nil }
+        let isAdmin =
+            switch supergroup.status {
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusCreator: true
+            default: false
+            }
+        return TelegramContextMenuAction(
+            title: L10n.telegram(supergroup.isChannel ? "PeerInfo.Channel.Boost" : "PeerInfo.Group.Boost"),
+            image: UIImage(systemName: "bolt.fill"),
+        ) { [weak host, chat, client] in
+            host?.navigationController?.pushViewController(
+                BoostLevelsViewController(chat: chat, isAdmin: isAdmin, client: client),
+                animated: true,
+            )
+        }
     }
 
     // MARK: Block
