@@ -895,11 +895,15 @@ private final class BusinessIntroPreviewView: UIView {
 /// The intro's sticker choice (BusinessIntroSetupScreen's sticker panel): favorite and recent stickers, then the
 /// installed packs, in a grid; a tap picks one.
 final class BusinessStickerPickerViewController: UIViewController, UICollectionViewDataSource,
-UICollectionViewDelegate {
+UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdating {
+    let telegramNavigationSearch = UISearchController(searchResultsController: nil)
     var onSelect: ((Sticker) -> Void)?
 
     private let client: TDLibClient
     private var stickers = [Sticker]()
+    /// The panel's stickers, which an empty search brings back.
+    private var allStickers = [Sticker]()
+    private var searchTask: Task<Void, Never>?
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 4
@@ -921,6 +925,9 @@ UICollectionViewDelegate {
         super.viewDidLoad()
         title = L10n.telegram("Business.Intro.IntroSticker")
         view.backgroundColor = .systemGroupedBackground
+        telegramNavigationSearch.obscuresBackgroundDuringPresentation = false
+        telegramNavigationSearch.searchResultsUpdater = self
+        telegramNavigationSearch.searchBar.placeholder = L10n.telegram("Common.Search")
         collectionView.backgroundColor = .clear
         collectionView.dataSource = self
         collectionView.delegate = self
@@ -974,6 +981,37 @@ UICollectionViewDelegate {
         onSelect?(sticker)
     }
 
+    /// StickerPaneSearchContentNode: an emoji finds its stickers, words find stickers by their keywords
+    /// (searchStickers); an empty field brings the panel back.
+    func updateSearchResults(for searchController: UISearchController) {
+        searchTask?.cancel()
+        let query = (searchController.searchBar.text ?? "").trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            searchTask = nil
+            stickers = allStickers
+            collectionView.reloadData()
+            return
+        }
+        let isEmoji = query.unicodeScalars.allSatisfy { $0.properties.isEmojiPresentation || $0.properties.isEmoji }
+            && query.unicodeScalars.contains { $0.properties.isEmojiPresentation }
+        let client = client
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let found = await (try? client.send(TDNativeRequests.searchStickers(
+                stickerType: .stickerTypeRegular,
+                emojis: isEmoji ? query : "",
+                query: isEmoji ? "" : query,
+                inputLanguageCodes: [MessageTranslation.appLanguageCode],
+                offset: 0,
+                limit: 100,
+            )))?.stickers ?? []
+            guard !Task.isCancelled, let self else { return }
+            stickers = found
+            collectionView.reloadData()
+        }
+    }
+
     private func load() {
         let client = client
         Task { [weak self] in
@@ -994,7 +1032,9 @@ UICollectionViewDelegate {
 
     private func apply(_ values: [Sticker]) {
         var seen = Set<Int>()
-        stickers = values.filter { seen.insert($0.sticker.id).inserted }
+        allStickers = values.filter { seen.insert($0.sticker.id).inserted }
+        guard searchTask == nil else { return }
+        stickers = allStickers
         collectionView.reloadData()
     }
 }
