@@ -335,9 +335,18 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     /// ChatListNavigationBar.applyScroll: the pull reveals the row under the bar and fades the title's posters.
     private func applyStoriesPull(_ pull: CGFloat) {
         guard folderController.isViewLoaded else { return }
-        let bottom = folderController.view.convert(CGPoint(x: 0, y: folderController.storiesRegionBottom), to: view).y
+        let bottom = folderController.hasSearchField
+            ? view.safeAreaInsets.top + TelegramListNavigationBar.titleHeight + pull
+            : folderController.view.convert(CGPoint(x: 0, y: folderController.storiesRegionBottom), to: view).y
         storyRowView.isHidden = pull <= 0
         storyRowView.frame = CGRect(x: 0, y: bottom - pull, width: view.bounds.width, height: pull)
+        // Between the title and the search field the row stands over the bar, whose background grows behind it.
+        if folderController.hasSearchField, pull > 0,
+           let barIndex = view.subviews.firstIndex(of: navigationBarView),
+           let rowIndex = view.subviews.firstIndex(of: storyRowView), rowIndex < barIndex
+        {
+            view.insertSubview(storyRowView, aboveSubview: navigationBarView)
+        }
         let fraction = min(1, pull / StoryPeerListExpandedView.height)
         storyRowView.alpha = fraction
         navigationBarView.storiesView.alpha = 1 - fraction
@@ -686,9 +695,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     var searchScrollOffset: CGFloat {
         guard usesSearchField else { return 0 }
         guard isViewLoaded, didPlaceInitialViewport else { return initialSearchScrollOffset }
+        // Open stories stand between the title and the field: the field keeps their room under it.
         return min(
             ChatListNavigationSearchView.scrollHeight,
-            tableView.contentOffset.y + tableView.adjustedContentInset.top,
+            tableView.contentOffset.y + tableView.adjustedContentInset.top - storiesInset,
         )
     }
 
@@ -696,6 +706,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     var storiesPull: CGFloat {
         guard isViewLoaded else { return 0 }
         return -(tableView.contentOffset.y + tableView.adjustedContentInset.top - storiesInset)
+    }
+
+    /// Whether the search field stands under the bar's title, the stories opening between them.
+    var hasSearchField: Bool {
+        usesSearchField
     }
 
     /// Where the rows start, in the view's coordinates; the stories show in the pull above it.
@@ -753,7 +768,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private var allowsStories: Bool {
-        !usesSearchField && searchActive != true && storiesEnabled?() == true
+        searchActive != true && storiesEnabled?() == true
     }
 
     init(
@@ -1222,7 +1237,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private func updateIndicatorInsets() {
         let safeArea = tableView.safeAreaInsets
         let pull = usesSearchField && !searchActive
-            ? max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top))
+            ? max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top - storiesInset))
             : 0
         let insets = UIEdgeInsets(
             top: safeArea.top + barContentHeight + accessoryTopInset + pull,

@@ -661,9 +661,20 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// ChatListNavigationBar.applyScroll: the pull reveals the row under the bar and fades the title's posters.
     private func applyStoriesPull(_ pull: CGFloat, from controller: FolderViewController) {
         guard currentFolderController === controller, controller.isViewLoaded else { return }
-        let bottom = controller.view.convert(CGPoint(x: 0, y: controller.storiesRegionBottom), to: view).y
+        // With the search field, ChatListNavigationBar opens the stories between the title and the field, which the
+        // pull moves down; otherwise they show over the rows.
+        let bottom = controller.hasSearchField
+            ? view.safeAreaInsets.top + TelegramListNavigationBar.titleHeight + pull
+            : controller.view.convert(CGPoint(x: 0, y: controller.storiesRegionBottom), to: view).y
         storyRowView.isHidden = pull <= 0
         storyRowView.frame = CGRect(x: 0, y: bottom - pull, width: view.bounds.width, height: pull)
+        // Between the title and the search field the row stands over the bar, whose background grows behind it.
+        if controller.hasSearchField, pull > 0,
+           let barIndex = view.subviews.firstIndex(of: customNavigationBar),
+           let rowIndex = view.subviews.firstIndex(of: storyRowView), rowIndex < barIndex
+        {
+            view.insertSubview(storyRowView, aboveSubview: customNavigationBar)
+        }
         let fraction = min(1, pull / StoryPeerListExpandedView.height)
         storyRowView.alpha = fraction
         customNavigationBar.storiesView.alpha = 1 - fraction
