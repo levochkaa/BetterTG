@@ -220,7 +220,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         configuration.imageProperties.tintColor = row.tintColor
         configuration.imageProperties.maximumSize = CGSize(width: 25, height: 25)
         if let account = row.account {
-            configuration.image = Self.accountIcon(account)
+            let meOfAccount = me.flatMap { $0.id == account.userID ? $0 : nil }
+            configuration.image = Self.accountIcon(account, placeholder: meOfAccount?.telegramAvatarPlaceholder)
         } else if row == .betterTG, let icon = Self.appIcon {
             configuration.image = icon
             configuration.imageProperties.cornerRadius = 25 * 0.225
@@ -352,18 +353,19 @@ UISearchResultsUpdating, UISearchControllerDelegate {
 
     /// Telegram's account rows lead with the account's photo: the one cached on disk, since only the active account
     /// has a client, else its colour and first letter.
-    private static func accountIcon(_ account: TelegramAccount) -> UIImage {
+    /// The account's photo, or its placeholder: the user's own when it's loaded, as the header draws it.
+    private static func accountIcon(_ account: TelegramAccount, placeholder: TelegramAvatarPlaceholder?) -> UIImage {
         let side: CGFloat = 25
         let rect = CGRect(x: 0, y: 0, width: side, height: side)
         guard let photo = TelegramAccountAvatarCache.photo(for: account.id) else {
             let userID = account.userID ?? 0
-            return TelegramAvatarPlaceholder(
+            return (placeholder ?? TelegramAvatarPlaceholder(
                 peerID: userID,
                 accentColorID: Int(userID % 7),
                 upgradedGiftColors: nil,
                 letters: account.localizedTitle.telegramAvatarFirstLetter.map { [$0] } ?? [],
                 isDeleted: false,
-            )
+            ))
             .image(side: side)
             .withRenderingMode(.alwaysOriginal)
         }
