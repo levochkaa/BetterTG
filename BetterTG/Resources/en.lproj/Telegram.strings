@@ -4642,3 +4642,7 @@
 "Attachment.Reply" = "Reply";
 "Map.SetThisLocation" = "Set This Location";
 "Map.SetThisPlace" = "Set This Place";
+"Business.Intro.IntroTitlePlaceholder" = "Title";
+"Business.Intro.IntroTextPlaceholder" = "Enter Message";
+"Business.Intro.IntroSticker" = "Choose Sticker";
+"Business.Intro.IntroStickerValueRandom" = "Random";

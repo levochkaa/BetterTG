@@ -328,11 +328,38 @@ final class BusinessLocationViewController: SettingsListViewController {
 final class BusinessIntroViewController: SettingsListViewController {
     private var titleText: String
     private var message: String
+    /// The intro's sticker; without one the chat shows a random greeting sticker.
+    private var sticker: Sticker?
     private let hadIntro: Bool
+
+    /// BusinessIntroSetupScreen's Choose Sticker: the chosen sticker, or Random.
+    private var stickerRow: SettingsRow {
+        let client = client
+        return SettingsRow(
+            title: L10n.telegram("Business.Intro.IntroSticker"),
+            detail: sticker == nil ? L10n.telegram("Business.Intro.IntroStickerValueRandom") : nil,
+            style: .value,
+            accessory: .disclosure,
+            action: { [weak self] in self?.chooseSticker() },
+            trailingView: sticker.map { sticker in
+                SettingsTrailingView {
+                    let view = CustomEmojiInlineView()
+                    view.translatesAutoresizingMaskIntoConstraints = false
+                    NSLayoutConstraint.activate([
+                        view.widthAnchor.constraint(equalToConstant: 28),
+                        view.heightAnchor.constraint(equalToConstant: 28),
+                    ])
+                    view.configure(sticker: sticker, client: client)
+                    return view
+                }
+            },
+        )
+    }
 
     init(startPage: TDNativeBusinessStartPage?) {
         self.titleText = startPage?.title ?? ""
         self.message = startPage?.message ?? ""
+        self.sticker = startPage?.sticker
         self.hadIntro = startPage != nil
         super.init()
     }
@@ -357,15 +384,16 @@ final class BusinessIntroViewController: SettingsListViewController {
             rows: [
                 SettingsRow(title: "", style: .input(SettingsTextInput(
                     text: titleText,
-                    placeholder: L10n.telegram("Conversation.EmptyPlaceholder"),
+                    placeholder: L10n.telegram("Business.Intro.IntroTitlePlaceholder"),
                     maxLength: 32,
                 ) { [weak self] text in self?.titleText = text })),
                 SettingsRow(title: "", style: .input(SettingsTextInput(
                     text: message,
-                    placeholder: L10n.telegram("Conversation.GreetingText"),
+                    placeholder: L10n.telegram("Business.Intro.IntroTextPlaceholder"),
                     maxLength: 70,
                     isMultiline: true,
                 ) { [weak self] text in self?.message = text })),
+                stickerRow,
             ],
         )]
         if hadIntro {
@@ -375,18 +403,33 @@ final class BusinessIntroViewController: SettingsListViewController {
             ) { [weak self] in
                 self?.titleText = ""
                 self?.message = ""
+                self?.sticker = nil
                 self?.save()
             }]))
         }
         return sections
     }
 
+    private func chooseSticker() {
+        let picker = BusinessStickerPickerViewController(client: client)
+        picker.onSelect = { [weak self] sticker in
+            self?.sticker = sticker
+            self?.reload()
+            self?.navigationController?.popViewController(animated: true)
+        }
+        navigationController?.pushViewController(picker, animated: true)
+    }
+
     private func save() {
         let title = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        let page: TDNativeInputBusinessStartPage? = title.isEmpty && message.isEmpty
+        let page: TDNativeInputBusinessStartPage? = title.isEmpty && message.isEmpty && sticker == nil
             ? nil
-            : TDNativeInputBusinessStartPage(title: title, message: message, sticker: nil)
+            : TDNativeInputBusinessStartPage(
+                title: title,
+                message: message,
+                sticker: sticker.map { .inputFileId(InputFileId(id: $0.sticker.id)) },
+            )
         perform { client in
             _ = try await client.send(TDNativeRequests.setBusinessStartPage(startPage: page))
         } completion: { [weak self] in
@@ -734,5 +777,114 @@ private final class BusinessLocationMapCell: UITableViewCell {
         pin.coordinate = center
         mapView.removeAnnotations(mapView.annotations)
         mapView.addAnnotation(pin)
+    }
+}
+
+// MARK: - BusinessStickerPickerViewController
+
+/// The intro's sticker choice (BusinessIntroSetupScreen's sticker panel): favorite and recent stickers, then the
+/// installed packs, in a grid; a tap picks one.
+final class BusinessStickerPickerViewController: UIViewController, UICollectionViewDataSource,
+UICollectionViewDelegate {
+    var onSelect: ((Sticker) -> Void)?
+
+    private let client: TDLibClient
+    private var stickers = [Sticker]()
+    private lazy var collectionView: UICollectionView = {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 4
+        layout.minimumLineSpacing = 4
+        layout.sectionInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        return UICollectionView(frame: .zero, collectionViewLayout: layout)
+    }()
+
+    init(client: TDLibClient) {
+        self.client = client
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.telegram("Business.Intro.IntroSticker")
+        view.backgroundColor = .systemGroupedBackground
+        collectionView.backgroundColor = .clear
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.register(
+            ComposerStickerCell.self,
+            forCellWithReuseIdentifier: ComposerStickerCell.reuseIdentifier,
+        )
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        load()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout else { return }
+        let width = collectionView.bounds.width - 16
+        let perRow = max(4, Int(width / 80))
+        let side = floor((width - CGFloat(perRow - 1) * 4) / CGFloat(perRow))
+        if layout.itemSize.width != side {
+            layout.itemSize = CGSize(width: side, height: side)
+        }
+    }
+
+    func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int {
+        stickers.count
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath,
+    ) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: ComposerStickerCell.reuseIdentifier,
+            for: indexPath,
+        )
+        if let cell = cell as? ComposerStickerCell, let sticker = stickers[safe: indexPath.item] {
+            cell.configure(sticker: sticker, client: client)
+            cell.setPlaybackVisible(true)
+        }
+        return cell
+    }
+
+    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard let sticker = stickers[safe: indexPath.item] else { return }
+        onSelect?(sticker)
+    }
+
+    private func load() {
+        let client = client
+        Task { [weak self] in
+            async let favoritesRequest = client.send(TDNativeRequests.getFavoriteStickers())
+            async let recentRequest = client.send(TDNativeRequests.getRecentStickers(isAttached: false))
+            async let setsRequest = client.send(TDNativeRequests.getInstalledStickerSets(
+                stickerType: .stickerTypeRegular,
+            ))
+            var values = await ((try? favoritesRequest)?.stickers ?? []) + ((try? recentRequest)?.stickers ?? [])
+            self?.apply(values)
+            for info in await (try? setsRequest)?.sets ?? [] {
+                guard let set = try? await client.send(TDNativeRequests.getStickerSet(setId: info.id)) else { continue }
+                values += set.stickers
+                self?.apply(values)
+            }
+        }
+    }
+
+    private func apply(_ values: [Sticker]) {
+        var seen = Set<Int>()
+        stickers = values.filter { seen.insert($0.sticker.id).inserted }
+        collectionView.reloadData()
     }
 }
