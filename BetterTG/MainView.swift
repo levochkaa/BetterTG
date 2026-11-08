@@ -644,7 +644,15 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         storyRowView.isHidden = true
         storyRowView.onSelect = { [weak self] chatID, source in self?.storyRowSelected(chatID, source: source) }
         storyRowView.onContextMenu = { [weak self] chatID, source, gesture in
-            self?.storyRowContextMenu(chatID, source: source, gesture: gesture)
+            guard let self else { return }
+            let authority = actionAuthority
+            StoryRowMenu.present(
+                chatID: chatID,
+                source: source,
+                gesture: gesture,
+                from: self,
+                client: authority.client,
+            ) { authority.isCurrent }
         }
         view.insertSubview(storyRowView, belowSubview: customNavigationBar)
         storySubscriptions.load(client: client)
@@ -758,175 +766,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             return
         }
         openStories(from: chatID, sourceView: source)
-    }
-
-    /// ChatListController's storyContextPeerAction. The account: Add Story, Saved Stories, Archived Stories. A channel
-    /// or group: Add Story for an admin who posts stories, Open Channel or Group, Hide Stories. A person: Send Message,
-    /// Open Profile, Notify or Do Not Notify About Stories, Hide Stories. Nothing for a service account. Telegram's
-    /// View
-    /// Anonymously (stealth mode) isn't ported.
-    private func storyRowContextMenu(_ chatID: Int64, source: UIView, gesture: ContextMenuPressGestureRecognizer) {
-        let client = actionAuthority.client
-        Task { [weak self] in
-            guard let poster = await StoryMoreMenu.resolvePoster(chatID: chatID, client: client), !poster.isService
-            else { return }
-            var canPost = false
-            if case .supergroup = poster.kind,
-               let chat = try? await client.getChat(chatId: chatID),
-               case .chatTypeSupergroup(let info) = chat.type,
-               let group = try? await client.getSupergroup(supergroupId: info.supergroupId)
-            {
-                switch group.status {
-                case .chatMemberStatusCreator: canPost = true
-                case .chatMemberStatusAdministrator(let admin): canPost = admin.rights.canPostStories
-                default: break
-                }
-            }
-            guard let self, actionAuthority.isCurrent, source.window != nil else { return }
-            presentTelegramContextMenu(
-                sourceView: source,
-                actions: storyRowActions(poster, canPost: canPost),
-                tracking: gesture,
-                presentationStyle: .menuOnly,
-                // Under the item, which stays in sight, as Telegram's extracted item does.
-                menuAnchorView: source,
-                menuSpacing: 8,
-            )
-        }
-    }
-
-    private func storyRowActions(_ poster: StoryMoreMenu.Poster, canPost: Bool) -> [TelegramContextMenuAction] {
-        let addStory = TelegramContextMenuAction(
-            title: L10n.telegram("StoryFeed.ContextAddStory"),
-            image: UIImage(systemName: "plus.circle"),
-        ) { [weak self] in
-            guard let self else { return }
-            StoryComposer.start(from: self, client: actionAuthority.client, accountID: TDLib.shared.activeAccountID)
-        }
-        let hide = TelegramContextMenuAction(
-            title: L10n.telegram(poster.storiesHidden ? "StoryFeed.ContextUnarchive" : "StoryFeed.ContextArchive"),
-            image: UIImage(systemName: poster.storiesHidden ? "tray.and.arrow.up" : "archivebox"),
-        ) { [weak self] in self?.setStoriesHidden(!poster.storiesHidden, of: poster, offersUndo: true) }
-        if poster.isSelf {
-            return [
-                addStory,
-                TelegramContextMenuAction(
-                    title: L10n.telegram("StoryFeed.ContextSavedStories"),
-                    image: UIImage(systemName: "rectangle.stack"),
-                ) { [weak self] in self?.openMyStories(.posts) },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("StoryFeed.ContextArchivedStories"),
-                    image: UIImage(systemName: "archivebox"),
-                ) { [weak self] in self?.openMyStories(.archivedPosts) },
-            ]
-        }
-        switch poster.kind {
-        case .supergroup(let isChannel):
-            var actions = canPost ? [addStory] : []
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram(isChannel ? "ChatList.ContextOpenChannel" : "ChatList.ContextOpenGroup"),
-                image: UIImage(systemName: isChannel ? "megaphone" : "person.2"),
-            ) { [weak self] in self?.openStoryPosterChat(poster.chatID) })
-            actions.append(hide)
-            return actions
-        default:
-            return [
-                TelegramContextMenuAction(
-                    title: L10n.telegram("StoryFeed.ContextOpenChat"),
-                    image: UIImage(systemName: "bubble.left"),
-                ) { [weak self] in self?.openStoryPosterChat(poster.chatID) },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("StoryFeed.ContextOpenProfile"),
-                    image: UIImage(systemName: "person.crop.circle"),
-                ) { [weak self] in self?.openStoryPosterProfile(poster.chatID) },
-                TelegramContextMenuAction(
-                    title: L10n.telegram(poster.storiesMuted
-                        ? "StoryFeed.ContextNotifyOn"
-                        : "StoryFeed.ContextNotifyOff"),
-                    image: UIImage(systemName: poster.storiesMuted ? "bell" : "bell.slash"),
-                ) { [weak self] in self?.toggleStoryNotifications(of: poster) },
-                hide,
-            ]
-        }
-    }
-
-    /// PeerInfoStoryGridScreen's saved or archive scope, as My Profile's Posts or Archive pane.
-    private func openMyStories(_ tab: PeerProfileViewController.SharedTab) {
-        guard let accountID = TDLib.shared.activeAccountID else { return }
-        let client = actionAuthority.client
-        Task { [weak self] in
-            guard let me = try? await client.getMe(),
-                  let chat = try? await client.createPrivateChat(force: false, userId: me.id),
-                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
-                  let self, actionAuthority.isCurrent
-            else { return }
-            let profile = PeerProfileViewController(
-                customChat: customChat, topic: nil, client: client, accountID: accountID, isMyProfile: true,
-            )
-            profile.preferredSharedTab = tab
-            NavigationStorage.shared.activeNavigationController.pushViewController(profile, animated: true)
-        }
-    }
-
-    private func openStoryPosterChat(_ chatID: Int64) {
-        let client = actionAuthority.client
-        Task { [weak self] in
-            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
-                  let self, actionAuthority.isCurrent
-            else { return }
-            NavigationStorage.shared.push(.customChat(chat))
-        }
-    }
-
-    private func openStoryPosterProfile(_ chatID: Int64) {
-        guard let accountID = TDLib.shared.activeAccountID else { return }
-        let client = actionAuthority.client
-        Task { [weak self] in
-            guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
-                  let self, actionAuthority.isCurrent
-            else { return }
-            let profile = PeerProfileViewController(customChat: chat, topic: nil, client: client, accountID: accountID)
-            profile.configureOpensChatItself()
-            NavigationStorage.shared.activeNavigationController.pushViewController(profile, animated: true)
-        }
-    }
-
-    /// togglePeerStoriesMuted with Telegram's tooltip naming the poster.
-    private func toggleStoryNotifications(of poster: StoryMoreMenu.Poster) {
-        let client = actionAuthority.client
-        let chatID = poster.chatID
-        let wereMuted = poster.storiesMuted
-        Task {
-            guard let chat = try? await client.send(TDNativeRequests.getChat(chatId: chatID)) else { return }
-            _ = try? await client.send(TDNativeRequests.setChatNotificationSettings(
-                chatId: chatID,
-                notificationSettings: chat.notificationSettings.settingMuteStories(!wereMuted),
-            ))
-        }
-        let key = wereMuted ? "StoryFeed.TooltipNotifyOn" : "StoryFeed.TooltipNotifyOff"
-        TelegramUndoToast.show(
-            text: L10n.telegram(key, poster.title).withoutTelegramMarkup,
-            in: view,
-            bottomInset: 66,
-            undo: nil,
-        )
-    }
-
-    /// updatePeerStoriesHidden with Telegram's tooltip and its Undo.
-    private func setStoriesHidden(_ isHidden: Bool, of poster: StoryMoreMenu.Poster, offersUndo: Bool) {
-        let client = actionAuthority.client
-        let chatID = poster.chatID
-        let list: TDNativeStoryList = isHidden ? .storyListArchive : .storyListMain
-        Task { _ = try? await client.send(TDNativeRequests.setChatActiveStoriesList(chatId: chatID, storyList: list)) }
-        guard offersUndo else { return }
-        let key = isHidden ? "StoryFeed.TooltipArchive" : "StoryFeed.TooltipUnarchive"
-        TelegramUndoToast.show(
-            text: L10n.telegram(key, poster.compactTitle).withoutTelegramMarkup,
-            in: view,
-            bottomInset: 66,
-        ) { [weak self] in
-            self?.setStoriesHidden(!isHidden, of: poster, offersUndo: false)
-        }
     }
 
     /// ChatListController.openStories: a poster's stories, then the row's others in its order.

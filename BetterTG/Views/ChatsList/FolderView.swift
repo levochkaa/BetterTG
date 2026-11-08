@@ -43,6 +43,14 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     /// Whether the archive is a tab of the root, with no back button.
     private let isTabRoot: Bool
 
+    /// ChatListController's archive stories: the hidden posters (storyListArchive), collapsed beside the title and
+    /// pulled down into the row as in Chats, with no My Story.
+    private let storySubscriptions = StorySubscriptions(isArchive: true)
+    private var storyPeers = [Int64: SettingsPeer]()
+    private var storyTitles = [Int64: String]()
+    private let storyRowView = StoryPeerListExpandedView()
+    private var storyPeerTask: Task<Void, Never>?
+
     var navigationClientSource: TdUpdateSource? { actionAuthority.scope(owner: self).source }
 
     init(folder: CustomFolder, rootVM: RootVM, isTabRoot: Bool = false, restoration: ClientRestorationState? = nil) {
@@ -131,6 +139,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             navigationBarHeightConstraint,
         ])
         configureSearchResults()
+        configureStories()
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.scheduleRestorationRetry() }
@@ -281,6 +290,8 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             navigationBarView.applyScroll(offset: offset)
         }
         folderController.onListInteractionEnded = { [weak self] in self?.scheduleRestorationRetry() }
+        folderController.storiesEnabled = { [weak self] in self?.storyRowView.items.isEmpty == false }
+        folderController.onStoriesPull = { [weak self] pull in self?.applyStoriesPull(pull) }
         addChild(folderController)
         folderController.view.translatesAutoresizingMaskIntoConstraints = false
         // The list stays beneath search results and the navigation bar when it is replaced.
@@ -292,6 +303,108 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         folderController.didMove(toParent: self)
+    }
+
+    private func configureStories() {
+        let client = actionAuthority.client
+        let source = TDLib.shared.activeUpdateSource
+        storySubscriptions.onChange = { [weak self] in self?.updateStoryPeers() }
+        nc.scopedPublisher(&cancellables, for: .updateChatActiveStories) { [weak self] event in
+            guard let self, event.source == source, actionAuthority.isCurrent else { return }
+            storySubscriptions.apply(event.value.activeStories)
+        }
+        navigationBarView.onStoriesTap = { [weak self] in self?.folderController.expandStories() }
+        storyRowView.clipsToBounds = true
+        storyRowView.isHidden = true
+        storyRowView.onSelect = { [weak self] chatID, source in self?.openStories(from: chatID, sourceView: source) }
+        storyRowView.onContextMenu = { [weak self] chatID, source, gesture in
+            guard let self else { return }
+            let authority = actionAuthority
+            StoryRowMenu.present(
+                chatID: chatID,
+                source: source,
+                gesture: gesture,
+                from: self,
+                client: authority.client,
+            ) { authority.isCurrent }
+        }
+        view.insertSubview(storyRowView, belowSubview: navigationBarView)
+        storySubscriptions.load(client: client)
+    }
+
+    /// ChatListNavigationBar.applyScroll: the pull reveals the row under the bar and fades the title's posters.
+    private func applyStoriesPull(_ pull: CGFloat) {
+        guard folderController.isViewLoaded else { return }
+        let bottom = folderController.view.convert(CGPoint(x: 0, y: folderController.storiesRegionBottom), to: view).y
+        storyRowView.isHidden = pull <= 0
+        storyRowView.frame = CGRect(x: 0, y: bottom - pull, width: view.bounds.width, height: pull)
+        let fraction = min(1, pull / StoryPeerListExpandedView.height)
+        storyRowView.alpha = fraction
+        navigationBarView.storiesView.alpha = 1 - fraction
+    }
+
+    private func updateStoryPeers() {
+        let missing = storySubscriptions.entries.map(\.chatID).filter { storyPeers[$0] == nil }
+        applyStoryPeers()
+        guard !missing.isEmpty else { return }
+        let client = actionAuthority.client
+        storyPeerTask?.cancel()
+        storyPeerTask = Task { [weak self] in
+            var found = [Int64: SettingsPeer]()
+            var titles = [Int64: String]()
+            for chatID in missing {
+                guard let chat = try? await client.getChat(chatId: chatID) else { continue }
+                if case .chatTypePrivate(let user) = chat.type {
+                    found[chatID] = await SettingsPeer.user(user.userId, client: client)
+                    let person = try? await client.getUser(userId: user.userId)
+                    titles[chatID] = person.map { $0.firstName.isEmpty ? $0.lastName : $0.firstName }
+                } else {
+                    found[chatID] = SettingsPeer(chat: chat)
+                    titles[chatID] = chat.title
+                }
+            }
+            guard let self, !Task.isCancelled, actionAuthority.isCurrent else { return }
+            storyPeers.merge(found) { $1 }
+            storyTitles.merge(titles) { $1 }
+            applyStoryPeers()
+        }
+    }
+
+    private func applyStoryPeers() {
+        let entries = storySubscriptions.entries
+        navigationBarView.storiesView.update(
+            items: entries.prefix(3).compactMap { entry in
+                storyPeers[entry.chatID].map { StoryPeerListCollapsedView.Item(peer: $0, ringStyle: entry.ringStyle) }
+            },
+            client: actionAuthority.client,
+            accountID: TDLib.shared.activeAccountID,
+        )
+        navigationBarView.updateStories()
+        storyRowView.update(
+            items: entries.compactMap { entry in
+                storyPeers[entry.chatID].map {
+                    StoryPeerListExpandedView.Item(
+                        chatID: entry.chatID,
+                        peer: $0,
+                        title: storyTitles[entry.chatID] ?? $0.title,
+                        ringStyle: entry.ringStyle,
+                    )
+                }
+            },
+            client: actionAuthority.client,
+            accountID: TDLib.shared.activeAccountID,
+        )
+    }
+
+    /// ChatListController.openStories in the archive: a poster's stories, then the row's others.
+    private func openStories(from chatID: Int64, sourceView: UIView) {
+        StoryViewerController.present(
+            .activeStories(chatIDs: storySubscriptions.entries.map(\.chatID), initialChatID: chatID),
+            client: actionAuthority.client,
+            from: self,
+            sourceView: sourceView,
+            sourceIsAvatar: true,
+        )
     }
 
     private func configureSearchResults() {

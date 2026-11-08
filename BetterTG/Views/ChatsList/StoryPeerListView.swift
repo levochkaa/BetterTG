@@ -103,10 +103,16 @@ final class StoryPeerListCollapsedView: UIView {
 
     private var byChat = [Int64: Entry]()
     private var loadTask: Task<Void, Never>?
+    /// The archive's list (storyListArchive) in place of the main one.
+    private let isArchive: Bool
 
     /// The posters in TDLib's order.
     var ordered: [Entry] {
         byChat.values.sorted { $0.order > $1.order }
+    }
+
+    init(isArchive: Bool = false) {
+        self.isArchive = isArchive
     }
 
     func reset() {
@@ -125,7 +131,9 @@ final class StoryPeerListCollapsedView: UIView {
             for _ in 0..<60 {
                 guard !Task.isCancelled, pages < 20 else { return }
                 do {
-                    _ = try await client.send(TDNativeRequests.loadActiveStories(storyList: .storyListMain))
+                    _ = try await client.send(TDNativeRequests.loadActiveStories(
+                        storyList: isArchive ? .storyListArchive : .storyListMain,
+                    ))
                     pages += 1
                 } catch let error as TDLibError where error.code != 404 {
                     try? await Task.sleep(for: .seconds(1))
@@ -137,7 +145,13 @@ final class StoryPeerListCollapsedView: UIView {
     }
 
     func apply(_ stories: TDNativeChatActiveStories) {
-        guard case .storyListMain? = stories.list, stories.order != 0, let last = stories.stories.last else {
+        let isInList =
+            switch stories.list {
+            case .storyListMain?: !isArchive
+            case .storyListArchive?: isArchive
+            default: false
+            }
+        guard isInList, stories.order != 0, let last = stories.stories.last else {
             if byChat.removeValue(forKey: stories.chatId) != nil { changed() }
             return
         }
@@ -334,15 +348,21 @@ final class StoryPeerListExpandedView: UIView {
     /// The row's frame within the view, so its items rest 16 pt under the bar's bottom however much shows.
     override func layoutSubviews() {
         super.layoutSubviews()
-        let rowFrame = CGRect(x: 0, y: bounds.height - Self.height, width: bounds.width, height: Self.height)
+        // The row keeps to the band between the side insets, beside iPhone Duo's strip too.
+        let rowFrame = CGRect(
+            x: safeAreaInsets.left,
+            y: bounds.height - Self.height,
+            width: bounds.width - safeAreaInsets.left - safeAreaInsets.right,
+            height: Self.height,
+        )
         scrollView.frame = rowFrame
         // StoryPeerListComponent.ItemLayout: 16 pt down and 4 pt short of the side inset.
-        let leading = safeAreaInsets.left + 12
+        let leading: CGFloat = 12
         for (index, view) in itemViews.enumerated() {
             view.frame = CGRect(x: leading + CGFloat(index) * (60 + 14), y: 16, width: 60, height: 77)
         }
         scrollView.contentSize = CGSize(
-            width: leading + CGFloat(itemViews.count) * 74 - 14 + 12 + safeAreaInsets.right,
+            width: leading + CGFloat(itemViews.count) * 74 - 14 + 12,
             height: Self.height,
         )
     }
