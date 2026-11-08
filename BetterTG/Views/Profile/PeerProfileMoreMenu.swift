@@ -133,7 +133,8 @@ import UIKit
         if let boost = boostAction() {
             actions.append(boost)
         }
-        if canGetStatistics, case .supergroup(let group) = customChat.type, group.isChannel {
+        // PeerInfoScreen's Statistics for a channel or a group the account may see statistics of.
+        if canGetStatistics, case .supergroup = customChat.type {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChannelInfo.Stats"),
                 image: UIImage(systemName: "chart.bar.xaxis"),

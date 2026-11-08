@@ -77,6 +77,7 @@ import UIKit
             TermsOfServicePresenter.presentProbeIfRequested()
             AuthConfirmationPresenter.presentProbeIfRequested()
             ThreadReplyProbe.setUpCommunityIfRequested()
+            GroupStatisticsProbe.runIfRequested()
             ChatTitleIconsProbe.runIfRequested()
             MessageStatusLineProbe.runIfRequested()
             MessageReadReportProbe.runIfRequested()

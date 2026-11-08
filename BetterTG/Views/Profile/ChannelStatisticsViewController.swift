@@ -33,6 +33,13 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         let reactions: Int
     }
 
+    /// A group's top members, admins and inviters, each list's people by id.
+    private enum TopList: CaseIterable {
+        case posters
+        case admins
+        case inviters
+    }
+
     /// channelStatsControllerEntries' graphs.
     private static let channelGraphEntries = [
         GraphEntry(title: "Stats.GrowthTitle", kind: .lines),
@@ -53,6 +60,18 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private static let messageGraphEntries = [
         GraphEntry(title: "Stats.MessageInteractionsTitle", kind: .twoAxisStep),
         GraphEntry(title: "Stats.MessageReactionsTitle", kind: .bars),
+    ]
+
+    /// groupStatsControllerEntries' graphs.
+    private static let groupGraphEntries = [
+        GraphEntry(title: "Stats.GroupGrowthTitle", kind: .lines),
+        GraphEntry(title: "Stats.GroupMembersTitle", kind: .lines),
+        GraphEntry(title: "Stats.GroupNewMembersBySourceTitle", kind: .bars),
+        GraphEntry(title: "Stats.GroupLanguagesTitle", kind: .pie),
+        GraphEntry(title: "Stats.GroupMessagesTitle", kind: .bars),
+        GraphEntry(title: "Stats.GroupActionsTitle", kind: .lines),
+        GraphEntry(title: "Stats.GroupTopHoursTitle", kind: .hourlyStep),
+        GraphEntry(title: "Stats.GroupTopWeekdaysTitle", kind: .pie),
     ]
 
     private let chat: Chat
@@ -80,8 +99,21 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     private var posts = [(Message, PostInteractions)]()
     private var postsSection: Int?
 
+    private var groupStatistics: TDNativeChatStatisticsSupergroup?
+    private var topPeers = [Int64: SettingsPeer]()
+    private var expandedTopLists = Set<TopList>()
+
     private var graphEntries: [GraphEntry] {
-        message == nil ? Self.channelGraphEntries : Self.messageGraphEntries
+        message != nil ? Self.messageGraphEntries : isGroup ? Self.groupGraphEntries : Self.channelGraphEntries
+    }
+
+    /// GroupStatsController: a group's statistics, with the top lists after the graphs.
+    private var isGroup: Bool {
+        if case .chatTypeSupergroup(let type) = chat.type {
+            !type.isChannel
+        } else {
+            false
+        }
     }
 
     init(chat: Chat, client _: TDLibClient) {
@@ -114,6 +146,9 @@ final class ChannelStatisticsViewController: SettingsListViewController {
     override func makeSections() -> [SettingsSection] {
         if let message {
             return messageSections(message)
+        }
+        if isGroup {
+            return groupSections()
         }
         guard let statistics else {
             return [SettingsSection(
@@ -499,7 +534,17 @@ final class ChannelStatisticsViewController: SettingsListViewController {
         Task { [weak self] in
             let result = try? await client.send(TDNativeRequests.getChatStatistics(chatId: chatID, isDark: isDark))
             guard let self, contextIsCurrent else { return }
-            if case .chatStatisticsChannel(let channel)? = result {
+            if case .chatStatisticsSupergroup(let group)? = result {
+                groupStatistics = group
+                let graphs = [
+                    group.memberCountGraph, group.joinGraph, group.joinBySourceGraph, group.languageGraph,
+                    group.messageContentGraph, group.actionGraph, group.dayGraph, group.weekGraph,
+                ]
+                for (index, graph) in graphs.enumerated() {
+                    setGraph(graph, at: index)
+                }
+                loadTopPeers(group)
+            } else if case .chatStatisticsChannel(let channel)? = result {
                 statistics = channel
                 let graphs = [
                     channel.memberCountGraph, channel.joinGraph, channel.muteGraph, channel.viewCountByHourGraph,
@@ -515,6 +560,146 @@ final class ChannelStatisticsViewController: SettingsListViewController {
                 failed = true
             }
             reload()
+        }
+    }
+
+    // MARK: Group
+
+    /// groupStatsControllerEntries: OVERVIEW with the period, the graphs, then TOP MEMBERS, TOP ADMINS and TOP
+    /// INVITERS with the period, each list cut to ten with Show N More past twelve.
+    private func groupSections() -> [SettingsSection] {
+        guard let statistics = groupStatistics else {
+            return [SettingsSection(
+                footer: failed ? nil : L10n.telegram("Stats.LoadingText").replacing("\n", with: " "),
+                rows: [SettingsRow(
+                    title: L10n.telegram(failed ? "Login.UnknownError" : "Stats.LoadingTitle"),
+                    style: .status(.secondaryLabel),
+                    accessory: failed ? .none : .activity,
+                )],
+            )]
+        }
+        let period = Self.periodText(statistics.period)
+        overviewItems = groupOverviewItems(statistics)
+        var sections = [SettingsSection(
+            header: L10n.telegram("Stats.GroupOverview") + "  " + period,
+            rows: [SettingsRow(title: "")],
+        )]
+        appendGraphSections(to: &sections)
+        guard !topPeers.isEmpty else { return sections }
+        let posters = statistics.topSenders.filter { $0.sentMessageCount > 0 }.map { sender in
+            var parts = [L10n.telegramPlural("Stats.GroupTopPosterMessages", count: sender.sentMessageCount)]
+            if sender.averageCharacterCount > 0 {
+                parts.append(L10n.telegramPlural("Stats.GroupTopPosterChars", count: sender.averageCharacterCount))
+            }
+            return (sender.userId, parts.joined(separator: ", "))
+        }
+        // TDLib's banned users are Telegram's kicks and its restricted users Telegram's bans.
+        let admins = statistics.topAdministrators
+            .filter { $0.deletedMessageCount + $0.bannedUserCount + $0.restrictedUserCount > 0 }
+            .map { admin in
+                var parts = [String]()
+                if admin.deletedMessageCount > 0 {
+                    parts.append(L10n.telegramPlural("Stats.GroupTopAdminDeletions", count: admin.deletedMessageCount))
+                }
+                if admin.bannedUserCount > 0 {
+                    parts.append(L10n.telegramPlural("Stats.GroupTopAdminKicks", count: admin.bannedUserCount))
+                }
+                if admin.restrictedUserCount > 0 {
+                    parts.append(L10n.telegramPlural("Stats.GroupTopAdminBans", count: admin.restrictedUserCount))
+                }
+                return (admin.userId, parts.joined(separator: ", "))
+            }
+        let inviters = statistics.topInviters.filter { $0.addedMemberCount > 0 }.map { inviter in
+            (inviter.userId, L10n.telegramPlural("Stats.GroupTopInviterInvites", count: inviter.addedMemberCount))
+        }
+        let lists: [(TopList, String, String, [(Int64, String)])] = [
+            (.posters, "Stats.GroupTopPostersTitle", "Stats.GroupShowMoreTopPosters", posters),
+            (.admins, "Stats.GroupTopAdminsTitle", "Stats.GroupShowMoreTopAdmins", admins),
+            (.inviters, "Stats.GroupTopInvitersTitle", "Stats.GroupShowMoreTopInviters", inviters),
+        ]
+        for (list, title, moreKey, entries) in lists {
+            let known = entries.filter { topPeers[$0.0] != nil }
+            guard !known.isEmpty else { continue }
+            let isCut = known.count > 12 && !expandedTopLists.contains(list)
+            var rows = (isCut ? Array(known.prefix(10)) : known).map { userID, detail in
+                SettingsRow(
+                    title: topPeers[userID]?.title ?? "",
+                    detail: detail,
+                    style: .peer(topPeers[userID]!),
+                ) { [weak self] in self?.openUser(userID) }
+            }
+            if isCut {
+                rows.append(SettingsRow(
+                    title: L10n.telegramPlural(moreKey, count: known.count - 10),
+                    style: .action(destructive: false),
+                    symbol: "chevron.down",
+                ) { [weak self] in
+                    self?.expandedTopLists.insert(list)
+                    self?.reload()
+                })
+            }
+            sections.append(SettingsSection(header: L10n.telegram(title) + "  " + period, rows: rows))
+        }
+        return sections
+    }
+
+    /// StatsOverviewItem's GroupStats: Members and Messages, then Viewing and Posting Members while either has a
+    /// value or a change.
+    private func groupOverviewItems(_ statistics: TDNativeChatStatisticsSupergroup) -> [StatisticsOverviewCell.Item] {
+        let item: (TDNativeStatisticalValue, String) -> StatisticsOverviewCell.Item = { value, key in
+            StatisticsOverviewCell.Item(
+                value: Self.compact(Double(Int(value.value))),
+                title: L10n.telegram(key),
+                delta: Self.delta(value),
+            )
+        }
+        var items = [
+            item(statistics.memberCount, "Stats.GroupMembers"),
+            item(statistics.messageCount, "Stats.GroupMessages"),
+        ]
+        let hasDelta: (TDNativeStatisticalValue) -> Bool = { $0.value != $0.previousValue }
+        if statistics.viewerCount.value > 0 || hasDelta(statistics.viewerCount)
+            || statistics.senderCount.value > 0 || hasDelta(statistics.senderCount)
+        {
+            items += [
+                item(statistics.viewerCount, "Stats.GroupViewers"),
+                item(statistics.senderCount, "Stats.GroupPosters"),
+            ]
+        }
+        return items
+    }
+
+    /// The top lists' people, for their names and photos.
+    private func loadTopPeers(_ statistics: TDNativeChatStatisticsSupergroup) {
+        let ids = Set(
+            statistics.topSenders.map(\.userId) + statistics.topAdministrators.map(\.userId)
+                + statistics.topInviters.map(\.userId),
+        )
+        let client = client
+        Task { [weak self] in
+            var peers = [Int64: SettingsPeer]()
+            for id in ids {
+                peers[id] = await SettingsPeer.user(id, client: client)
+            }
+            guard let self, contextIsCurrent else { return }
+            topPeers = peers
+            reload()
+        }
+    }
+
+    /// openPeer: a top list's person opens their profile.
+    private func openUser(_ userID: Int64) {
+        let client = client
+        let accountID = accountID
+        Task { [weak self] in
+            guard let chatID = try? await client.createPrivateChat(force: false, userId: userID).id,
+                  let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
+                  let accountID,
+                  let self, contextIsCurrent
+            else { return }
+            let profile = PeerProfileViewController(customChat: chat, topic: nil, client: client, accountID: accountID)
+            profile.configureOpensChatItself()
+            navigationController?.pushViewController(profile, animated: true)
         }
     }
 
@@ -795,3 +980,38 @@ private final class StatisticsPostCell: UITableViewCell {
         setNeedsLayout()
     }
 }
+
+#if DEBUG
+
+    // MARK: - GroupStatisticsProbe
+
+    /// `-ui-probe-group-statistics TITLE`: opens a group's statistics by its title without opening the group itself,
+    /// so its messages stay unread. Statistics are only read.
+    @MainActor enum GroupStatisticsProbe {
+        static func runIfRequested() {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-ui-probe-group-statistics"), index + 1 < arguments.count
+            else { return }
+            let title = arguments[index + 1]
+            Task {
+                try? await ProbeFixtures.waitForActiveAccount()
+                let client = TDLib.shared.activeClient
+                guard let found = try? await client.send(TDNativeRequests.searchChats(
+                    query: title,
+                    typeFilter: nil,
+                    limit: 10,
+                )) else { return }
+                for id in found.chatIds {
+                    guard let chat = try? await client.send(TDNativeRequests.getChat(chatId: id)), chat.title == title
+                    else { continue }
+                    try? await Task.sleep(for: .seconds(1))
+                    NavigationStorage.shared.navigationController.pushViewController(
+                        ChannelStatisticsViewController(chat: chat, client: client),
+                        animated: true,
+                    )
+                    return
+                }
+            }
+        }
+    }
+#endif
