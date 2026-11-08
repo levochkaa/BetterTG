@@ -1659,10 +1659,23 @@ ClientRestorableNavigationEntry {
         )
         titleRow.isHidden = expanded
         statusLabel.isHidden = currentStatusText.isEmpty || expanded
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+        // PeerInfoAvatarTransformContainerNode's morph: the square starts as the round photo, where it was, and opens
+        // into place as its corners straighten.
+        if expanded {
+            let start = avatarView.convert(avatarView.bounds, to: collectionView)
+            UIView.performWithoutAnimation {
+                expandedPhotoContainer.frame = start
+                expandedPhotoContainer.layer.cornerRadius = start.width / 2
+                expandedPhotoContainer.alpha = 1
+                expandedPhotoContainer.layoutIfNeeded()
+            }
+        }
+        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) {
             self.expandedPhotoContainer.alpha = expanded ? 1 : 0
+            self.expandedPhotoContainer.layer.cornerRadius = 0
             self.profileHeaderView.layoutIfNeeded()
             self.updateProfileHeaderLayout()
+            self.expandedPhotoContainer.layoutIfNeeded()
         }
     }
 
