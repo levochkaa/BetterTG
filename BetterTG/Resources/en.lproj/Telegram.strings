@@ -4656,3 +4656,6 @@
 "Passkeys.DeleteAlert.Title" = "Delete Passkey?";
 "Passkeys.DeleteAlert.Text" = "Once deleted, this passkey can't be used to log in.\n\nDon't forget to remove it from your password manager too.";
 "Passkeys.DeleteAlert.Action" = "Delete";
+"Settings.ChatAutomation" = "Chat Automation";
+"Settings.ChatAutomationInfo" = "Add a bot to reply to messages on your behalf.";
+"Settings.ChatAutomationOff" = "Off";

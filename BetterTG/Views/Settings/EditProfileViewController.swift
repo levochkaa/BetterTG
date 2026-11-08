@@ -27,6 +27,8 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     private var bioRule: PrivacyRuleState?
     /// The personal channel's title, nil without one; and whether the account has a channel it could show.
     private var personalChannel: (id: Int64, title: String)?
+    /// ItemPeerChatAutomation: the connected business bot's @username, nil with none.
+    private var automationBotTitle: String?
     private var hasSuitableChannels = false
     private var birthdayRule: PrivacyRuleState?
     private var firstName = ""
@@ -148,6 +150,16 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                 accessory: .disclosure,
             ) { [weak self] in self?.openPersonalChannel() })
         }
+        sections.append(SettingsSection(
+            footer: L10n.telegram("Settings.ChatAutomationInfo"),
+            rows: [SettingsRow(
+                title: L10n.telegram("Settings.ChatAutomation"),
+                detail: automationBotTitle ?? L10n.telegram("Settings.ChatAutomationOff"),
+                accessory: .disclosure,
+            ) { [weak self] in
+                self?.navigationController?.pushViewController(ChatbotSetupViewController(), animated: true)
+            }],
+        ))
         return sections
     }
 
@@ -263,6 +275,12 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
             let birthdayRules = try? await client.send(TDNativeRequests.getUserPrivacySettingRules(
                 setting: .userPrivacySettingShowBirthdate,
             ))
+            var automationBot: String?
+            if let bot = try? await client.send(TDNativeRequests.getBusinessConnectedBot()),
+               let user = try? await client.getUser(userId: bot.bot.botUserId)
+            {
+                automationBot = user.usernames?.activeUsernames.first.map { "@" + $0 } ?? user.firstName
+            }
             let limit: Int? =
                 if case .optionValueInteger(let value) = try? await client.getOption(name: "bio_length_max") {
                     Int(clamping: value.value)
@@ -276,6 +294,7 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
             birthdate = fullInfo?.birthdate
             bioRule = bioRules.map(PrivacyRuleState.init(rules:))
             personalChannel = channel.map { ($0.id, $0.title) }
+            automationBotTitle = automationBot
             hasSuitableChannels = !(suitable?.chatIds.isEmpty ?? true)
             birthdayRule = birthdayRules.map(PrivacyRuleState.init(rules:))
             if let limit, limit > 0 { bioLimit = limit }
@@ -287,8 +306,9 @@ UIImagePickerControllerDelegate, UINavigationControllerDelegate {
                 reload()
                 openIfAsked()
             } else {
-                // Keep the fields being edited; refresh the photo, birthday and username rows, and the bio's note.
-                reload(sections: IndexSet([1, 2, 3]))
+                // Keep the fields being edited; refresh the photo, birthday and username rows, the bio's note and Chat
+                // Automation.
+                reload(sections: IndexSet([1, 2, 3, tableView.numberOfSections - 1]))
             }
             headerView.configure(user: me, client: client, accountID: accountID)
             updateDoneButton()
