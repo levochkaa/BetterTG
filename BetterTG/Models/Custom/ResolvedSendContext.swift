@@ -30,6 +30,13 @@ struct ResolvedSendContext {
     let replyTo: InputMessageReplyTo?
     var allowsSavedMessagesTopic = false
 
+    /// The topic setChatDraftMessage takes: TDLib keeps no draft for a Saved Messages topic, whose composer (My
+    /// Notes) writes the Saved Messages chat's own draft.
+    var tdDraftTopic: MessageTopic? {
+        if case .messageTopicSavedMessages = draftTopic { return nil }
+        return draftTopic
+    }
+
     var draftKey: ChatDraftKey {
         ChatDraftKey(
             accountID: accountID,

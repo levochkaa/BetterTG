@@ -518,6 +518,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let status = chatVM.actionStatus
             return (title, status, status.isEmpty ? nil : chatVM.actionIndicator)
         }
+        if let title = chatVM.savedMessagesTopicTitle {
+            // ChatTitleView's customMessageCount under a Saved Messages sublist's peer.
+            let count = chatVM.savedMessagesTopicMessageCount.map {
+                L10n.telegramPlural("Conversation.Messages", count: $0, formattedCount: $0.formatted(.number))
+            }
+            return (title, networkStatus ?? count ?? "", nil)
+        }
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
         if let networkStatus { return (title, networkStatus, nil) }
         if let activity = chatVM.topicActivityStatus {
@@ -674,6 +681,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .chatTypePrivate,
              .chatTypeSecret: return true
         default: return false
+        }
+    }
+
+    /// A Saved Messages sublist's infoAvatar: the chat its messages came from, or My Notes' and Author Hidden's icons.
+    private var savedMessagesTopicAvatar: (photo: ChatPhotoInfo?, placeholder: TelegramAvatarPlaceholder)? {
+        guard location.savedMessagesTopicID != nil, let topic = chatVM.savedMessagesTopic else { return nil }
+        var placeholder = chatVM.customChat.telegramAvatarPlaceholder
+        switch topic.type {
+        case .savedMessagesTopicTypeMyNotes:
+            placeholder.forcedIcon = .myNotes
+            return (nil, placeholder)
+        case .savedMessagesTopicTypeAuthorHidden:
+            placeholder.forcedIcon = .anonymousSavedMessages
+            return (nil, placeholder)
+        case .savedMessagesTopicTypeSavedFromChat:
+            guard let chat = chatVM.savedMessagesTopicChat else { return nil }
+            let peerID =
+                if case .chatTypePrivate(let type) = chat.type {
+                    type.userId
+                } else {
+                    chat.id
+                }
+            return (chat.photo, TelegramAvatarPlaceholder(
+                peerID: peerID,
+                accentColorID: chat.accentColorId,
+                upgradedGiftColors: chat.upgradedGiftColors,
+                letters: chat.title.telegramAvatarFirstLetter.map { [$0] } ?? [],
+                isDeleted: false,
+            ))
         }
     }
 
@@ -2587,6 +2623,67 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram replaces the forum's history with its topic list and stores the choice on the server.
+    /// secondaryRightNavigationButtonForChatInterfaceState: Saved Messages with chats shows More beside its avatar,
+    /// with openSavedMessagesMoreMenu's choice of view.
+    private func configureSavedMessagesModeButton() {
+        let client = chatVM.client
+        let accountID = location.accountID
+        customNavigationBar.onMore = { [weak self] source in self?.showSavedMessagesModeMenu(from: source) }
+        let update = { [weak self] in
+            guard let self else { return }
+            customNavigationBar.setShowsMoreButton(
+                SavedMessagesViewMode.hasChats(accountID: accountID, client: client),
+                besideAvatar: true,
+            )
+        }
+        update()
+        TelegramChatListStore.shared
+            .savedMessagesTopicChanges
+            .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
+            .sink { _ in update() }
+            .store(in: &cancellables)
+        if TelegramChatListStore.shared.savedMessagesTopicList(clientID: client.id).isEmpty {
+            Task { _ = try? await client.send(TDNativeRequests.loadSavedMessagesTopics(limit: 50)) }
+        }
+    }
+
+    private func showSavedMessagesModeMenu(from source: UIView) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              presentedViewController == nil, navigationController?.topViewController === self else { return }
+        let accountID = location.accountID
+        let actions = SavedMessagesViewMode.menuActions(
+            viewsAsChats: false,
+            viewAsChats: { [weak self] in
+                SavedMessagesViewMode.setViewsAsChats(true, accountID: accountID)
+                self?.showSavedMessagesAsChats()
+            },
+            viewAsMessages: { SavedMessagesViewMode.setViewsAsChats(false, accountID: accountID) },
+        )
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    /// View as Chats: back to the Saved Messages profile below, or the profile in this chat's place.
+    private func showSavedMessagesAsChats() {
+        guard routeIsRetained, let navigationController,
+              let index = navigationController.viewControllers.firstIndex(where: { $0 === self }) else { return }
+        if let profile = navigationController.viewControllers[..<index]
+            .last(where: { $0 is PeerProfileViewController }),
+           (profile as? PeerProfileViewController)?.showsSavedMessages(chatID: location.chatID) == true
+        {
+            navigationController.popToViewController(profile, animated: false)
+            return
+        }
+        guard let accountID = location.accountID else { return }
+        let profile = PeerProfileViewController.savedMessagesChats(
+            customChat: chatVM.customChat,
+            client: chatVM.client,
+            accountID: accountID,
+        )
+        var stack = navigationController.viewControllers
+        stack[index] = profile
+        navigationController.setViewControllers(stack, animated: false)
+    }
+
     private func viewForumAsTopics() {
         guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent else { return }
         let client = chatVM.client
@@ -2790,6 +2887,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if presentationMode == .full, location.forumTopicID != nil {
             customNavigationBar.setAvatarMenuActions { [weak self] in self?.topicAvatarMenuActions() ?? [] }
+        }
+        if presentationMode == .full, location.topic == nil, chatVM.customChat.isSavedMessages {
+            configureSavedMessagesModeButton()
         }
         customNavigationBar.onSelectionCancel = { [weak self] in
             self?.endMessageSelection()
@@ -3551,6 +3651,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .init(title: L10n.telegram("GroupInfo.DeleteAndExit"), style: .destructive)
         case .secretHandshake(let text):
             .init(title: text, style: .status)
+        case .openSavedFromChat(let title, _):
+            .init(title: title, style: .action(spansWidth: true), showsSearch: false, showsHelp: false)
         }
     }
 
@@ -3645,6 +3747,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .deleteChat:
             chatVM.removeChatFromList()
             navigationController?.popToRootViewController(animated: true)
+        case .openSavedFromChat(_, let chatID):
+            TelegramLinkRouter.shared.openChat(chatID, profile: false, from: self)
         }
     }
 
@@ -4688,6 +4792,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateChatHeader() } }
             .store(in: &cancellables)
+        if location.savedMessagesTopicID != nil {
+            // A Saved Messages sublist's title, avatar, count and panel come with its topic and chat.
+            Publishers.CombineLatest3(
+                chatVM.$savedMessagesTopic.map { $0?.id },
+                chatVM.$savedMessagesTopicChat.map { $0?.id },
+                chatVM.$savedMessagesTopicMessageCount,
+            )
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.updateChatHeader()
+                    self?.updateStatusPanel(animated: true)
+                }
+            }
+            .store(in: &cancellables)
+        }
         chatVM.customChat
             .$unreadCount
             .dropFirst()
@@ -4743,11 +4864,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             statusColor: statusColor,
             activity: activity,
         )
+        let avatar = savedMessagesTopicAvatar
+            ?? (chat.photo, chatVM.customChat.telegramAvatarPlaceholder)
         customNavigationBar.configureAvatar(
-            file: chat.photo?.small,
-            largeFile: chat.photo?.big,
-            minithumbnail: chat.photo?.minithumbnail,
-            placeholder: chatVM.customChat.telegramAvatarPlaceholder,
+            file: avatar.photo?.small,
+            largeFile: avatar.photo?.big,
+            minithumbnail: avatar.photo?.minithumbnail,
+            placeholder: avatar.placeholder,
             client: chatVM.client,
         )
     }
@@ -13353,7 +13476,9 @@ extension ChatViewController: TelegramTransitionReadiness {
 
 extension ChatViewController: TelegramBackMenuTitled {
     /// The chat's or topic's name, which its header draws.
-    var telegramBackMenuTitle: String? { chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle }
+    var telegramBackMenuTitle: String? {
+        chatVM.savedMessagesTopicTitle ?? chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+    }
 }
 
 // MARK: - CalendarEventEditDelegate

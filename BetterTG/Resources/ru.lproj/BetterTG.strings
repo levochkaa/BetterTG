@@ -521,6 +521,8 @@
 "Profile.SharedGroupsEmpty" = "Нет общих групп";
 "Profile.SimilarLoadFailed" = "Не удалось загрузить рекомендации.";
 "Profile.SimilarEmpty" = "Нет рекомендаций";
+"Profile.SavedChatsLoadFailed" = "Не удалось загрузить сохранённые чаты.";
+"Profile.SavedChatsEmpty" = "Нет сохранённых чатов";
 "Profile.PostsLoadFailed" = "Не удалось загрузить публикации.";
 "Profile.PostsEmpty" = "Нет публикаций";
 "Profile.GiftsLoadFailed" = "Не удалось загрузить подарки.";

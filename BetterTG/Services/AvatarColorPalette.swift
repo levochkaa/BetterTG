@@ -11,6 +11,8 @@ enum TelegramAvatarIcon: Equatable {
     case savedMessages
     case replies
     case anonymousSavedMessages
+    /// AvatarNode's myNotesIcon: the My Notes sublist of Saved Messages.
+    case myNotes
     case deleted
 }
 
@@ -22,8 +24,11 @@ struct TelegramAvatarPlaceholder {
     let upgradedGiftColors: UpgradedGiftColors?
     let letters: [String]
     let isDeleted: Bool
+    /// An icon the peer doesn't imply, such as My Notes for the account's own Saved Messages sublist.
+    var forcedIcon: TelegramAvatarIcon?
 
     func icon(accountUserID: Int64?) -> TelegramAvatarIcon {
+        if let forcedIcon { return forcedIcon }
         if peerID == 708_513 || peerID == 1_271_266_957 {
             return .replies
         }
@@ -134,6 +139,7 @@ struct TelegramAvatarPlaceholder {
     ) -> [UIColor] {
         switch icon {
         case .anonymousSavedMessages,
+             .myNotes,
              .replies,
              .savedMessages:
             return Self.gradients[5]
@@ -170,6 +176,7 @@ extension CustomChat {
                 upgradedGiftColors: chat.upgradedGiftColors,
                 letters: userPlaceholder.letters,
                 isDeleted: userPlaceholder.isDeleted,
+                forcedIcon: avatarIconOverride,
             )
         }
         return TelegramAvatarPlaceholder(
@@ -178,6 +185,7 @@ extension CustomChat {
             upgradedGiftColors: chat.upgradedGiftColors,
             letters: chat.title.telegramAvatarFirstLetter.map { [$0] } ?? [],
             isDeleted: false,
+            forcedIcon: avatarIconOverride,
         )
     }
 }

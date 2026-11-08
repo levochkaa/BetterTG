@@ -282,6 +282,7 @@ final class ChatListCell: UITableViewCell {
         accessibilityText: String,
     )? {
         guard chat.draftMessage == nil,
+              !chat.isSavedMessagesSublist,
               let message = chat.lastMessage,
               message.isOutgoing
         else { return nil }
@@ -685,7 +686,7 @@ final class ChatListCell: UITableViewCell {
             case .bot,
                  .user: false
             }
-        let author = isGroup
+        let author = isGroup && !chat.isSavedMessagesSublist
             ? lastMessage.flatMap { ChatPreviewText.authorPrefix(for: $0, client: client, missing: &missing) }
             : nil
         return ChatPreviewText.prefixed(author, summary)

@@ -27,6 +27,22 @@ struct ChatLocation: Hashable {
         }
     }
 
+    /// A Saved Messages sublist, Telegram's saved-messages `.replyThread`: the messages saved from one chat, My Notes
+    /// or Author Hidden.
+    var savedMessagesTopicID: Int64? {
+        if case .messageTopicSavedMessages(let savedTopic) = topic {
+            savedTopic.savedMessagesTopicId
+        } else {
+            nil
+        }
+    }
+
+    /// The topic a message sent here names: TDLib files a message sent to Saved Messages in My Notes by itself and
+    /// refuses an explicit Saved Messages topic.
+    var sendTopic: MessageTopic? {
+        savedMessagesTopicID == nil ? topic : nil
+    }
+
     var isTopicScoped: Bool {
         topic != nil
     }

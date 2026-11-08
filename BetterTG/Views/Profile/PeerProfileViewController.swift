@@ -11,6 +11,8 @@ ClientRestorableNavigationEntry {
     /// Telegram's panes in its order (Members for a large group, `peerInfoAvailableMediaPanes`, Groups for a user,
     /// then a channel's Similar Channels or a bot's Similar Bots). A pane shows only when it has content.
     enum SharedTab: Int, CaseIterable {
+        /// PeerInfoChatListPaneNode: Saved Messages' sublists, first on its profile.
+        case savedChats = 13
         case members = 7
         /// PeerInfoStoryPaneNode: the stories saved to the profile, pinned ones first.
         case posts = 10
@@ -30,6 +32,7 @@ ClientRestorableNavigationEntry {
 
         var title: String {
             switch self {
+            case .savedChats: L10n.telegram("DialogList.TabTitle")
             case .posts: L10n.telegram("PeerInfo.PaneStories")
             case .archivedPosts: L10n.telegram("PeerInfo.PaneArchivedStories")
             case .gifts: L10n.telegram("PeerInfo.PaneGifts")
@@ -51,6 +54,7 @@ ClientRestorableNavigationEntry {
             case .archivedPosts,
                  .posts: L10n.betterTG("Profile.PostsLoadFailed")
             case .gifts: L10n.betterTG("Profile.GiftsLoadFailed")
+            case .savedChats: L10n.betterTG("Profile.SavedChatsLoadFailed")
             case .media: L10n.betterTG("Profile.SharedMediaLoadFailed")
             case .files: L10n.betterTG("Profile.SharedFilesLoadFailed")
             case .audio: L10n.betterTG("Profile.SharedAudioLoadFailed")
@@ -69,6 +73,7 @@ ClientRestorableNavigationEntry {
             case .archivedPosts,
                  .posts: L10n.betterTG("Profile.PostsEmpty")
             case .gifts: L10n.betterTG("Profile.GiftsEmpty")
+            case .savedChats: L10n.betterTG("Profile.SavedChatsEmpty")
             case .media: L10n.betterTG("Profile.SharedMediaEmpty")
             case .files: L10n.betterTG("Profile.SharedFilesEmpty")
             case .audio: L10n.betterTG("Profile.SharedAudioEmpty")
@@ -96,6 +101,7 @@ ClientRestorableNavigationEntry {
                  .groupsInCommon,
                  .members,
                  .posts,
+                 .savedChats,
                  .similarBots,
                  .similarChannels: nil
             }
@@ -293,6 +299,9 @@ ClientRestorableNavigationEntry {
     private let profileHeaderView = UIView()
     private let sharedTabs = FolderPickerView()
     private var selectedSharedTab = SharedTab.media
+    /// The user picked a pane; until then a first pane that turns up later, such as Saved Messages' Chats once
+    /// TDLib sends its sublists, takes the selection.
+    private var sharedTabChosenByUser = false
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     /// SparseItemGrid's zoom level: the photos and videos to a row, 3 at first, pinched between 2 and 12.
     private var mediaColumns: Int = {
@@ -315,6 +324,14 @@ ClientRestorableNavigationEntry {
     private var mediaContentType = MediaContentType.photoOrVideo
     private var mediaOptionsTask: Task<Void, Never>?
     private var mediaJumpTask: Task<Void, Never>?
+    private lazy var savedMessagesModeItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(primaryAction: UIAction(
+            image: UIImage(systemName: "ellipsis"),
+        ) { [weak self] _ in self?.openSavedMessagesModeMenu() })
+        item.accessibilityLabel = L10n.telegram("Common.More")
+        return item
+    }()
+
     private lazy var mediaOptionsItem: UIBarButtonItem = {
         let item = UIBarButtonItem(primaryAction: UIAction(
             image: UIImage(systemName: "ellipsis"),
@@ -419,6 +436,7 @@ ClientRestorableNavigationEntry {
     private var albumAddButton: UIButton?
     /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
     private var membersPane: PeerProfileMembersPane?
+    private var savedChatsPane: PeerProfileSavedChatsPane?
     private var giftsPane: PeerProfileGiftsPane?
     private var canEditProfile = false
     private lazy var giftsFilterItem: UIBarButtonItem = {
@@ -471,6 +489,14 @@ ClientRestorableNavigationEntry {
     /// The account's own chat shown as Saved Messages, as it is when opened from that chat.
     private var isSavedMessagesProfile: Bool {
         isSelfProfile && !isMyProfile
+    }
+
+    /// PeerInfoData's hasSavedMessagesChats: Saved Messages lists its sublists while some come from another chat, or
+    /// while it is viewed as chats.
+    private var showsSavedChats: Bool {
+        guard isSavedMessagesProfile, topic == nil, let savedChatsPane, savedChatsPane.hasLoaded else { return false }
+        return SavedMessagesViewMode.viewsAsChats(accountID: accountID)
+            || savedChatsPane.items.contains { $0 != savedChatsPane.myNotesItem }
     }
 
     private var currentSharedTab: SharedTab {
@@ -1114,6 +1140,11 @@ ClientRestorableNavigationEntry {
         return (photos, videos)
     }
 
+    /// Whether this is the account's own Saved Messages profile, which View as Chats goes back to.
+    func showsSavedMessages(chatID: Int64) -> Bool {
+        isSavedMessagesProfile && topic == nil && customChat.id == chatID
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -1200,6 +1231,12 @@ ClientRestorableNavigationEntry {
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        if currentSharedTab == .savedChats {
+            collectionView.deselectItem(at: indexPath, animated: true)
+            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
+            savedChatsPane?.open(id)
+            return
+        }
         if currentSharedTab == .members {
             collectionView.deselectItem(at: indexPath, animated: true)
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
@@ -1305,6 +1342,7 @@ ClientRestorableNavigationEntry {
             case .archivedPosts,
                  .posts: posts.count
             case .members: membersPane?.items.count ?? 0
+            case .savedChats: savedChatsPane?.items.count ?? 0
             case .gifts: giftsPane?.items.count ?? 0
             case .similarBots,
                  .similarChannels: similarChats.count
@@ -2031,6 +2069,15 @@ ClientRestorableNavigationEntry {
             )
             return
         }
+        if currentSharedTab == .savedChats {
+            guard gesture.state == .began, contextIsCurrent,
+                  let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: path),
+                  let actions = savedChatsPane?.menuActions(for: id, host: self), !actions.isEmpty,
+                  let cell = collectionView.cellForItem(at: path) else { return }
+            presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
+            return
+        }
         if currentSharedTab == .members {
             // PeerInfoScreenNode.openMemberContextMenu.
             guard gesture.state == .began, contextIsCurrent,
@@ -2675,6 +2722,7 @@ ClientRestorableNavigationEntry {
         sharedTabs.stickerClient = client
         sharedTabs.onSelection = { [weak self] id in
             guard let self, let tab = SharedTab(rawValue: id), tab != selectedSharedTab else { return }
+            sharedTabChosenByUser = true
             selectedSharedTab = tab
             tabChanged()
         }
@@ -2756,6 +2804,7 @@ ClientRestorableNavigationEntry {
             SharedGroupRowCell.self,
             forCellWithReuseIdentifier: SharedGroupRowCell.reuseIdentifier,
         )
+        collectionView.register(SavedChatRowCell.self, forCellWithReuseIdentifier: SavedChatRowCell.reuseIdentifier)
         collectionView.register(
             ProfileStoryGridCell.self,
             forCellWithReuseIdentifier: ProfileStoryGridCell.reuseIdentifier,
@@ -2837,6 +2886,20 @@ ClientRestorableNavigationEntry {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, environment in
+            if self?.currentSharedTab == .savedChats {
+                // The chat list's rows, which draw their own cards across the width.
+                let size = NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .absolute(ChatListCell.cardRowHeight),
+                )
+                let group = NSCollectionLayoutGroup.vertical(
+                    layoutSize: size,
+                    subitems: [NSCollectionLayoutItem(layoutSize: size)],
+                )
+                let section = NSCollectionLayoutSection(group: group)
+                section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0)
+                return section
+            }
             if self?.currentSharedTab == .gifts {
                 let section = Self.giftsSection(width: environment.container.effectiveContentSize.width)
                 if self?.giftsPane?.showsCollectionTabs(canManage: self?.isMyProfile == true) == true {
@@ -2931,6 +2994,13 @@ ClientRestorableNavigationEntry {
             collectionView: collectionView,
         ) { [weak self] collectionView, indexPath, id in
             guard let self else { return UICollectionViewCell() }
+            if currentSharedTab == .savedChats {
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SavedChatRowCell.reuseIdentifier, for: indexPath,
+                ) as? SavedChatRowCell
+                if let chat = savedChatsPane?.chat(for: id) { cell?.configure(chat: chat, client: client) }
+                return cell ?? UICollectionViewCell()
+            }
             if currentSharedTab == .members {
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SharedMemberRowCell.reuseIdentifier, for: indexPath,
@@ -3234,6 +3304,7 @@ ClientRestorableNavigationEntry {
                 similarTask?.cancel()
                 similarTask = nil
                 membersPane?.suspend()
+                savedChatsPane?.suspend()
                 if source.map({ $0.accountID != accountID }) ?? false || !keepsGalleryThroughClientRenewal {
                     revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
                 }
@@ -4279,7 +4350,42 @@ ClientRestorableNavigationEntry {
         if currentSharedTab == .media {
             items.append(mediaOptionsItem)
         }
+        if currentSharedTab == .savedChats {
+            items.append(savedMessagesModeItem)
+        }
         navigationItem.rightBarButtonItems = items
+    }
+
+    /// The Chats pane's More (PeerInfoScreen's `.more` on `.savedMessagesChats`): View as Messages goes back to the
+    /// Saved Messages chat below, or puts it in this screen's place.
+    private func openSavedMessagesModeMenu() {
+        guard contextIsCurrent, currentSharedTab == .savedChats,
+              let source = savedMessagesModeItem.telegramChromeView else { return }
+        let accountID = accountID
+        let actions = SavedMessagesViewMode.menuActions(
+            viewsAsChats: SavedMessagesViewMode.viewsAsChats(accountID: accountID),
+            viewAsChats: { SavedMessagesViewMode.setViewsAsChats(true, accountID: accountID) },
+            viewAsMessages: { [weak self] in
+                SavedMessagesViewMode.setViewsAsChats(false, accountID: accountID)
+                self?.showSavedMessagesAsMessages()
+            },
+        )
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    private func showSavedMessagesAsMessages() {
+        guard let navigationController,
+              let index = navigationController.viewControllers.firstIndex(where: { $0 === self }) else { return }
+        if let chat = navigationController.viewControllers.last(where: {
+            ($0 as? ChatViewController).map { $0.location.chatID == customChat.id && $0.location.topic == nil }
+                == true
+        }) {
+            navigationController.popToViewController(chat, animated: false)
+            return
+        }
+        var stack = navigationController.viewControllers
+        stack[index] = ChatViewController(customChat: customChat)
+        navigationController.setViewControllers(stack, animated: false)
     }
 
     /// PeerInfoScreenDisplayMediaGalleryContextMenu for photos and videos: Zoom In and Zoom Out, which step the grid
@@ -4574,6 +4680,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func resumeSharedHistoryIfNeeded() {
+        if currentSharedTab == .savedChats {
+            if savedChatsPane?.items.isEmpty != false, historyError == nil { loadMore() }
+            return
+        }
         if currentSharedTab == .members {
             if membersPane?.rows.isEmpty != false, historyError == nil { loadMore() }
             return
@@ -4705,7 +4815,11 @@ ClientRestorableNavigationEntry {
         // Before the counts arrive only a restored pane reads; afterwards only a pane with content does.
         guard availableSharedTabs?.contains(currentSharedTab) ?? (restoration != nil) else { return }
         guard let filter = effectiveSharedFilter else {
-            if currentSharedTab == .members {
+            if currentSharedTab == .savedChats {
+                guard contextIsCurrent, let savedChatsPane else { return }
+                savedChatsPane.loadMore()
+                if savedChatsPane.items.isEmpty { applySnapshot() }
+            } else if currentSharedTab == .members {
                 guard restoredViewport == nil, contextIsCurrent, let membersPane else { return }
                 historyError = nil
                 membersPane.loadMore()
@@ -4798,6 +4912,18 @@ ClientRestorableNavigationEntry {
     }
 
     private func applySnapshot(animated: Bool = true, completion: (() -> Void)? = nil) {
+        if currentSharedTab == .savedChats {
+            let items = savedChatsPane?.items ?? []
+            let existing = Set(dataSource.snapshot().itemIdentifiers)
+            var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+            snapshot.appendSections([.messages])
+            snapshot.appendItems(items)
+            // A sublist's new last message or pin comes under the same ID.
+            snapshot.reconfigureItems(items.filter(existing.contains))
+            dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+            updateEmptyBackground(isEmpty: items.isEmpty, isLoading: savedChatsPane?.isLoading ?? true)
+            return
+        }
         if currentSharedTab == .members {
             applyMembersSnapshot(animated: animated, completion: completion)
             return
@@ -6089,9 +6215,16 @@ ClientRestorableNavigationEntry {
         if listsGifts, giftCount == nil { return }
         // A group's Members pane comes first, so the panes wait for the member count in its full info.
         if listsMembers, !membersInfoLoaded { return }
+        // Saved Messages' Chats pane comes first, so its panes wait for the first page of sublists.
+        if isSavedMessagesProfile, topic == nil {
+            makeSavedChatsPaneIfNeeded()
+            if savedChatsPane?.hasLoaded != true { return }
+        }
         let showsMembers = showsMembersPane
+        let showsSavedChats = showsSavedChats
         let tabs = SharedTab.allCases.filter { tab in
             switch tab {
+            case .savedChats: showsSavedChats
             case .members: showsMembers
             case .groupsInCommon: listsGroups && (groupsInCommonCount ?? 0) > 0
             case .similarChannels: listsSimilarChannels && (similarCount ?? 0) > 0
@@ -6121,7 +6254,11 @@ ClientRestorableNavigationEntry {
         availableSharedTabs = tabs
         let previousTab = selectedSharedTab
         // Telegram opens on the first pane, Members for a large group.
-        if !tabs.contains(selectedSharedTab) || !wasResolved && restoration == nil, let first = tabs.first {
+        let firstTurnedUp = wasResolved && tabs.first == .savedChats && previousTab != .savedChats
+            && !sharedTabChosenByUser && restoration == nil
+        if !tabs.contains(selectedSharedTab) || !wasResolved && restoration == nil || firstTurnedUp,
+           let first = tabs.first
+        {
             selectedSharedTab = first
         }
         sharedTabs.configure(items: sharedTabItems(tabs), selectedID: tabs.isEmpty ? nil : selectedSharedTab.rawValue)
@@ -6219,6 +6356,20 @@ ClientRestorableNavigationEntry {
         guard listsGifts, giftCount != count else { return }
         giftCount = count
         updateSharedTabAvailability()
+    }
+
+    private func makeSavedChatsPaneIfNeeded() {
+        guard savedChatsPane == nil else { return }
+        let pane = PeerProfileSavedChatsPane(savedMessages: customChat, client: client)
+        pane.onChange = { [weak self] in
+            guard let self, contextIsCurrent else { return }
+            updateSharedTabAvailability()
+            guard currentSharedTab == .savedChats else { return }
+            historyError = nil
+            applySnapshot()
+        }
+        savedChatsPane = pane
+        pane.loadMore()
     }
 
     private func makeMembersPaneIfNeeded() {

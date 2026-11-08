@@ -521,6 +521,8 @@
 "Profile.SharedGroupsEmpty" = "No groups in common";
 "Profile.SimilarLoadFailed" = "Couldn't load recommendations.";
 "Profile.SimilarEmpty" = "No recommendations";
+"Profile.SavedChatsLoadFailed" = "Couldn't load your saved chats.";
+"Profile.SavedChatsEmpty" = "No saved chats";
 "Profile.PostsLoadFailed" = "Couldn't load posts.";
 "Profile.PostsEmpty" = "No posts";
 "Profile.GiftsLoadFailed" = "Couldn't load gifts.";

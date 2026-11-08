@@ -22,11 +22,17 @@ import TDLibKit
     /// A chat-list row kept through a same-account client renewal. Its files belong to the previous client, so the
     /// list loads none of them until the renewed client supplies the chat again.
     var isHeldThroughClientRenewal = false
+    /// A Saved Messages sublist row's title and avatar icon in place of its chat's: My Notes, Author Hidden.
+    var titleOverride: String?
+    var avatarIconOverride: TelegramAvatarIcon?
+    /// A Saved Messages sublist row: every message in it is the account's own, so the row shows no author or checks.
+    var isSavedMessagesSublist = false
 
     /// Read for every row on every pass over a list; `chat.id` goes through `@Published` and the native object.
     let id: Int64
 
     var displayTitle: String {
+        if let titleOverride { return titleOverride }
         if isSavedMessages { return L10n.telegram("Conversation.SavedMessages") }
         return chat.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? L10n.telegram("User.DeletedAccount")

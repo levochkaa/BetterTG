@@ -316,6 +316,7 @@ private extension PeerProfileViewController.SharedTab {
              .groupsInCommon,
              .members,
              .posts,
+             .savedChats,
              .similarBots,
              .similarChannels:
             // Groups and the recommendations list chats, Members lists people, Gifts lists gifts; no message belongs to

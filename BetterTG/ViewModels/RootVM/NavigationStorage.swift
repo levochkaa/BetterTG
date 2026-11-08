@@ -132,6 +132,17 @@ import UIKit
                   resolvedLocation.clientID == client.id,
                   resolvedLocation.chatID == customChat.id
             else { return nil }
+            // NavigateToChatController: Saved Messages viewed as chats opens as its profile on the Chats pane.
+            if resolvedLocation.topic == nil, targetMessageID == nil, messageThread == nil,
+               customChat.isSavedMessages, let accountID = resolvedLocation.accountID,
+               SavedMessagesViewMode.viewsAsChats(accountID: accountID)
+            {
+                return PeerProfileViewController.savedMessagesChats(
+                    customChat: customChat,
+                    client: client,
+                    accountID: accountID,
+                )
+            }
             // A forum opens as its topic list; a topic or a reply thread opens as its own chat.
             if resolvedLocation.topic == nil,
                customChat.chat.viewAsTopics

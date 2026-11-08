@@ -1044,6 +1044,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let avatarView = ProfileAvatarView()
     private let moreButton = UIButton(type: .system)
     private var showsMoreButton = false
+    /// More stands left of the avatar instead of in its place.
+    private var showsMoreBesideAvatar = false
     private var avatarSlotView: UIView?
     private let searchField = ChatSearchTextField()
     /// ChatSearchNavigationContentNode: the chat list's glass field and close button in place of the bar's row.
@@ -1241,7 +1243,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             NSLayoutConstraint.activate(titleEdgeConstraints)
             backButton.isHidden = backButtonExplicitlyHidden
             selectionCancelButton.isHidden = true
-            avatarView.isHidden = showsMoreButton
+            avatarView.isHidden = showsMoreButton && !showsMoreBesideAvatar
             moreButton.isHidden = !showsMoreButton
             refreshPlatters()
             titleControl.isUserInteractionEnabled = true
@@ -1329,11 +1331,16 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     /// Telegram shows More in place of the avatar for a forum read as messages
-    /// (rightNavigationButtonForChatInterfaceState, moreInfoNavigationButton).
-    func setShowsMoreButton(_ shows: Bool) {
+    /// (rightNavigationButtonForChatInterfaceState, moreInfoNavigationButton), and beside it in Saved Messages with
+    /// chats (secondaryRightNavigationButtonForChatInterfaceState).
+    func setShowsMoreButton(_ shows: Bool, besideAvatar: Bool = false) {
         showsMoreButton = shows
+        if showsMoreBesideAvatar != besideAvatar, let avatarSlotView {
+            showsMoreBesideAvatar = besideAvatar
+            trailingPlatter.setItems(besideAvatar ? [moreButton, avatarSlotView] : [avatarSlotView, moreButton])
+        }
         let selecting = selectionCount != nil
-        avatarView.isHidden = selecting || shows
+        avatarView.isHidden = selecting || shows && !besideAvatar
         moreButton.isHidden = selecting || !shows
         refreshPlatters()
     }

@@ -4177,3 +4177,14 @@
 "Settings.SetPhoto" = "Set Photo";
 "Settings.ChangePhoto" = "Change Photo";
 "AddContact.NotePlaceholder" = "Add notes only visible to you";
+"Conversation.Messages_1" = "%@ message";
+"Conversation.Messages_any" = "%@ messages";
+"SavedMessages.OpenChat" = "Open Chat";
+"SavedMessages.OpenGroup" = "Open Group";
+"SavedMessages.OpenChannel" = "Open Channel";
+"Chat.PanelStatusAuthorHidden" = "Senders of these messages restricted to link\ntheir name when forwarding.";
+"DialogList.MyNotes" = "My Notes";
+"ChatList.AuthorHidden" = "Author Hidden";
+"Chat.SavedMessagesModeMenu.ViewAsChats" = "View as Chats";
+"Chat.SavedMessagesModeMenu.ViewAsMessages" = "View as Messages";
+"Chat.SavedMessagesStatusViewAsChats" = "Tap to view as chats";

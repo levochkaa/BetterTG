@@ -86,6 +86,9 @@ import UIKit
         case deleteChat
         /// SecretChatHandshakeStatusInputPanelNode: the secret chat waiting for its keys.
         case secretHandshake(String)
+        /// A Saved Messages sublist's ChatChannelSubscriberInputPanelNode: Open Chat, Open Group or Open Channel
+        /// opens the chat its messages were saved from.
+        case openSavedFromChat(title: String, chatID: Int64)
     }
 
     /// ChatReportPeerTitlePanelNode's buttons (`peerButtons`).
@@ -358,6 +361,11 @@ import UIKit
     @Published var chatUnreadMentionCount = 0
     @Published var chatUnreadReactionCount = 0
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
+    /// A Saved Messages sublist route's topic, kept by `updateSavedMessagesTopic`, and how many messages it holds.
+    @Published private(set) var savedMessagesTopic: SavedMessagesTopic?
+    @Published private(set) var savedMessagesTopicMessageCount: Int?
+    /// The chat a sublist's messages were saved from, which titles it.
+    @Published private(set) var savedMessagesTopicChat: Chat?
     @Published private(set) var forumTopicsByID = [Int: ForumTopic]()
     /// A thread route's `getMessageThread` answer. Its root messages head the history, as Telegram's thread head.
     @Published private(set) var messageThread: MessageThreadInfo?
@@ -469,6 +477,7 @@ import UIKit
     private var pinAuthoritativeRevisions = [Int64: UInt64]()
     private var pinnedMessageAuthoritativeRevision = UInt64.zero
     private var forumTopicTask: Task<Void, Never>?
+    private var savedMessagesTopicCountTask: Task<Void, Never>?
     private var forumTopicRequestID: UUID?
     private var forumTopicLiveUpdates: ForumTopicLiveUpdateState
     private var forumTopicInfoRevision = UInt64.zero
@@ -795,7 +804,9 @@ import UIKit
 
     /// The panel in the composer's place for the whole chat; threads, topics and direct messages chats keep theirs.
     var statusPanel: StatusPanel? {
-        guard !previewing, location.messageThreadID == nil, location.forumTopicID == nil else { return nil }
+        guard !previewing else { return nil }
+        if location.savedMessagesTopicID != nil { return savedMessagesTopicPanel }
+        guard location.messageThreadID == nil, location.forumTopicID == nil else { return nil }
         if showsUnblockPanel { return .unblock }
         if customChat.secretChatID != nil, let secretChatState {
             return Self.secretChatPanel(
@@ -1331,6 +1342,13 @@ import UIKit
         }
     }
 
+    /// The sublist's title: the chat its messages came from, My Notes or Author Hidden (ChatListItem's saved
+    /// messages titles).
+    var savedMessagesTopicTitle: String? {
+        guard location.savedMessagesTopicID != nil, let savedMessagesTopic else { return nil }
+        return Self.savedMessagesTopicTitle(savedMessagesTopic.type, chat: savedMessagesTopicChat)
+    }
+
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
     /// Restart Bot instead, and a secret chat keeps its own.
     private var showsUnblockPanel: Bool {
@@ -1465,6 +1483,27 @@ import UIKit
         location.accountID.map { "silentPosting.\($0.uuidString).\(location.chatID)" }
     }
 
+    /// inputPanelForChatPresentationIntefaceState for a Saved Messages `.replyThread`: My Notes takes messages, Author
+    /// Hidden explains itself, and a chat's sublist opens that chat.
+    private var savedMessagesTopicPanel: StatusPanel? {
+        switch savedMessagesTopic?.type {
+        case nil,
+             .savedMessagesTopicTypeMyNotes?:
+            return nil
+        case .savedMessagesTopicTypeAuthorHidden?:
+            return .restricted(L10n.telegram("Chat.PanelStatusAuthorHidden"))
+        case .savedMessagesTopicTypeSavedFromChat(let from)?:
+            let key =
+                switch savedMessagesTopicChat?.type {
+                case .chatTypeSupergroup(let supergroup)? where supergroup.isChannel: "SavedMessages.OpenChannel"
+                case .chatTypeBasicGroup?,
+                     .chatTypeSupergroup?: "SavedMessages.OpenGroup"
+                default: "SavedMessages.OpenChat"
+                }
+            return .openSavedFromChat(title: L10n.telegram(key), chatID: from.chatId)
+        }
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -1494,6 +1533,7 @@ import UIKit
         reactionMutationTasks.values.forEach { $0.cancel() }
         pinnedMessageTask?.cancel()
         forumTopicTask?.cancel()
+        savedMessagesTopicCountTask?.cancel()
         draftClearTask?.cancel()
         composerMediaDraftTask?.cancel()
         pinMutationTasks.values.forEach { $0.cancel() }
@@ -1617,6 +1657,9 @@ import UIKit
         if resolvedLocation.messageThreadID != nil, self.messageThread == nil {
             loadMessageThread()
         }
+        if resolvedLocation.savedMessagesTopicID != nil {
+            loadSavedMessagesTopic()
+        }
         loadMessages()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
             loadForumTopic()
@@ -1633,6 +1676,9 @@ import UIKit
                 nil
             } else if resolvedLocation.messageThreadID != nil {
                 canWriteBasicMessages ? self.messageThread?.draftMessage : nil
+            } else if resolvedLocation.savedMessagesTopicID != nil {
+                // My Notes writes the Saved Messages chat's draft.
+                canWriteBasicMessages ? customChat.draftMessage : nil
             } else if resolvedLocation.isTopicScoped {
                 canWriteBasicMessages ? forumTopic?.draftMessage : nil
             } else {
@@ -1910,6 +1956,14 @@ import UIKit
 
     static func countStatus(_ key: String, count: Int) -> String {
         L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
+    }
+
+    static func savedMessagesTopicTitle(_ type: SavedMessagesTopicType, chat: Chat?) -> String {
+        switch type {
+        case .savedMessagesTopicTypeMyNotes: L10n.telegram("DialogList.MyNotes")
+        case .savedMessagesTopicTypeAuthorHidden: L10n.telegram("ChatList.AuthorHidden")
+        case .savedMessagesTopicTypeSavedFromChat: chat?.title ?? ""
+        }
     }
 
     /// A caption edit keeps the caption on the side of the media it was sent on.
@@ -2569,7 +2623,7 @@ import UIKit
             {
                 throw ChatSendContextError.crossTopicReply
             }
-            destinationTopic = location.topic
+            destinationTopic = location.sendTopic
             draftTopic = location.topic
         }
         if reply == nil,
@@ -2593,7 +2647,8 @@ import UIKit
             destinationTopic: destinationTopic,
             draftTopic: draftTopic,
             replyTo: resolvedReplyTo,
-            allowsSavedMessagesTopic: customChat.isSavedMessages && location.topic == nil,
+            allowsSavedMessagesTopic: customChat.isSavedMessages
+                && (location.topic == nil || location.savedMessagesTopicID != nil),
         )
     }
 
@@ -6038,7 +6093,7 @@ import UIKit
                     action: chatAction,
                     businessConnectionId: "",
                     chatId: location.chatID,
-                    topicId: location.topic,
+                    topicId: location.sendTopic,
                 )
             } else {
                 chatActionRouteRevision &+= 1
@@ -6071,7 +6126,7 @@ import UIKit
                 accountID: accountID,
                 chatID: location.chatID,
                 clientID: location.clientID,
-                destinationTopic: sendTopic ?? location.topic,
+                destinationTopic: sendTopic ?? location.sendTopic,
                 draftTopic: location.topic,
                 replyTo: replyTo,
             )
@@ -6503,6 +6558,67 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// The sublist TDLib describes by updateSavedMessagesTopic, its chat and its message count. TDLib has no getter for
+    /// one topic, so a route opened before the list loaded asks loadSavedMessagesTopics for them.
+    private func loadSavedMessagesTopic() {
+        guard let topicID = location.savedMessagesTopicID else { return }
+        let store = TelegramChatListStore.shared
+        applySavedMessagesTopic(store.savedMessagesTopic(topicID, clientID: client.id))
+        store.savedMessagesTopicChanges
+            .filter { $0 == topicID }
+            .sink { [weak self] _ in
+                guard let self, locationContextIsCurrent else { return }
+                applySavedMessagesTopic(store.savedMessagesTopic(topicID, clientID: client.id))
+            }
+            .store(in: &cancellables)
+        if savedMessagesTopic == nil {
+            let client = client
+            Task { _ = try? await client.send(TDNativeRequests.loadSavedMessagesTopics(limit: 100)) }
+        }
+    }
+
+    private func applySavedMessagesTopic(_ topic: SavedMessagesTopic?) {
+        guard let topic else { return }
+        let countIsStale = savedMessagesTopicMessageCount == nil
+            || savedMessagesTopic?.lastMessage?.id != topic.lastMessage?.id
+        savedMessagesTopic = topic
+        if case .savedMessagesTopicTypeSavedFromChat(let from) = topic.type, savedMessagesTopicChat?.id != from.chatId {
+            if let chat = TelegramChatListStore.shared.chat(id: from.chatId, clientID: client.id) {
+                savedMessagesTopicChat = chat
+            } else {
+                let client = client
+                Task { [weak self] in
+                    let chat = try? await client.send(TDNativeRequests.getChat(chatId: from.chatId))
+                    guard let self, locationContextIsCurrent, let chat else { return }
+                    savedMessagesTopicChat = chat
+                }
+            }
+        }
+        if countIsStale { refreshSavedMessagesTopicCount() }
+    }
+
+    /// ChatTitleView's customMessageCount: the sublist's whole count, as a search of it reports it.
+    private func refreshSavedMessagesTopicCount() {
+        guard let topic = location.topic, location.savedMessagesTopicID != nil else { return }
+        savedMessagesTopicCountTask?.cancel()
+        let client = client
+        let chatID = location.chatID
+        savedMessagesTopicCountTask = Task { [weak self] in
+            let found = try? await client.searchChatMessages(
+                chatId: chatID,
+                filter: nil,
+                fromMessageId: 0,
+                limit: 1,
+                offset: 0,
+                query: "",
+                senderId: nil,
+                topicId: topic,
+            )
+            guard let self, !Task.isCancelled, locationContextIsCurrent, let found else { return }
+            savedMessagesTopicMessageCount = found.totalCount
+        }
     }
 
     /// The loaded incoming photos and videos wait for their files, which Save to Camera Roll may keep.
@@ -7355,7 +7471,7 @@ import UIKit
         do {
             _ = try await MessageForwardingService.send(
                 forward.prepared,
-                to: MessageForwardDestination(chatID: chatID, topic: location.topic),
+                to: MessageForwardDestination(chatID: chatID, topic: location.sendTopic),
                 mode: forward.mode,
                 client: client,
                 accountID: accountID,
@@ -7647,7 +7763,7 @@ import UIKit
         _ = try await client.setChatDraftMessage(
             chatId: context.chatID,
             draftMessage: draftMessage,
-            topicId: context.draftTopic,
+            topicId: context.tdDraftTopic,
         )
     }
 
@@ -8160,6 +8276,14 @@ import UIKit
                     fromMessageId: fromMessageId,
                     limit: limit,
                     offset: offset,
+                )
+                .messages
+            } else if let savedTopicID = location.savedMessagesTopicID {
+                try? await client.getSavedMessagesTopicHistory(
+                    fromMessageId: fromMessageId,
+                    limit: limit,
+                    offset: offset,
+                    savedMessagesTopicId: savedTopicID,
                 )
                 .messages
             } else if let threadID = location.messageThreadID {
@@ -9432,7 +9556,7 @@ import UIKit
             accountID: accountID,
             chatID: location.chatID,
             clientID: location.clientID,
-            destinationTopic: location.topic,
+            destinationTopic: location.sendTopic,
             draftTopic: location.topic,
             replyTo: nil,
         )
@@ -9467,7 +9591,7 @@ import UIKit
             _ = try await client.setChatDraftMessage(
                 chatId: context.chatID,
                 draftMessage: nil,
-                topicId: context.draftTopic,
+                topicId: context.tdDraftTopic,
             )
             guard draftClearGeneration == generation else { return false }
             draftErrorMessage = nil
@@ -9537,7 +9661,7 @@ import UIKit
                     _ = try await client.setChatDraftMessage(
                         chatId: context.chatID,
                         draftMessage: nil,
-                        topicId: context.draftTopic,
+                        topicId: context.tdDraftTopic,
                     )
                     guard draftClearGeneration == generation else { return }
                     draftClearTask = nil

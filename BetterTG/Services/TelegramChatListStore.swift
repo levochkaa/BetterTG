@@ -32,6 +32,8 @@ import TDLibKit
     let changes = PassthroughSubject<Change, Never>()
     /// A chat's online member count changed (`updateChatOnlineMemberCount`, sent while the chat is open).
     let onlineMemberCountChanges = PassthroughSubject<Int64, Never>()
+    /// A Saved Messages sublist changed or left the list (`updateSavedMessagesTopic`).
+    let savedMessagesTopicChanges = PassthroughSubject<Int64, Never>()
     private(set) var accountID: UUID?
     private(set) var clientID: Int32?
     private(set) var folderConfiguration: UpdateChatFolders?
@@ -52,6 +54,9 @@ import TDLibKit
     /// TDLib describes communities only by updateCommunity; service messages and profiles need them.
     private var communities = [Int64: Community]()
     private var onlineMemberCounts = [Int64: Int]()
+    /// Saved Messages' sublists, which TDLib describes only by updateSavedMessagesTopic once loadSavedMessagesTopics
+    /// asks for them; order 0 takes one off the list.
+    private var savedMessagesTopics = [Int64: SavedMessagesTopic]()
 
     /// A person's update redraws their private chat (not a secret one); a group's, its chat.
     private static func peerKey(of record: ChatListRecord) -> PeerKey? {
@@ -81,6 +86,7 @@ import TDLibKit
             supergroups = [:]
             communities = [:]
             onlineMemberCounts = [:]
+            savedMessagesTopics = [:]
             folderConfiguration = nil
             changes.send(.reset)
         }
@@ -111,6 +117,9 @@ import TDLibKit
             changedPeers(.supergroup(value.supergroup.id))
         case .updateCommunity(let value):
             communities[value.community.id] = value.community
+        case .updateSavedMessagesTopic(let value):
+            savedMessagesTopics[value.topic.id] = value.topic
+            savedMessagesTopicChanges.send(value.topic.id)
         case .updateChatPosition(let value):
             mutate(value.chatId) { $0.setPosition(value.position) }
         case .updateChatLastMessage(let value):
@@ -243,6 +252,27 @@ import TDLibKit
     func community(_ id: Int64, clientID: Int32) -> Community? {
         guard self.clientID == clientID else { return nil }
         return communities[id]
+    }
+
+    /// The Saved Messages sublist as TDLib last described it to this client.
+    func savedMessagesTopic(_ id: Int64, clientID: Int32) -> SavedMessagesTopic? {
+        self.clientID == clientID ? savedMessagesTopics[id] : nil
+    }
+
+    /// Saved Messages' sublists in TDLib's order, pinned ones first.
+    func savedMessagesTopicList(clientID: Int32) -> [SavedMessagesTopic] {
+        guard self.clientID == clientID else { return [] }
+        return savedMessagesTopics.values
+            .filter { $0.order != 0 }
+            .sorted { $0.order == $1.order ? $0.id > $1.id : $0.order > $1.order }
+    }
+
+    /// The chat as TDLib last described it to this client, whichever lists hold it.
+    func chat(id: Int64, clientID: Int32) -> Chat? {
+        guard self.clientID == clientID, let record = records[id] else { return nil }
+        let snapshot = chatSnapshots[id] ?? record.snapshot
+        chatSnapshots[id] = snapshot
+        return snapshot
     }
 
     func chatIDs(in list: ChatList) -> [Int64] {

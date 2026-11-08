@@ -403,6 +403,8 @@ private final class TelegramAvatarPlaceholderView: UIView {
     private static let anonymousSavedMessagesIcon = UIImage(named: "Avatar/AnonymousSenderIcon")?
         .withTintColor(.white, renderingMode: .alwaysOriginal)
     private static let deletedIcon = UIImage(named: "Avatar/DeletedIcon")
+    private static let myNotesIcon = UIImage(named: "Avatar/MyNotesIcon")?
+        .withTintColor(.white, renderingMode: .alwaysOriginal)
 
     private var colors = [UIColor.clear, UIColor.clear]
     private var letters = [String]()
@@ -473,6 +475,8 @@ private final class TelegramAvatarPlaceholderView: UIView {
             Self.repliesIcon
         case .anonymousSavedMessages:
             Self.anonymousSavedMessagesIcon
+        case .myNotes:
+            Self.myNotesIcon
         case .deleted:
             Self.deletedIcon
         }
