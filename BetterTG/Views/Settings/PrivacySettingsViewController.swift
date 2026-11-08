@@ -24,6 +24,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
     private var archiveSettings: TDNativeArchiveChatListSettings?
     /// Voice Messages can be restricted only with Premium; without it the row reads Everybody.
     private var isPremium = false
+    /// Who can write first (getNewChatPrivacySettings) and what its screen needs.
+    private var newChatPrivacy: IncomingMessagePrivacyViewController.Value?
+    private var messagesConfiguration = IncomingMessagePrivacyViewController.Configuration()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -95,15 +98,11 @@ final class PrivacySettingsViewController: SettingsListViewController {
         let privacy = SettingsSection(
             header: L10n.telegram("PrivacySettings.PrivacyTitle"),
             footer: L10n.telegram("PrivacySettings.InviteSectionFooter"),
-            rows: PrivacyKind.allCases.map { kind in
-                SettingsRow(
-                    title: kind.rowTitle,
-                    detail: kind == .voiceMessages && !isPremium && rules[kind] != nil
-                        ? L10n.telegram("PrivacySettings.LastSeenEverybody")
-                        : rules[kind]?.summary ?? loading,
-                    accessory: .disclosure,
-                    isEnabled: rules[kind] != nil,
-                ) { [weak self] in self?.openEditor(kind) }
+            rows: PrivacyKind.allCases.flatMap { kind in
+                var rows = [privacyRow(kind, loading: loading)]
+                // messagePrivacy follows Voice Messages.
+                if kind == .voiceMessages { rows.append(messagesRow(loading: loading)) }
+                return rows
             },
         )
         let leading = [security] + loginEmailSections() + [privacy] + autoArchiveSections()
@@ -136,6 +135,43 @@ final class PrivacySettingsViewController: SettingsListViewController {
 
     private static func monthsText(_ days: Int) -> String {
         L10n.telegramPlural("MessageTimer.Months", count: max(1, days / 30))
+    }
+
+    private func privacyRow(_ kind: PrivacyKind, loading: String) -> SettingsRow {
+        SettingsRow(
+            title: kind.rowTitle,
+            detail: kind == .voiceMessages && !isPremium && rules[kind] != nil
+                ? L10n.telegram("PrivacySettings.LastSeenEverybody")
+                : rules[kind]?.summary ?? loading,
+            accessory: .disclosure,
+            isEnabled: rules[kind] != nil,
+        ) { [weak self] in self?.openEditor(kind) }
+    }
+
+    /// messagePrivacy: who can write first, Everybody without Premium (new_noncontact_peers_require_premium aside).
+    private func messagesRow(loading: String) -> SettingsRow {
+        var value = newChatPrivacy
+        if !messagesConfiguration.canRequirePremium, value == .premium { value = .everybody }
+        return SettingsRow(
+            title: L10n.telegram("Settings.Privacy.Messages"),
+            detail: value?.summary ?? loading,
+            accessory: .disclosure,
+            isEnabled: value != nil,
+        ) { [weak self] in self?.openMessages() }
+    }
+
+    private func openMessages() {
+        guard let newChatPrivacy else { return }
+        let controller = IncomingMessagePrivacyViewController(
+            value: newChatPrivacy,
+            isPremium: isPremium,
+            configuration: messagesConfiguration,
+        )
+        controller.onChange = { [weak self] value in
+            self?.newChatPrivacy = value
+            self?.reload()
+        }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     /// New Chats From Unknown Users with Archive and Mute, where the server offers it to an account without Premium.
@@ -236,6 +272,16 @@ final class PrivacySettingsViewController: SettingsListViewController {
             let ttl = try? await client.send(TDNativeRequests.getAccountTtl())
             let me = try? await client.getMe()
             let websites = try? await client.send(TDNativeRequests.getConnectedWebsites())
+            let newChats = try? await client.send(TDNativeRequests.getNewChatPrivacySettings())
+            var premium = me?.isPremium ?? false
+            #if DEBUG
+                // `-ui-probe-privacy-non-premium` shows the Premium-locked rules as an account without it sees them.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-non-premium") { premium = false }
+            #endif
+            let messagesConfiguration = await IncomingMessagePrivacyViewController.Configuration.load(
+                client: client,
+                isPremium: premium,
+            )
             var canAutoArchive = false
             if case .optionValueBoolean(let value) = try? await client.getOption(
                 name: "can_archive_and_mute_new_chats_from_unknown_users",
@@ -260,11 +306,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
             autoDeleteTime = autoDelete?.time
             accountTtlDays = ttl?.days
             phoneNumber = me?.phoneNumber ?? ""
-            isPremium = me?.isPremium ?? false
-            #if DEBUG
-                // `-ui-probe-privacy-non-premium` shows the Premium-locked rules as an account without it sees them.
-                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-non-premium") { isPremium = false }
-            #endif
+            isPremium = premium
+            newChatPrivacy = newChats.map(IncomingMessagePrivacyViewController.Value.init)
+            self.messagesConfiguration = messagesConfiguration
             reload()
         }
     }
