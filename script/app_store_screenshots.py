@@ -8,7 +8,8 @@ RAW/<language> holds the readme demo's screens at device resolution in one app l
 (1320x2868): chats-light, chat-light, menu2-light (a photo's menu), group-dark, attach-dark (three photos picked) and
 bettertg-dark (Settings > BetterTG), plus duo, an unfolded iPhone Duo with Mia Chen open, at 2x. ASO/<locale>.json is
 the locale's App Store text: its subtitle heads the header, and captions holds the seven [title, "line\\nline"] pairs.
-OUT/<locale> gets 01…07 (6.9" screenshots), header.png (3840x1646) and search.png (3600x2400). Without locales it
+RAW/<language> also holds the unfolded Duo's duo-chat-light, duo-menu-light, duo-group-dark, duo-attach-dark and
+duo-bettertg-dark at 3x (2853x2007). OUT/<locale> gets 01…07 (6.9" screenshots), duo-01…05 (iPhone Duo), header.png (3840x1646) and search.png (3600x2400). Without locales it
 renders every ASO file.
 """
 import argparse
@@ -221,6 +222,29 @@ def screenshots(locale, raw, aso, out):
         canvas.convert("RGB").save(out / f"{i + 1:02d}-{screen.split('-')[0]}.png", optimize=True)
 
 
+# The unfolded iPhone Duo's own screenshots: its screen at 3x and the slide whose caption each takes.
+DUO_SCREENS = [("duo-chat-light", 6), ("duo-menu-light", 2), ("duo-group-dark", 3), ("duo-attach-dark", 4),
+               ("duo-bettertg-dark", 5)]
+
+
+def duo_screenshots(locale, raw, aso, out):
+    """2853x2007, the unfolded iPhone Duo's landscape: the caption on one line over the device."""
+    dw, dh = 2853, 2007
+    bold, regular = fonts(locale)
+    for i, (screen, caption) in enumerate(DUO_SCREENS):
+        title, subtitle = aso["captions"][caption]
+        canvas = gradient((dw, dh), *PALETTE[caption])
+        d = ImageDraw.Draw(canvas)
+        tf = fit(d, [title], bold, 140, dw - 200)
+        text_lines(canvas, [title], tf, 90, 0)
+        line = " ".join(subtitle.split("\n"))
+        sf_ = fit(d, [line], regular, 64, dw - 200)
+        bottom = text_lines(canvas, [line], sf_, 90 + tf.size + 40, 0) + sf_.size
+        dev = phone(Image.open(raw / f"{screen}.png"), 2010, 90, island=False, bezel=44)
+        place(canvas, dev, (dw - dev.width) // 2, max(bottom + 70, dh - dev.height - 40))
+        canvas.convert("RGB").save(out / f"duo-{i + 1:02d}.png", optimize=True)
+
+
 def header(locale, raw, aso, out):
     """21:9, 3840x1646: the subtitle over three phones rising from the bottom edge, all in the middle."""
     hw, hh = 3840, 1646
@@ -276,6 +300,7 @@ def main():
         out = args.out / locale
         out.mkdir(parents=True, exist_ok=True)
         screenshots(locale, raw, aso, out)
+        duo_screenshots(locale, raw, aso, out)
         header(locale, raw, aso, out)
         search(locale, raw, aso, out)
         print(out)
