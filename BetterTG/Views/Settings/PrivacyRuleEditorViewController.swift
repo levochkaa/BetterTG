@@ -39,7 +39,19 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
         }
     }
 
+    private static let lockView = SettingsTrailingView {
+        let view = UIImageView(image: UIImage(
+            systemName: "lock.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+        ))
+        view.tintColor = .secondaryLabel
+        return view
+    }
+
     var onChange: ((PrivacyRuleState) -> Void)?
+
+    /// Gifts' switches and the Voice Messages choice need Premium.
+    var isPremium = false
 
     private let kind: PrivacyKind
     private let phoneNumber: String
@@ -50,7 +62,11 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     private var peerToPeer: PrivacyRuleState?
     /// The gifts rule's Show Gift Icon and accepted gift types (the account's giftSettings), which need Premium.
     private var giftSettings: TDNativeGiftSettings?
-    private var isPremium = false
+
+    /// Voice Messages without Premium: Everybody stays, the other choices are locked, and no exceptions show.
+    private var isLockedVoiceMessages: Bool {
+        kind == .voiceMessages && !isPremium
+    }
 
     private var exceptionsInfo: String {
         guard kind == .profilePhoto else { return L10n.telegram("PrivacyLastSeenSettings.CustomShareSettingsHelp") }
@@ -90,7 +106,15 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             .withoutTelegramLinks
             .replacing("[", with: "")
             .replacing("]", with: "")
-        let info = kind == .phoneNumber ? (state.base == .nobody ? nil : publicLink) : kind.info
+        let info: String? =
+            if kind == .phoneNumber {
+                state.base == .nobody ? nil : publicLink
+            } else if isLockedVoiceMessages {
+                // Its What is Telegram Premium? link is left out with Premium.
+                L10n.telegram("Privacy.VoiceMessages.NonPremiumHelp").components(separatedBy: "\n\n").first
+            } else {
+                kind.info
+            }
         // Gifts nobody may send leave nothing to display, so the choice is off (permisisonsEnabled).
         let optionsEnabled = giftSettings.map { settings in
             let types = settings.acceptedGiftTypes
@@ -102,11 +126,12 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             rows: options.map { base, title in
                 SettingsRow(
                     title: title,
-                    accessory: state.base == base ? .checkmark : .none,
+                    accessory: (isLockedVoiceMessages ? base == .everybody : state.base == base) ? .checkmark : .none,
                     isEnabled: optionsEnabled,
-                ) { [weak self] in
-                    self?.select(base)
-                }
+                    action: { [weak self] in self?.select(base) },
+                    // The locked choices carry Telegram's lock where the check would be.
+                    trailingView: isLockedVoiceMessages && base != .everybody ? Self.lockView : nil,
+                )
             },
         )]
         if let giftSettings {
@@ -136,6 +161,7 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
                 ],
             ))
         }
+        if isLockedVoiceMessages { return sections }
         var exceptionRows = [SettingsRow]()
         if state.showsNever {
             exceptionRows.append(SettingsRow(
@@ -241,6 +267,9 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
                   let info = try? await client.getUserFullInfo(userId: me.id),
                   let self, contextIsCurrent else { return }
             isPremium = me.isPremium
+            #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-non-premium") { isPremium = false }
+            #endif
             giftSettings = info.giftSettings
             reload()
         }
@@ -287,6 +316,17 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     }
 
     private func select(_ base: PrivacyRuleState.Base) {
+        if isLockedVoiceMessages {
+            // Privacy.VoiceMessages.Tooltip: only Premium restricts voice messages.
+            guard base != .everybody else { return }
+            TelegramUndoToast.show(
+                text: L10n.telegram("Privacy.VoiceMessages.Tooltip").withoutTelegramLinks,
+                in: view,
+                bottomInset: 12,
+                undo: nil,
+            )
+            return
+        }
         guard base != state.base else { return }
         var updated = state
         updated.base = base

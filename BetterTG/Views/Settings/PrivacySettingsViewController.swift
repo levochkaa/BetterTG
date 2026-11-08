@@ -8,7 +8,7 @@ import UIKit
 /// Telegram's Privacy and Security (PrivacyAndSecurityController): Blocked Users, Active Websites while there are
 /// any, Two-Step Verification,
 /// Auto-Delete Messages, the privacy rules with their summaries, and the inactivity period before account deletion,
-/// whose menu also deletes the account now. Premium-only rules are not offered.
+/// whose menu also deletes the account now. Voice Messages reads Everybody without Premium, which restricting it needs.
 final class PrivacySettingsViewController: SettingsListViewController {
     private var rules = [PrivacyKind: PrivacyRuleState]()
     private var blockedCount: Int?
@@ -22,6 +22,8 @@ final class PrivacySettingsViewController: SettingsListViewController {
     /// can_archive_and_mute_new_chats_from_unknown_users, Telegram's autoarchive_setting_available.
     private var canAutoArchive = false
     private var archiveSettings: TDNativeArchiveChatListSettings?
+    /// Voice Messages can be restricted only with Premium; without it the row reads Everybody.
+    private var isPremium = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -96,7 +98,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
             rows: PrivacyKind.allCases.map { kind in
                 SettingsRow(
                     title: kind.rowTitle,
-                    detail: rules[kind]?.summary ?? loading,
+                    detail: kind == .voiceMessages && !isPremium && rules[kind] != nil
+                        ? L10n.telegram("PrivacySettings.LastSeenEverybody")
+                        : rules[kind]?.summary ?? loading,
                     accessory: .disclosure,
                     isEnabled: rules[kind] != nil,
                 ) { [weak self] in self?.openEditor(kind) }
@@ -256,6 +260,11 @@ final class PrivacySettingsViewController: SettingsListViewController {
             autoDeleteTime = autoDelete?.time
             accountTtlDays = ttl?.days
             phoneNumber = me?.phoneNumber ?? ""
+            isPremium = me?.isPremium ?? false
+            #if DEBUG
+                // `-ui-probe-privacy-non-premium` shows the Premium-locked rules as an account without it sees them.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-privacy-non-premium") { isPremium = false }
+            #endif
             reload()
         }
     }
@@ -291,6 +300,7 @@ final class PrivacySettingsViewController: SettingsListViewController {
     private func openEditor(_ kind: PrivacyKind) {
         guard let state = rules[kind] else { return }
         let editor = PrivacyRuleEditorViewController(kind: kind, state: state, phoneNumber: phoneNumber)
+        editor.isPremium = isPremium
         editor.onChange = { [weak self] state in
             self?.rules[kind] = state
             self?.reload()
@@ -351,6 +361,7 @@ enum PrivacyKind: CaseIterable {
     case savedMusic
     case forwards
     case calls
+    case voiceMessages
     case invites
 
     var setting: TDNativeUserPrivacySetting {
@@ -364,6 +375,7 @@ enum PrivacyKind: CaseIterable {
         case .savedMusic: .userPrivacySettingShowProfileAudio
         case .forwards: .userPrivacySettingShowLinkInForwardedMessages
         case .calls: .userPrivacySettingAllowCalls
+        case .voiceMessages: .userPrivacySettingAllowPrivateVoiceAndVideoNoteMessages
         case .invites: .userPrivacySettingAllowChatInvites
         }
     }
@@ -379,6 +391,7 @@ enum PrivacyKind: CaseIterable {
         case .savedMusic: L10n.telegram("Privacy.SavedMusic")
         case .forwards: L10n.telegram("Privacy.Forwards")
         case .calls: L10n.telegram("Privacy.Calls")
+        case .voiceMessages: L10n.telegram("Privacy.VoiceMessages")
         case .invites: L10n.telegram("PrivacySettings.InviteItem")
         }
     }
@@ -394,7 +407,8 @@ enum PrivacyKind: CaseIterable {
              .forwards,
              .gifts,
              .profilePhoto,
-             .savedMusic: rowTitle
+             .savedMusic,
+             .voiceMessages: rowTitle
         }
     }
 
@@ -409,6 +423,7 @@ enum PrivacyKind: CaseIterable {
         case .savedMusic: L10n.telegram("Privacy.SavedMusic.WhoCanSeeMyMusic")
         case .forwards: L10n.telegram("Privacy.Forwards.WhoCanForward")
         case .calls: L10n.telegram("Privacy.Calls.WhoCanCallMe")
+        case .voiceMessages: L10n.telegram("Privacy.VoiceMessages.WhoCanSend")
         case .invites: L10n.telegram("Privacy.GroupsAndChannels.WhoCanAddMe")
         }
     }
@@ -425,6 +440,7 @@ enum PrivacyKind: CaseIterable {
         case .savedMusic: L10n.telegram("Privacy.SavedMusic.CustomHelp")
         case .forwards: L10n.telegram("Privacy.Forwards.CustomHelp")
         case .calls: L10n.telegram("Privacy.Calls.CustomHelp")
+        case .voiceMessages: L10n.telegram("Privacy.VoiceMessages.CustomHelp")
         case .invites: L10n.telegram("Privacy.GroupsAndChannels.CustomHelp")
         }
     }
@@ -434,7 +450,8 @@ enum PrivacyKind: CaseIterable {
         case .calls,
              .forwards,
              .gifts,
-             .invites: L10n.telegram("Privacy.GroupsAndChannels.NeverAllow")
+             .invites,
+             .voiceMessages: L10n.telegram("Privacy.GroupsAndChannels.NeverAllow")
         case .bio,
              .birthday,
              .lastSeen,
@@ -449,7 +466,8 @@ enum PrivacyKind: CaseIterable {
         case .calls,
              .forwards,
              .gifts,
-             .invites: L10n.telegram("Privacy.GroupsAndChannels.AlwaysAllow")
+             .invites,
+             .voiceMessages: L10n.telegram("Privacy.GroupsAndChannels.AlwaysAllow")
         case .bio,
              .birthday,
              .lastSeen,

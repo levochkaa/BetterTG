@@ -4313,3 +4313,8 @@
 "Privacy.Gifts.AcceptedTypes.Channel" = "From Channels";
 "Privacy.Gifts.AcceptedTypes.Premium" = "Premium Subscriptions";
 "Privacy.Gifts.AcceptedTypes.Info" = "Choose the types of gifts that you allow others to send you.";
+"Privacy.VoiceMessages" = "Voice Messages";
+"Privacy.VoiceMessages.Tooltip" = "Only subscribers of [Telegram Premium]() can restrict receiving voice messages.";
+"Privacy.VoiceMessages.WhoCanSend" = "WHO CAN SEND ME VOICE MESSAGES";
+"Privacy.VoiceMessages.CustomHelp" = "You can restrict who can send you voice messages with granular precision.";
+"Privacy.VoiceMessages.NonPremiumHelp" = "Subscribe to Telegram Premium to restrict who can send you voice or video messages.\n\n[What is Telegram Premium?]()";
