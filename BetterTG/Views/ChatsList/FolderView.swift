@@ -326,7 +326,8 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
                 gesture: gesture,
                 from: self,
                 client: authority.client,
-            ) { authority.isCurrent }
+                isCurrent: { authority.isCurrent },
+            ) { [weak self] chatID in self?.openStories(from: chatID, sourceView: source) }
         }
         view.insertSubview(storyRowView, belowSubview: navigationBarView)
         storySubscriptions.load(client: client)

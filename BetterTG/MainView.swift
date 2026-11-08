@@ -652,7 +652,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 gesture: gesture,
                 from: self,
                 client: authority.client,
-            ) { authority.isCurrent }
+                isCurrent: { authority.isCurrent },
+            ) { [weak self] chatID in self?.openStories(from: chatID, sourceView: source) }
         }
         view.insertSubview(storyRowView, belowSubview: customNavigationBar)
         storySubscriptions.load(client: client)

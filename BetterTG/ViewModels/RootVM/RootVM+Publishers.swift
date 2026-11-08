@@ -72,6 +72,9 @@ extension RootVM {
         nc.scopedPublisher(&cancellables, for: .updateFreezeState) { event in
             AccountFreezeStore.shared.receive(event.value, source: event.source)
         }
+        nc.scopedPublisher(&cancellables, for: .updateStoryStealthMode) { event in
+            StoryStealthMode.shared.receive(event.value, source: event.source)
+        }
         nc.scopedPublisher(&cancellables, for: .updateOwnedStarCount) { event in
             StarsBalanceStore.shared.receive(event.value, source: event.source)
         }

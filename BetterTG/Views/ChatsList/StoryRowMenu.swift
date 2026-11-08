@@ -7,8 +7,8 @@ import UIKit
 
 /// ChatListController's storyContextPeerAction, for the chat list's and the archive's story rows. The account: Add
 /// Story, Saved Stories, Archived Stories. A channel or group: Add Story for an admin who posts stories, Open Channel
-/// or Group, Hide or Unhide Stories. A person: Send Message, Open Profile, Notify or Do Not Notify About Stories, Hide
-/// or Unhide Stories. Nothing for a service account. Telegram's View Anonymously (stealth mode) isn't ported.
+/// or Group, Hide or Unhide Stories. A person: Send Message, Open Profile, Notify or Do Not Notify About Stories, View
+/// Anonymously (Stealth Mode), Hide or Unhide Stories. Nothing for a service account.
 @MainActor enum StoryRowMenu {
     /// `isCurrent` says whether the host still acts for the client the menu reads.
     static func present(
@@ -18,6 +18,7 @@ import UIKit
         from host: UIViewController,
         client: TDLibClient,
         isCurrent: @escaping () -> Bool,
+        openStories: @escaping (Int64) -> Void,
     ) {
         Task { [weak host] in
             guard let poster = await StoryMoreMenu.resolvePoster(chatID: chatID, client: client), !poster.isService
@@ -37,7 +38,14 @@ import UIKit
             guard let host, isCurrent(), source.window != nil else { return }
             host.presentTelegramContextMenu(
                 sourceView: source,
-                actions: actions(poster, canPost: canPost, host: host, client: client, isCurrent: isCurrent),
+                actions: actions(
+                    poster,
+                    canPost: canPost,
+                    host: host,
+                    client: client,
+                    isCurrent: isCurrent,
+                    openStories: openStories,
+                ),
                 tracking: gesture,
                 // ChatListHeaderBarContextExtractedContentSource: the item lifts over the dimmed list in its place, the
                 // menu under it.
@@ -52,6 +60,7 @@ import UIKit
         host: UIViewController,
         client: TDLibClient,
         isCurrent: @escaping () -> Bool,
+        openStories: @escaping (Int64) -> Void,
     ) -> [TelegramContextMenuAction] {
         weak let host = host
         let addStory = TelegramContextMenuAction(
@@ -108,6 +117,33 @@ import UIKit
                 ) {
                     guard let host else { return }
                     toggleNotifications(of: poster, in: host.view, client: client)
+                },
+                // StoryFeed.ViewAnonymously: Stealth Mode, a lock without Premium.
+                TelegramContextMenuAction(
+                    title: L10n.telegram("StoryFeed.ViewAnonymously"),
+                    image: UIImage(systemName: poster.accountIsPremium ? "eye" : "lock"),
+                ) {
+                    guard let host else { return }
+                    StoryStealthMode.request(
+                        isPremium: poster.accountIsPremium,
+                        from: host,
+                        client: client,
+                        source: TDLib.shared.activeUpdateSource,
+                    ) { [weak host] toast in
+                        openStories(poster.chatID)
+                        guard let toast else { return }
+                        // presentExternalTooltip: the tooltip shows over the story that opened.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            guard let viewer = host?.presentedViewController else { return }
+                            TelegramUndoToast.show(
+                                title: toast.title,
+                                text: toast.text,
+                                in: viewer.view,
+                                bottomInset: 120,
+                                undo: nil,
+                            )
+                        }
+                    }
                 },
                 hide,
             ]
