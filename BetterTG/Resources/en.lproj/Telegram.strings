@@ -4420,3 +4420,9 @@
 "Stars.Intro.Transaction.LiveStreamPaidMessage_1" = "Fee for %@ Live Stream Message";
 "Stars.Intro.Transaction.LiveStreamPaidMessage_any" = "Fee for %@ Live Stream Messages";
 "Stars.Intro.Transaction.Commission.Title" = "%@ commission";
+"Chat.ReactionContextMenu.FilterByTag" = "Filter by Tag";
+"Chat.ReactionContextMenu.RemoveTag" = "Remove Tag";
+"Chat.EditTagTitle.Placeholder" = "Name";
+"Chat.EditTagTitle.TitleSet" = "Set Name";
+"Chat.EditTagTitle.TitleEdit" = "Edit Name";
+"Chat.EditTagTitle.Text" = "You can label your emoji tag with a text name.";

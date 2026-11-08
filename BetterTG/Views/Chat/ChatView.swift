@@ -348,6 +348,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram's ChatSearchDomain: picking a member after "from:", or the member whose messages are searched.
     private var messageSearchChoosesMember = false
     private var messageSearchMember: ChatSearchMemberListView.Member?
+    /// Saved Messages' tag the search filters by (Filter by Tag).
+    private var messageSearchTag: ReactionType?
     /// Closes the date menu's event editor, whichever button ends it.
     private let calendarEventDelegate = CalendarEventEditDelegate()
     private let deviceContactAppender = DeviceContactAppender()
@@ -2342,6 +2344,80 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// activateSearch(domain: .member(peer)): the chat's search opens on the member's messages.
+    /// Filter by Tag: Saved Messages' search filters by the tag, its emoji or name as the field's token.
+    private func filterMessages(byTag type: ReactionType) {
+        beginMessageSearch()
+        guard messageSearchActive, chatVM.locationContextIsCurrent else { return }
+        messageSearchChoosesMember = false
+        messageSearchMember = nil
+        hideMessageSearchMemberList()
+        messageSearchTag = type
+        messageSearchQuery = ""
+        customNavigationBar.setSearchMemberScope(.chosen(tagTitle(type)))
+        messageSearch.update(query: "", sender: nil, tag: type)
+        updateMessageSearchPanel()
+    }
+
+    private func tagTitle(_ type: ReactionType) -> String {
+        SavedMessagesTagsStore.shared.label(for: type, client: chatVM.client) ?? type.standardEmoji ?? "🏷"
+    }
+
+    /// A tag's tap: the chat filters by it, or its menu opens while it already does (ChatController's tag tap).
+    private func tagTapped(_ type: ReactionType, message: CustomMessage, cell: MessageCell?) {
+        if messageSearchActive, messageSearchTag == type {
+            presentTagMenu(type, message: message, cell: cell)
+        } else {
+            filterMessages(byTag: type)
+        }
+    }
+
+    /// openMessageReactionContextMenu for a tag: Set Name or Edit Name, Filter by Tag unless the chat already does,
+    /// and Remove Tag.
+    private func presentTagMenu(_ type: ReactionType, message: CustomMessage, cell: MessageCell?) {
+        guard let source = cell?.reactionIconView(for: type) ?? cell else { return }
+        let hasLabel = SavedMessagesTagsStore.shared.label(for: type, client: chatVM.client) != nil
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram(hasLabel ? "Chat.EditTagTitle.TitleEdit" : "Chat.EditTagTitle.TitleSet"),
+            image: UIImage(systemName: "pencil"),
+        ) { [weak self] in self?.editTagLabel(type) }]
+        if !(messageSearchActive && messageSearchTag == type) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ReactionContextMenu.FilterByTag"),
+                image: UIImage(systemName: "line.3.horizontal.decrease.circle"),
+            ) { [weak self] in self?.filterMessages(byTag: type) })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Chat.ReactionContextMenu.RemoveTag"),
+            image: UIImage(systemName: "tag.slash"),
+            isDestructive: true,
+        ) { [weak self, weak message] in
+            guard let self, let message else { return }
+            chatVM.toggleReaction(on: message, type: type, isBig: false)
+        })
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// savedTagNameAlertController: the tag's name, up to 12 characters (setSavedMessagesTagLabel).
+    private func editTagLabel(_ type: ReactionType) {
+        let current = SavedMessagesTagsStore.shared.label(for: type, client: chatVM.client) ?? ""
+        let alert = UIAlertController(
+            title: L10n.telegram(current.isEmpty ? "Chat.EditTagTitle.TitleSet" : "Chat.EditTagTitle.TitleEdit"),
+            message: L10n.telegram("Chat.EditTagTitle.Text"),
+            preferredStyle: .alert,
+        )
+        alert.addTextField { field in
+            field.text = current
+            field.placeholder = L10n.telegram("Chat.EditTagTitle.Placeholder")
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let client = chatVM.client
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
+            let label = String((alert?.textFields?.first?.text ?? "").prefix(12))
+            Task { _ = try? await client.send(TDNativeRequests.setSavedMessagesTagLabel(tag: type, label: label)) }
+        })
+        present(alert, animated: true)
+    }
+
     private func searchMessages(from user: User) {
         beginMessageSearch()
         guard messageSearchActive, canSearchMessagesByMember else { return }
@@ -4525,7 +4601,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                 }
                                 : nil,
                             onReactionTap: { [weak self, weak cell] type in
-                                guard let self, let current = currentActionMessage(
+                                guard let self else { return }
+                                // Saved Messages' tags filter rather than toggle.
+                                if let tagged = self.message(for: displayedMessageID),
+                                   tagged.reactions?.areTags == true
+                                {
+                                    tagTapped(type, message: tagged, cell: cell)
+                                    return
+                                }
+                                guard let current = currentActionMessage(
                                     authority,
                                     cell: cell,
                                     intent: .reaction(type),
@@ -4536,7 +4620,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                 if adding { playReactionEffect(type, displayedID: current.displayedID) }
                             },
                             onReactionLongPress: { [weak self, weak cell] type in
-                                guard let self, let current = currentActionMessage(
+                                guard let self else { return }
+                                if let tagged = self.message(for: displayedMessageID),
+                                   tagged.reactions?.areTags == true
+                                {
+                                    presentTagMenu(type, message: tagged, cell: cell)
+                                    return
+                                }
+                                guard let current = currentActionMessage(
                                     authority,
                                     cell: cell,
                                     intent: .reactionList(type),
@@ -9408,7 +9499,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if messageSearchChoosesMember {
             messageSearchMemberList?.update(query: query)
         } else {
-            messageSearch.update(query: query, sender: messageSearchMember?.sender)
+            messageSearch.update(query: query, sender: messageSearchMember?.sender, tag: messageSearchTag)
         }
         updateMessageSearchPanel()
     }
@@ -9417,6 +9508,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageSearch.reset()
         messageSearchChoosesMember = false
         messageSearchMember = nil
+        messageSearchTag = nil
         messageSearchQuery = ""
         messageSearchShowsList = false
         hideMessageSearchMemberList()
@@ -9451,6 +9543,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// toggleMembersSearch(false) steps back one domain.
     private func messageSearchMemberScopeCleared(_ previous: TelegramChatNavigationBar.SearchMemberScope) {
         guard messageSearchActive else { return }
+        // Erasing a tag's token searches the whole of Saved Messages again.
+        if messageSearchTag != nil {
+            messageSearchTag = nil
+            customNavigationBar.setSearchMemberScope(.none)
+            messageSearch.update(query: messageSearchQuery, sender: nil)
+            updateMessageSearchPanel()
+            return
+        }
         if case .chosen = previous {
             beginMessageSearchMemberChoice()
             return

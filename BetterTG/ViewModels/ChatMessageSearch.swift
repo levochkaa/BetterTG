@@ -22,6 +22,8 @@ import TDLibKit
 
     private(set) var query = ""
     private(set) var sender: MessageSender?
+    /// Saved Messages' tag filter (ChatPresentationInterfaceState.HistoryFilter's customTag).
+    private(set) var tag: ReactionType?
     /// Newest first.
     private(set) var messageIDs = [Int64]() {
         didSet { resultIDs = Set(messageIDs) }
@@ -46,7 +48,7 @@ import TDLibKit
     private var task: Task<Void, Never>?
 
     var isActive: Bool {
-        !query.isEmpty || sender != nil
+        !query.isEmpty || sender != nil || tag != nil
     }
 
     var status: ChatSearchPanel.Status {
@@ -117,11 +119,12 @@ import TDLibKit
         return nil
     }
 
-    func update(query rawQuery: String, sender: MessageSender?) {
+    func update(query rawQuery: String, sender: MessageSender?, tag: ReactionType? = nil) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query != self.query || sender != self.sender else { return }
+        guard query != self.query || sender != self.sender || tag != self.tag else { return }
         self.query = query
         self.sender = sender
+        self.tag = tag
         restart()
         guard isActive else {
             onChange?()
@@ -174,6 +177,7 @@ import TDLibKit
     func reset() {
         query = ""
         sender = nil
+        tag = nil
         restart()
     }
 
@@ -200,6 +204,7 @@ import TDLibKit
         let requestGeneration = generation
         let query = query
         let sender = sender
+        let tag = tag
         let client = client
         let location = location
         if isSecretChat {
@@ -213,16 +218,29 @@ import TDLibKit
             var fromMessageID = nextFromMessageID
             var seen = Set(messageIDs)
             while true {
-                let found = try? await client.searchChatMessages(
-                    chatId: location.chatID,
-                    filter: nil,
-                    fromMessageId: fromMessageID,
-                    limit: Self.pageLimit,
-                    offset: 0,
-                    query: query,
-                    senderId: sender,
-                    topicId: location.topic,
-                )
+                // A tag searches Saved Messages by it (searchSavedMessages), with the query if there is one.
+                let found =
+                    if let tag {
+                        try? await client.send(TDNativeRequests.searchSavedMessages(
+                            savedMessagesTopicId: location.savedMessagesTopicID ?? 0,
+                            tag: tag,
+                            query: query,
+                            fromMessageId: fromMessageID,
+                            offset: 0,
+                            limit: Self.pageLimit,
+                        ))
+                    } else {
+                        try? await client.searchChatMessages(
+                            chatId: location.chatID,
+                            filter: nil,
+                            fromMessageId: fromMessageID,
+                            limit: Self.pageLimit,
+                            offset: 0,
+                            query: query,
+                            senderId: sender,
+                            topicId: location.topic,
+                        )
+                    }
                 guard owns(requestGeneration) else { return }
                 let addedMessages = (found?.messages ?? [])
                     .filter { location.matches(message: $0) && seen.insert($0.id).inserted }
