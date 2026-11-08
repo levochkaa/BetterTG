@@ -7,6 +7,7 @@ import PhotosUI
 import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
+import VideoToolbox
 
 // MARK: - StoryComposer
 
@@ -248,10 +249,25 @@ private enum StoryDraft {
 // MARK: - StoryVideoExport
 
 /// MediaEditorVideoExport for a story: MediaEditorValues' 720 by 1280, the video fitted over its first frame's
-/// gradient as the preview shows it, HEVC where the device can encode it and H.264 otherwise, cut to its first
-/// 60 seconds, a streamable MPEG-4. Telegram's bitrate ladder isn't ported: the export session picks the rate.
+/// gradient as the preview shows it, cut to its first 60 seconds, written by StoryVideoWriter as Telegram's
+/// configuration asks.
 private enum StoryVideoExport {
     struct Failure: Error {}
+
+    /// hasHEVCHardwareEncoder.
+    private static let hasHEVCEncoder: Bool = {
+        var encoderID: CFString?
+        var properties: CFDictionary?
+        let result = VTCopySupportedPropertyDictionaryForEncoder(
+            width: 1920,
+            height: 1080,
+            codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: [:] as CFDictionary,
+            encoderIDOut: &encoderID,
+            supportedPropertiesOut: &properties,
+        )
+        return result == noErr
+    }()
 
     static func export(
         _ source: URL,
@@ -293,23 +309,51 @@ private enum StoryVideoExport {
             },
         )]
         let composition = AVVideoComposition(configuration: configuration)
-        let hevc = await AVAssetExportSession.compatibility(
-            ofExportPreset: AVAssetExportPresetHEVCHighestQuality,
-            with: asset,
-            outputFileType: .mp4,
-        )
-        guard let session = AVAssetExportSession(
-            asset: asset,
-            presetName: hevc ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality,
-        ) else { throw Failure() }
-        session.videoComposition = composition
-        session.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
-        session.shouldOptimizeForNetworkUse = true
         let output = FileManager.default
             .temporaryDirectory
             .appendingPathComponent("bettertg-story-\(UUID().uuidString).mp4")
-        try await session.export(to: output, as: .mp4)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        try await StoryVideoWriter.write(
+            asset: asset,
+            videoTrack: track,
+            audioTracks: audioTracks,
+            composition: composition,
+            timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600)),
+            videoSettings: videoSettings(duration: duration, size: renderSize),
+            to: output,
+        )
         return (output, hasAudio)
+    }
+
+    /// recommendedVideoExportConfiguration for a story: 720 by 1280, HEVC where the device has its hardware encoder and
+    /// H.264 High with CABAC otherwise, at 5800 kbps under 10 s, 5500 under 20, 5000 under 30, then down to 3700 by 60.
+    private static func videoSettings(duration: Double, size: CGSize) -> [String: Any] {
+        let kbps =
+            if duration < 10 {
+                5800
+            } else if duration < 20 {
+                5500
+            } else if duration < 30 {
+                5000
+            } else {
+                Int(5000 - (5000 - 3700) * min(1, (duration - 30) / 30))
+            }
+        let compression: [String: Any] = hasHEVCEncoder
+            ? [
+                AVVideoAverageBitRateKey: kbps * 1000,
+                AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main_AutoLevel as String,
+            ]
+            : [
+                AVVideoAverageBitRateKey: kbps * 1000,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC,
+            ]
+        return [
+            AVVideoCodecKey: hasHEVCEncoder ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
+            AVVideoCompressionPropertiesKey: compression,
+            AVVideoWidthKey: Int(size.width),
+            AVVideoHeightKey: Int(size.height),
+        ]
     }
 
     /// The stored frame's orientation from the track's preferred transform.
@@ -1281,5 +1325,99 @@ private final class StoryPostAsViewController: SettingsListViewController {
 
     func end(_ id: UUID) {
         preparingChatIDs[id] = nil
+    }
+}
+
+// MARK: - StoryVideoWriter
+
+/// MediaEditorVideoExport's reader and writer: the composed frames and the sound read over the range and written to a
+/// streamable MPEG-4, the sound as AAC at 44.1 kHz and 320 kbps in stereo.
+private final class StoryVideoWriter: @unchecked Sendable {
+    private let reader: AVAssetReader
+    private let writer: AVAssetWriter
+    private let pairs: [(AVAssetReaderOutput, AVAssetWriterInput)]
+    private let queue = DispatchQueue(label: "bettertg.story.export")
+
+    private init(reader: AVAssetReader, writer: AVAssetWriter, pairs: [(AVAssetReaderOutput, AVAssetWriterInput)]) {
+        self.reader = reader
+        self.writer = writer
+        self.pairs = pairs
+    }
+
+    static func write(
+        asset: AVAsset,
+        videoTrack: AVAssetTrack,
+        audioTracks: [AVAssetTrack],
+        composition: AVVideoComposition,
+        timeRange: CMTimeRange,
+        videoSettings: [String: Any],
+        to url: URL,
+    ) async throws {
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = timeRange
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        writer.shouldOptimizeForNetworkUse = true
+        var pairs = [(AVAssetReaderOutput, AVAssetWriterInput)]()
+        let videoOutput = AVAssetReaderVideoCompositionOutput(
+            videoTracks: [videoTrack],
+            videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA],
+        )
+        videoOutput.videoComposition = composition
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoInput.expectsMediaDataInRealTime = false
+        pairs.append((videoOutput, videoInput))
+        if !audioTracks.isEmpty {
+            let audioOutput = AVAssetReaderAudioMixOutput(
+                audioTracks: audioTracks,
+                audioSettings: [AVFormatIDKey: kAudioFormatLinearPCM],
+            )
+            let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44100,
+                AVEncoderBitRateKey: 64 * 5 * 1000,
+                AVNumberOfChannelsKey: 2,
+            ])
+            audioInput.expectsMediaDataInRealTime = false
+            pairs.append((audioOutput, audioInput))
+        }
+        for (output, input) in pairs {
+            guard reader.canAdd(output), writer.canAdd(input) else { throw StoryVideoExport.Failure() }
+            reader.add(output)
+            writer.add(input)
+        }
+        let job = StoryVideoWriter(reader: reader, writer: writer, pairs: pairs)
+        try await job.run(from: timeRange.start)
+    }
+
+    private func run(from start: CMTime) async throws {
+        guard reader.startReading(), writer.startWriting() else { throw StoryVideoExport.Failure() }
+        writer.startSession(atSourceTime: start)
+        await withTaskGroup(of: Void.self) { group in
+            for index in pairs.indices {
+                group.addTask { await self.pump(index) }
+            }
+        }
+        if reader.status == .failed || writer.status == .failed {
+            writer.cancelWriting()
+            throw writer.error ?? reader.error ?? StoryVideoExport.Failure()
+        }
+        await writer.finishWriting()
+        if writer.status != .completed { throw writer.error ?? StoryVideoExport.Failure() }
+    }
+
+    /// Copies the output's samples into the input as it takes them, then marks the input finished.
+    private func pump(_ index: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            pairs[index].1.requestMediaDataWhenReady(on: queue) {
+                let (output, input) = self.pairs[index]
+                while input.isReadyForMoreMediaData {
+                    guard let sample = output.copyNextSampleBuffer(), input.append(sample) else {
+                        input.markAsFinished()
+                        continuation.resume()
+                        return
+                    }
+                }
+            }
+        }
     }
 }
