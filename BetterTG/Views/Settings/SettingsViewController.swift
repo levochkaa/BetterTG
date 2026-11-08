@@ -235,6 +235,7 @@ UISearchResultsUpdating, UISearchControllerDelegate {
         case .app(let botUserID):
             configureApp(cell, configuration: configuration, botUserID: botUserID)
         case .appearance,
+             .business,
              .chatFolders,
              .dataAndStorage,
              .devices,
@@ -376,6 +377,8 @@ UISearchResultsUpdating, UISearchControllerDelegate {
             navigationController?.pushViewController(LanguageSelectionViewController(), animated: true)
         case .stars:
             navigationController?.pushViewController(StarsTransactionsViewController(), animated: true)
+        case .business:
+            navigationController?.pushViewController(BusinessSetupViewController(), animated: true)
         case .powerSaving:
             navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
@@ -728,7 +731,10 @@ UISearchResultsUpdating, UISearchControllerDelegate {
                 : [.notifications, .privacy, .dataAndStorage]
             return accountRows + [.appearance, .powerSaving, .language]
         case .payment:
-            return TDLib.shared.activeAccountID == nil ? [] : [.stars]
+            guard TDLib.shared.activeAccountID != nil else { return [] }
+            // PeerInfoSettingsItems: Telegram Business follows the stars; it's a Premium feature here.
+            let isPremium = me?.isPremium == true && meAccountID == TDLib.shared.activeAccountID
+            return isPremium ? [.stars, .business] : [.stars]
         case .support:
             return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
         case .media:
@@ -930,7 +936,8 @@ extension SettingsViewController {
         case apps
         case shortcuts
         case appearance
-        /// PeerInfoSettingsItems' `.payment` section: Your Stars (BetterTG offers no Premium or Business).
+        /// PeerInfoSettingsItems' `.payment` section: Your Stars, and Telegram Business for Premium (BetterTG sells
+        /// neither).
         case payment
         case support
         case media
@@ -992,6 +999,7 @@ extension SettingsViewController {
         case powerSaving
         case language
         case stars
+        case business
         case support
         case faq
         case tips
@@ -1064,6 +1072,8 @@ extension SettingsViewController {
                 L10n.telegram("Settings.AppLanguage")
             case .stars:
                 L10n.telegram("Settings.Stars")
+            case .business:
+                L10n.telegram("Settings.Business")
             case .support:
                 L10n.telegram("Settings.Support")
             case .faq:
@@ -1112,6 +1122,7 @@ extension SettingsViewController {
                  .addTestServerAccount,
                  .app,
                  .betterTG,
+                 .business,
                  .chatFolders,
                  .dataAndStorage,
                  .devices,
@@ -1173,6 +1184,7 @@ extension SettingsViewController {
             case .appearance: "paintpalette.fill"
             case .language: "globe"
             case .stars: "star.fill"
+            case .business: "briefcase.fill"
             case .powerSaving: "battery.50percent"
             case .support: "bubble.left.and.text.bubble.right.fill"
             case .faq: "questionmark.circle.fill"
@@ -1221,6 +1233,7 @@ extension SettingsViewController {
             case .faq: .systemCyan
             case .tips: .systemYellow
             case .stars: .systemOrange
+            case .business: .systemRed
             }
         }
 

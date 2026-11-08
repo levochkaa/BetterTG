@@ -712,7 +712,11 @@ private final class SettingsBadgeAccessoryView: UIView {
 private final class SettingsTrailingAccessoryView: UIView {
     init(content: UIView, showsDisclosure: Bool) {
         super.init(frame: .zero)
-        let size = content.intrinsicContentSize
+        // A control without an intrinsic size, such as a compact date picker, sizes itself through Auto Layout.
+        var size = content.intrinsicContentSize
+        if size.width <= 0 || size.height <= 0 {
+            size = content.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        }
         let side = CGSize(width: max(28, size.width), height: 28)
         content.frame = CGRect(
             x: (side.width - max(size.width, 0)) / 2,
