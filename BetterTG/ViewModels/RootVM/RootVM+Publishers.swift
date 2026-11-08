@@ -75,6 +75,18 @@ extension RootVM {
         nc.scopedPublisher(&cancellables, for: .updateOwnedStarCount) { event in
             StarsBalanceStore.shared.receive(event.value, source: event.source)
         }
+        nc.scopedPublisher(&cancellables, for: .updateQuickReplyShortcut) { event in
+            QuickReplyStore.shared.receive(event.value, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateQuickReplyShortcutDeleted) { event in
+            QuickReplyStore.shared.receive(event.value, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateQuickReplyShortcuts) { event in
+            QuickReplyStore.shared.receive(event.value, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateQuickReplyShortcutMessages) { event in
+            QuickReplyStore.shared.receive(event.value, source: event.source)
+        }
         nc.scopedPublisher(&cancellables, for: .updateSavedMessagesTags) { event in
             SavedMessagesTagsStore.shared.receive(event.value, clientID: event.source.clientID)
         }

@@ -44,6 +44,15 @@ final class BusinessSetupViewController: SettingsListViewController {
                     ) {
                         [weak self] in self?.openHours()
                     },
+                    feature(
+                        "Business.QuickReplies",
+                        "Business.QuickRepliesInfo",
+                        symbol: "bubble.left.and.text.bubble.right",
+                        tint: .systemGreen,
+                    ) {
+                        [weak self] in
+                        self?.navigationController?.pushViewController(QuickRepliesViewController(), animated: true)
+                    },
                     feature("Business.Links", "Business.LinksInfo", symbol: "link", tint: .systemBlue) {
                         [weak self] in
                         self?.navigationController?.pushViewController(
