@@ -189,6 +189,8 @@ ClientRestorableNavigationEntry {
     /// PeerInfoHeaderNode's expanded avatar: a pull past the threshold opens the photo across the width above the
     /// header, where the round photo had been; scrolling back into the list closes it.
     private let expandedAvatarView = ProfileAvatarView()
+    /// The name and status over the expanded photo's bottom edge, on a darkening gradient.
+    private let expandedNameView = ProfileExpandedNameView()
     private var isAvatarExpanded = false
     private var avatarSizeConstraints = [NSLayoutConstraint]()
     /// The cover's colour over the bar, above the list, while the cover is at the list's top edge.
@@ -1476,6 +1478,13 @@ ClientRestorableNavigationEntry {
         for constraint in avatarSizeConstraints {
             constraint.constant = expanded ? 0 : 96
         }
+        // The name and status move onto the photo while it is open.
+        expandedNameView.configure(
+            title: profileTitle(),
+            status: currentStatusText.isEmpty ? nil : displayedStatusText,
+        )
+        titleRow.isHidden = expanded
+        statusLabel.isHidden = currentStatusText.isEmpty || expanded
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             self.expandedAvatarView.alpha = expanded ? 1 : 0
             self.profileHeaderView.layoutIfNeeded()
@@ -2686,7 +2695,7 @@ ClientRestorableNavigationEntry {
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
         statusLabel.text = initialStatus()
-        statusLabel.isHidden = currentStatusText.isEmpty
+        statusLabel.isHidden = currentStatusText.isEmpty || isAvatarExpanded
         headerStack.addArrangedSubview(statusLabel)
 
         bioLabel.font = .preferredFont(forTextStyle: .body)
@@ -3007,6 +3016,13 @@ ClientRestorableNavigationEntry {
         expandedAvatarView.clipsToBounds = true
         expandedAvatarView.isUserInteractionEnabled = true
         expandedAvatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(avatarPressed)))
+        expandedNameView.translatesAutoresizingMaskIntoConstraints = false
+        expandedAvatarView.addSubview(expandedNameView)
+        NSLayoutConstraint.activate([
+            expandedNameView.leadingAnchor.constraint(equalTo: expandedAvatarView.leadingAnchor),
+            expandedNameView.trailingAnchor.constraint(equalTo: expandedAvatarView.trailingAnchor),
+            expandedNameView.bottomAnchor.constraint(equalTo: expandedAvatarView.bottomAnchor),
+        ])
         collectionView.addSubview(expandedAvatarView)
         scrollingArea.translatesAutoresizingMaskIntoConstraints = false
         scrollingArea.scrollView = collectionView
@@ -4470,11 +4486,17 @@ ClientRestorableNavigationEntry {
         applyProfileTitle()
         statusLabel.text = displayedStatusText
         statusLabel.textColor = currentStatusIsOnline ? .systemGreen : .secondaryLabel
-        statusLabel.isHidden = currentStatusText.isEmpty
+        statusLabel.isHidden = currentStatusText.isEmpty || isAvatarExpanded
         bioLabel.text = currentBioText
         bioLabel.isHidden = currentBioText.isEmpty
         detailsLabel.text = currentDetailTexts.joined(separator: " · ")
         detailsLabel.isHidden = currentDetailTexts.isEmpty
+        if isAvatarExpanded {
+            expandedNameView.configure(
+                title: profileTitle(),
+                status: currentStatusText.isEmpty ? nil : displayedStatusText,
+            )
+        }
         applyProfileColor()
         updateHeaderCollapse()
         avatarView.configure(
@@ -7768,6 +7790,56 @@ func profileDateString(_ timestamp: Int) -> String {
 }
 
 /// A collection's background that lays its one view out below a top inset, as a header row leaves room for.
+// MARK: - ProfileExpandedNameView
+
+/// PeerInfoHeaderNode's expanded title: the name in white and the status under it at the photo's bottom left, over a
+/// gradient that darkens the photo's bottom.
+private final class ProfileExpandedNameView: UIView {
+    private let gradient = CAGradientLayer()
+    private let titleLabel = UILabel()
+    private let statusLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        gradient.colors = [UIColor.black.withAlphaComponent(0).cgColor, UIColor.black.withAlphaComponent(0.45).cgColor]
+        layer.addSublayer(gradient)
+        titleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.textColor = .white
+        statusLabel.font = .systemFont(ofSize: 17)
+        statusLabel.textColor = UIColor.white.withAlphaComponent(0.75)
+        let stack = UIStackView(arrangedSubviews: [titleLabel, statusLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 48),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = bounds
+        CATransaction.commit()
+    }
+
+    func configure(title: String, status: String?) {
+        titleLabel.text = title
+        statusLabel.text = status
+        statusLabel.isHidden = status == nil
+    }
+}
+
 // MARK: - ProfileCoverView
 
 /// PeerInfoCoverComponent's background for a profile colour: the secondary colour above, then a gradient from it down
