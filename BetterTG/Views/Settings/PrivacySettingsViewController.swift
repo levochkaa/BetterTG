@@ -346,6 +346,7 @@ enum PrivacyKind: CaseIterable {
     case lastSeen
     case profilePhoto
     case bio
+    case gifts
     case birthday
     case savedMusic
     case forwards
@@ -358,6 +359,7 @@ enum PrivacyKind: CaseIterable {
         case .lastSeen: .userPrivacySettingShowStatus
         case .profilePhoto: .userPrivacySettingShowProfilePhoto
         case .bio: .userPrivacySettingShowBio
+        case .gifts: .userPrivacySettingAutosaveGifts
         case .birthday: .userPrivacySettingShowBirthdate
         case .savedMusic: .userPrivacySettingShowProfileAudio
         case .forwards: .userPrivacySettingShowLinkInForwardedMessages
@@ -372,6 +374,7 @@ enum PrivacyKind: CaseIterable {
         case .lastSeen: L10n.telegram("PrivacySettings.LastSeen")
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto")
         case .bio: L10n.telegram("Privacy.Bio")
+        case .gifts: L10n.telegram("Privacy.Gifts")
         case .birthday: L10n.telegram("Privacy.Birthday")
         case .savedMusic: L10n.telegram("Privacy.SavedMusic")
         case .forwards: L10n.telegram("Privacy.Forwards")
@@ -389,6 +392,7 @@ enum PrivacyKind: CaseIterable {
         case .bio,
              .birthday,
              .forwards,
+             .gifts,
              .profilePhoto,
              .savedMusic: rowTitle
         }
@@ -400,6 +404,7 @@ enum PrivacyKind: CaseIterable {
         case .lastSeen: L10n.telegram("PrivacyLastSeenSettings.WhoCanSeeMyTimestamp")
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto.WhoCanSeeMyPhoto")
         case .bio: L10n.telegram("Privacy.Bio.WhoCanSeeMyBio")
+        case .gifts: L10n.telegram("Privacy.Gifts.WhoCanSeeMyBio")
         case .birthday: L10n.telegram("Privacy.Birthday.WhoCanSeeMyBio")
         case .savedMusic: L10n.telegram("Privacy.SavedMusic.WhoCanSeeMyMusic")
         case .forwards: L10n.telegram("Privacy.Forwards.WhoCanForward")
@@ -415,6 +420,7 @@ enum PrivacyKind: CaseIterable {
         case .lastSeen: L10n.telegram("PrivacyLastSeenSettings.CustomHelp")
         case .profilePhoto: L10n.telegram("Privacy.ProfilePhoto.CustomHelp")
         case .bio: L10n.telegram("Privacy.Bio.CustomHelp")
+        case .gifts: L10n.telegram("Privacy.Gifts.CustomHelp")
         case .birthday: L10n.telegram("Privacy.Birthday.CustomHelp")
         case .savedMusic: L10n.telegram("Privacy.SavedMusic.CustomHelp")
         case .forwards: L10n.telegram("Privacy.Forwards.CustomHelp")
@@ -427,6 +433,7 @@ enum PrivacyKind: CaseIterable {
         switch self {
         case .calls,
              .forwards,
+             .gifts,
              .invites: L10n.telegram("Privacy.GroupsAndChannels.NeverAllow")
         case .bio,
              .birthday,
@@ -441,6 +448,7 @@ enum PrivacyKind: CaseIterable {
         switch self {
         case .calls,
              .forwards,
+             .gifts,
              .invites: L10n.telegram("Privacy.GroupsAndChannels.AlwaysAllow")
         case .bio,
              .birthday,

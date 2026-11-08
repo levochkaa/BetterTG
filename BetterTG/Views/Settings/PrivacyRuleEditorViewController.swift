@@ -9,6 +9,36 @@ import UIKit
 /// exceptions that apply to the chosen option, for the phone number who can find the account by it, and for calls
 /// who they go peer-to-peer with. Each choice saves at once with setUserPrivacySettingRules.
 final class PrivacyRuleEditorViewController: SettingsListViewController {
+    /// The gift settings as plain values to change one of them.
+    private struct GiftDraft {
+        var showGiftButton: Bool
+        var unlimitedGifts: Bool
+        var limitedGifts: Bool
+        var upgradedGifts: Bool
+        var giftsFromChannels: Bool
+        var premiumSubscription: Bool
+
+        var settings: TDNativeGiftSettings {
+            TDNativeGiftSettings(showGiftButton: showGiftButton, acceptedGiftTypes: TDNativeAcceptedGiftTypes(
+                unlimitedGifts: unlimitedGifts,
+                limitedGifts: limitedGifts,
+                upgradedGifts: upgradedGifts,
+                giftsFromChannels: giftsFromChannels,
+                premiumSubscription: premiumSubscription,
+            ))
+        }
+
+        init(_ settings: TDNativeGiftSettings) {
+            let types = settings.acceptedGiftTypes
+            self.showGiftButton = settings.showGiftButton
+            self.unlimitedGifts = types.unlimitedGifts
+            self.limitedGifts = types.limitedGifts
+            self.upgradedGifts = types.upgradedGifts
+            self.giftsFromChannels = types.giftsFromChannels
+            self.premiumSubscription = types.premiumSubscription
+        }
+    }
+
     var onChange: ((PrivacyRuleState) -> Void)?
 
     private let kind: PrivacyKind
@@ -18,6 +48,9 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     private var discovery: PrivacyRuleState?
     /// Who calls go peer-to-peer with (userPrivacySettingAllowPeerToPeerCalls).
     private var peerToPeer: PrivacyRuleState?
+    /// The gifts rule's Show Gift Icon and accepted gift types (the account's giftSettings), which need Premium.
+    private var giftSettings: TDNativeGiftSettings?
+    private var isPremium = false
 
     private var exceptionsInfo: String {
         guard kind == .profilePhoto else { return L10n.telegram("PrivacyLastSeenSettings.CustomShareSettingsHelp") }
@@ -44,6 +77,7 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
         title = kind.screenTitle
         if kind == .phoneNumber { loadDiscovery() }
         if kind == .calls { loadPeerToPeer() }
+        if kind == .gifts { loadGiftSettings() }
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -57,15 +91,34 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             .replacing("[", with: "")
             .replacing("]", with: "")
         let info = kind == .phoneNumber ? (state.base == .nobody ? nil : publicLink) : kind.info
+        // Gifts nobody may send leave nothing to display, so the choice is off (permisisonsEnabled).
+        let optionsEnabled = giftSettings.map { settings in
+            let types = settings.acceptedGiftTypes
+            return types.unlimitedGifts || types.limitedGifts || types.upgradedGifts
+        } ?? true
         var sections = [SettingsSection(
             header: kind.header,
             footer: info,
             rows: options.map { base, title in
-                SettingsRow(title: title, accessory: state.base == base ? .checkmark : .none) { [weak self] in
+                SettingsRow(
+                    title: title,
+                    accessory: state.base == base ? .checkmark : .none,
+                    isEnabled: optionsEnabled,
+                ) { [weak self] in
                     self?.select(base)
                 }
             },
         )]
+        if let giftSettings {
+            // The gift icon's switch leads the screen, its # drawn as the gift.
+            sections.insert(SettingsSection(
+                footer: L10n.telegram("Privacy.Gifts.ShowGiftButtonInfo").replacing("#", with: "🎁 "),
+                rows: [giftToggle(
+                    "Privacy.Gifts.ShowGiftButton",
+                    isOn: giftSettings.showGiftButton,
+                ) { $0.showGiftButton = $1 }],
+            ), at: 0)
+        }
         if kind == .phoneNumber, let discovery {
             let everybody = discovery.base == .everybody
             sections.append(SettingsSection(
@@ -104,6 +157,30 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             rows: exceptionRows,
         ))
         if let peerToPeer { sections += peerToPeerSections(peerToPeer) }
+        if let giftSettings {
+            let types = giftSettings.acceptedGiftTypes
+            sections.append(SettingsSection(
+                header: L10n.telegram("Privacy.Gifts.AcceptedTypes"),
+                footer: L10n.telegram("Privacy.Gifts.AcceptedTypes.Info"),
+                rows: [
+                    giftToggle("Privacy.Gifts.AcceptedTypes.Unlimited", isOn: types.unlimitedGifts) {
+                        $0.unlimitedGifts = $1
+                    },
+                    giftToggle("Privacy.Gifts.AcceptedTypes.Limited", isOn: types.limitedGifts) {
+                        $0.limitedGifts = $1
+                    },
+                    giftToggle("Privacy.Gifts.AcceptedTypes.Unique", isOn: types.upgradedGifts) {
+                        $0.upgradedGifts = $1
+                    },
+                    giftToggle("Privacy.Gifts.AcceptedTypes.Channel", isOn: types.giftsFromChannels) {
+                        $0.giftsFromChannels = $1
+                    },
+                    giftToggle("Privacy.Gifts.AcceptedTypes.Premium", isOn: types.premiumSubscription) {
+                        $0.premiumSubscription = $1
+                    },
+                ],
+            ))
+        }
         return sections
     }
 
@@ -112,6 +189,60 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
             L10n.telegram("PrivacyLastSeenSettings.EmpryUsersPlaceholder")
         } else {
             L10n.telegramPlural("UserCount", count: count)
+        }
+    }
+
+    /// A gift switch. Without Premium it stays as it is and displayLockedGiftsInfo's toast says why; with it the
+    /// change saves with setGiftSettings.
+    private func giftToggle(
+        _ key: String,
+        isOn: Bool,
+        update: @escaping (inout GiftDraft, Bool) -> Void,
+    ) -> SettingsRow {
+        SettingsRow(title: L10n.telegram(key), accessory: .toggle(isOn: isOn, onChange: { [weak self] value in
+            self?.changeGiftSetting(value, update: update)
+        }))
+    }
+
+    private func changeGiftSetting(_ value: Bool, update: (inout GiftDraft, Bool) -> Void) {
+        guard let giftSettings else { return }
+        guard isPremium else {
+            refreshRowsInPlace()
+            TelegramUndoToast.show(
+                text: L10n.telegram("Privacy.Gifts.PremiumToast.Text").withoutTelegramMarkup,
+                in: view,
+                bottomInset: 12,
+                undo: nil,
+            )
+            return
+        }
+        var draft = GiftDraft(giftSettings)
+        update(&draft, value)
+        let settings = draft.settings
+        // The switch shows the change while it saves; a failure puts it back under the alert.
+        perform { [weak self] client in
+            do {
+                _ = try await client.send(TDNativeRequests.setGiftSettings(settings: settings))
+            } catch {
+                self?.refreshRowsInPlace()
+                throw error
+            }
+        } completion: { [weak self] in
+            self?.giftSettings = settings
+            self?.reload()
+        }
+    }
+
+    /// The account's own giftSettings and Premium, from its full info.
+    private func loadGiftSettings() {
+        let client = client
+        Task { [weak self] in
+            guard let me = try? await client.getMe(),
+                  let info = try? await client.getUserFullInfo(userId: me.id),
+                  let self, contextIsCurrent else { return }
+            isPremium = me.isPremium
+            giftSettings = info.giftSettings
+            reload()
         }
     }
 

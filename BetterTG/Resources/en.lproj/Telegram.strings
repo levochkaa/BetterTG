@@ -4300,3 +4300,16 @@
 "MediaPlayer.SavedMusic.AddedToProfile" = "Audio added to your profile.";
 "MediaPlayer.SavedMusic.AddedToProfile.View" = "View";
 "MediaPlayer.SavedMusic.RemovedFromProfile" = "Audio removed from your profile.";
+"Privacy.Gifts" = "Gifts";
+"Privacy.Gifts.WhoCanSeeMyBio" = "WHO CAN DISPLAY GIFTS ON MY PROFILE";
+"Privacy.Gifts.CustomHelp" = "Choose whether gifts from specific senders need your approval before they’re visible to others on your profile.";
+"Privacy.Gifts.PremiumToast.Text" = "Subscribe to **Telegram Premium** to use this setting.";
+"Privacy.Gifts.ShowGiftButton" = "Show Gift Icon in Chats";
+"Privacy.Gifts.ShowGiftButtonInfo" = "Display the #Gift icon in the message input field for both participants in all chats.";
+"Privacy.Gifts.AcceptedTypes" = "ACCEPTED GIFT TYPES";
+"Privacy.Gifts.AcceptedTypes.Unlimited" = "Unlimited";
+"Privacy.Gifts.AcceptedTypes.Limited" = "Limited-Edition";
+"Privacy.Gifts.AcceptedTypes.Unique" = "Unique";
+"Privacy.Gifts.AcceptedTypes.Channel" = "From Channels";
+"Privacy.Gifts.AcceptedTypes.Premium" = "Premium Subscriptions";
+"Privacy.Gifts.AcceptedTypes.Info" = "Choose the types of gifts that you allow others to send you.";
