@@ -547,6 +547,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 chatVM.headerStatus
             }
         let acts = !location.isTopicScoped && !chatVM.customChat.isSavedMessages && !chatVM.actionStatus.isEmpty
+        // ChatControllerContentData's savedMessagesChatsTip: Saved Messages with other chats invites a tap on its
+        // title, which opens them.
+        if presentationMode == .full, !location.isTopicScoped, chatVM.customChat.isSavedMessages,
+           SavedMessagesViewMode.hasOtherChats(client: chatVM.client)
+        {
+            return (title, L10n.telegram("Chat.SavedMessagesStatusViewAsChats"), nil)
+        }
         return (title, status, acts ? chatVM.actionIndicator : nil)
     }
 
@@ -2643,6 +2650,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 SavedMessagesViewMode.hasChats(accountID: accountID, client: client),
                 besideAvatar: true,
             )
+            updateChatHeader()
         }
         update()
         TelegramChatListStore.shared

@@ -47,14 +47,18 @@ extension SavedMessagesViewMode {
 
     /// Whether Saved Messages has chats to view: sublists from other chats, or the mode already on.
     @MainActor static func hasChats(accountID: UUID?, client: TDLibClient) -> Bool {
-        viewsAsChats(accountID: accountID)
-            || TelegramChatListStore.shared.savedMessagesTopicList(clientID: client.id).contains {
-                if case .savedMessagesTopicTypeMyNotes = $0.type {
-                    false
-                } else {
-                    true
-                }
+        viewsAsChats(accountID: accountID) || hasOtherChats(client: client)
+    }
+
+    /// savedMessagesHasPeersOtherThanSaved: a sublist other than My Notes.
+    @MainActor static func hasOtherChats(client: TDLibClient) -> Bool {
+        TelegramChatListStore.shared.savedMessagesTopicList(clientID: client.id).contains {
+            if case .savedMessagesTopicTypeMyNotes = $0.type {
+                false
+            } else {
+                true
             }
+        }
     }
 }
 
