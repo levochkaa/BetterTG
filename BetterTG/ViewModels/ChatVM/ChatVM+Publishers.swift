@@ -124,6 +124,11 @@ extension ChatVM {
         }
         // Playing a voice or video note, or the recipient playing one the user sent, marks it listened or viewed.
         // TDLib reports only this event, so the message is read again for its new state.
+        // updateMessageFactCheck: the message is read again with its new check.
+        observeCurrentUpdate(.updateMessageFactCheck) { [weak self] update, authority in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            refreshMessage(id: update.messageId, authority: authority)
+        }
         observeCurrentUpdate(.updateMessageContentOpened) { [weak self] update, authority in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             refreshMessage(id: update.messageId, authority: authority)
