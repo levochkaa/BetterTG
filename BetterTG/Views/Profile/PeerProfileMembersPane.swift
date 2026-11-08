@@ -721,10 +721,12 @@ final class SharedMemberRowCell: UICollectionViewCell {
         subtitleLabel.text = row.status
         subtitleLabel.isHidden = row.status.isEmpty
         subtitleLabel.textColor = row.statusIsActive ? .tintColor : .secondaryLabel
+        // PeerInfoScreenMemberItem shows the account's own photo, not Saved Messages.
         avatarView.configure(
             file: row.file,
             minithumbnail: row.minithumbnail,
             placeholder: row.placeholder,
+            usesPeerPhotoForSavedMessages: true,
             accountID: accountID,
             client: client,
         )
@@ -746,5 +748,90 @@ final class SharedMemberRowCell: UICollectionViewCell {
         accessibilityLabel = [row.title, row.label, row.status.isEmpty ? nil : row.status]
             .compactMap(\.self)
             .joined(separator: ", ")
+    }
+}
+
+// MARK: - ProfileShortMembersView
+
+/// PeerInfoProfileItems' peerMembers section for a group of five members or fewer (PeerInfoMembersData.shortList): Add
+/// Member for whoever may invite, then each member, on one block under the info, where a larger group gets its pane.
+final class ProfileShortMembersView: UIView {
+    var onOpen: ((Int64) -> Void)?
+    var onMenu: ((Int64, UIView, UIGestureRecognizer) -> Void)?
+
+    private let stack = UIStackView()
+    private var rowItems = [Int64]()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .secondarySystemGroupedBackground
+        layer.cornerRadius = 16
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        stack.axis = .vertical
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(items: [Int64], pane: PeerProfileMembersPane, accountID: UUID, client: TDLibClient) {
+        rowItems = items
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (index, item) in items.enumerated() {
+            let cell = SharedMemberRowCell(frame: .zero)
+            if item == PeerProfileMembersPane.addMemberItem {
+                cell.configureAddMember()
+            } else if let row = pane.row(for: item) {
+                cell.configure(row: row, accountID: accountID, client: client)
+            } else {
+                continue
+            }
+            cell.tag = index
+            // The cell stands outside a collection view, so its height is set here, as the pane's rows have it.
+            cell.translatesAutoresizingMaskIntoConstraints = false
+            cell.heightAnchor.constraint(equalToConstant: 56).isActive = true
+            cell.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(rowTapped)))
+            let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(rowPressed))
+            cell.addGestureRecognizer(press)
+            stack.addArrangedSubview(cell)
+            if index < items.count - 1 {
+                let separator = UIView()
+                separator.backgroundColor = .separator
+                separator.translatesAutoresizingMaskIntoConstraints = false
+                let line = UIView()
+                line.translatesAutoresizingMaskIntoConstraints = false
+                line.addSubview(separator)
+                NSLayoutConstraint.activate([
+                    line.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
+                    separator.topAnchor.constraint(equalTo: line.topAnchor),
+                    separator.bottomAnchor.constraint(equalTo: line.bottomAnchor),
+                    separator.trailingAnchor.constraint(equalTo: line.trailingAnchor),
+                    // Under the names, as an inset list's separator.
+                    separator.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: 60),
+                ])
+                stack.addArrangedSubview(line)
+            }
+        }
+    }
+
+    @objc private func rowTapped(_ gesture: UITapGestureRecognizer) {
+        guard let view = gesture.view, let item = rowItems[safe: view.tag] else { return }
+        onOpen?(item)
+    }
+
+    @objc private func rowPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, let view = gesture.view, let item = rowItems[safe: view.tag],
+              item != PeerProfileMembersPane.addMemberItem
+        else { return }
+        onMenu?(item, view, gesture)
     }
 }

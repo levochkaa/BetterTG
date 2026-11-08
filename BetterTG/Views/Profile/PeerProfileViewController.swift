@@ -215,6 +215,8 @@ ClientRestorableNavigationEntry {
     /// PeerInfoProfileItems' `.unofficial` section, first under the buttons.
     private let unofficialWarningView = ProfileWarningCardView()
     private let infoCardView = ProfileInfoCardView()
+    /// A small group's members under its info (PeerInfoMembersData.shortList), where a larger one gets the pane.
+    private let shortMembersView = ProfileShortMembersView()
     /// PeerInfoScreenCommentItem under the info block, as Bot.AddToChatInfo.
     private let infoFooterLabel = UILabel()
     private var businessLocation: TDNativeBusinessLocation?
@@ -2636,6 +2638,17 @@ ClientRestorableNavigationEntry {
         headerStack.addArrangedSubview(infoFooterLabel)
         infoFooterLabel.widthAnchor.constraint(equalTo: headerStack.widthAnchor, constant: -32).isActive = true
         infoCardView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
+        headerStack.setCustomSpacing(20, after: infoFooterLabel)
+        shortMembersView.isHidden = true
+        shortMembersView.onOpen = { [weak self] id in self?.membersPane?.open(id) }
+        shortMembersView.onMenu = { [weak self] id, view, gesture in
+            // PeerInfoScreenNode.openMemberContextMenu.
+            guard let self, contextIsCurrent, let actions = membersPane?.menuActions(for: id), !actions.isEmpty
+            else { return }
+            presentTelegramContextMenu(sourceView: view, actions: actions, tracking: gesture)
+        }
+        headerStack.addArrangedSubview(shortMembersView)
+        shortMembersView.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
 
         if let tab = restoration?.tab { selectedSharedTab = tab }
         sharedTabs.translatesAutoresizingMaskIntoConstraints = false
@@ -6082,6 +6095,12 @@ ClientRestorableNavigationEntry {
             }
         }
         if showsMembers { makeMembersPaneIfNeeded() }
+        // PeerInfoData's short list: the members of a group of five or fewer read at once and stand under the info.
+        if listsMembers, !showsMembers {
+            makeMembersPaneIfNeeded()
+            if membersPane?.rows.isEmpty == true { membersPane?.loadMore() }
+        }
+        updateShortMembers()
         if tabs.contains(.gifts) { makeGiftsPaneIfNeeded() }
         guard tabs != availableSharedTabs else { return }
         let wasResolved = availableSharedTabs != nil
@@ -6210,11 +6229,23 @@ ClientRestorableNavigationEntry {
         )
         pane.host = self
         pane.onChange = { [weak self] in
-            guard let self, currentSharedTab == .members else { return }
+            guard let self else { return }
+            updateShortMembers()
+            guard currentSharedTab == .members else { return }
             historyError = membersPane?.error
             applySnapshot()
         }
         membersPane = pane
+    }
+
+    private func updateShortMembers() {
+        let items = listsMembers && membersInfoLoaded && !showsMembersPane ? membersPane?.items ?? [] : []
+        let shows = items.contains { $0 != PeerProfileMembersPane.addMemberItem }
+        if shows, let membersPane {
+            shortMembersView.configure(items: items, pane: membersPane, accountID: accountID, client: client)
+        }
+        shortMembersView.isHidden = !shows
+        view.setNeedsLayout()
     }
 
     private func applyMembersSnapshot(animated: Bool, completion: (() -> Void)?) {
