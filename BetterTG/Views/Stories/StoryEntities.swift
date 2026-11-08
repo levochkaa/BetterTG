@@ -583,7 +583,13 @@ final class StoryTextSettingsBar: UIView {
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
         autoresizingMask = .flexibleWidth
-        colorButton.addAction(UIAction { [weak self] _ in self?.onColor?() }, for: .touchUpInside)
+        colorButton.onTap = { [weak self] in self?.onColor?() }
+        colorButton.onPick = { [weak self] color in
+            guard let self, let entity else { return }
+            entity.color = color
+            entity.update()
+            colorButton.color = color
+        }
         styleButton.addAction(UIAction { [weak self] _ in self?.toggleStyle() }, for: .touchUpInside)
         alignmentButton.addAction(UIAction { [weak self] _ in self?.toggleAlignment() }, for: .touchUpInside)
         fontButton.layer.cornerRadius = 11
@@ -688,16 +694,32 @@ final class StoryTextSettingsBar: UIView {
 /// without a colour.
 final class StoryColorSwatchButton: UIControl {
     override var isHighlighted: Bool {
-        didSet { alpha = isHighlighted ? 0.6 : 1 }
+        didSet { contentAlpha = isHighlighted ? 0.6 : 1 }
     }
 
     var color: UIColor? = .white {
         didSet { circle.fillColor = color?.cgColor }
     }
 
+    /// A tap: the full colour picker.
+    var onTap: (() -> Void)?
+    /// presentFastColorPicker: a colour picked from the spectrum held open under the finger.
+    var onPick: ((UIColor) -> Void)?
+
     private let ring = CALayer()
     private let ringMask = CAShapeLayer()
     private let circle = CAShapeLayer()
+    private let fastCircle = CAShapeLayer()
+    private var holdTimer: Timer?
+    private var holdTriggered = false
+    private weak var fastPicker: StoryFastColorPicker?
+
+    private var contentAlpha: CGFloat = 1 {
+        didSet {
+            ring.opacity = Float(contentAlpha)
+            circle.opacity = Float(contentAlpha)
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -709,6 +731,10 @@ final class StoryColorSwatchButton: UIControl {
         layer.addSublayer(ring)
         circle.fillColor = color?.cgColor
         layer.addSublayer(circle)
+        fastCircle.fillColor = UIColor.white.cgColor
+        fastCircle.isHidden = true
+        layer.addSublayer(fastCircle)
+        addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -723,6 +749,256 @@ final class StoryColorSwatchButton: UIControl {
         ringMask.path = UIBezierPath(ovalIn: ringMask.bounds.insetBy(dx: 1, dy: 1)).cgPath
         circle.frame = bounds
         circle.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 3, dy: 3)).cgPath
+        fastCircle.frame = bounds
+        fastCircle.path = UIBezierPath(ovalIn: bounds).cgPath
+    }
+
+    /// ColorSwatchComponent.beginTracking: past 0.15 s a white circle swells in the swatch, and at 0.4 s the spectrum
+    /// opens.
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        holdTriggered = false
+        guard onPick != nil, isEnabled else { return super.beginTracking(touch, with: event) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, isTracking, !holdTriggered else { return }
+            fastCircle.isHidden = false
+            let alpha = CABasicAnimation(keyPath: "opacity")
+            alpha.fromValue = 0
+            alpha.toValue = 1
+            alpha.duration = 0.15
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = 0.57575
+            scale.toValue = 1
+            scale.duration = 0.25
+            fastCircle.add(alpha, forKey: "opacity")
+            fastCircle.add(scale, forKey: "scale")
+        }
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.openFastPicker() }
+        }
+        return super.beginTracking(touch, with: event)
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        if holdTriggered {
+            fastPicker?.pan(to: touch.location(in: nil))
+            return true
+        }
+        return super.continueTracking(touch, with: event)
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        super.endTracking(touch, with: event)
+        finishHold()
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        super.cancelTracking(with: event)
+        finishHold()
+    }
+
+    @objc private func tapped() {
+        guard !holdTriggered else { return }
+        onTap?()
+    }
+
+    private func openFastPicker() {
+        guard isTracking, let window, let onPick else { return }
+        holdTriggered = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.fastCircle.isHidden = true }
+        let frame = convert(bounds, to: window)
+        let size = CGSize(width: min(350, window.bounds.width - 8 - 24), height: 296)
+        let picker = StoryFastColorPicker(frame: CGRect(
+            origin: CGPoint(x: frame.minX + 5, y: frame.maxY - size.height - 6),
+            size: size,
+        ))
+        picker.onPick = onPick
+        window.addSubview(picker)
+        picker.animateIn()
+        fastPicker = picker
+    }
+
+    private func finishHold() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        fastCircle.isHidden = true
+        fastPicker?.animateOut()
+        fastPicker = nil
+    }
+}
+
+// MARK: - StoryFastColorPicker
+
+/// ColorSpectrumPickerView: Telegram's spectrum over its grey ramp in a 17 pt round panel that grows out of the
+/// swatch's corner over 0.35 s and picks white at first; the finger picks the colour under it, shown in a 26 pt circle
+/// inside the 32 pt white knob 33 pt above the finger. Let go, the panel fills with the colour and shrinks back into
+/// the swatch.
+final class StoryFastColorPicker: UIView {
+    var onPick: ((UIColor) -> Void)?
+
+    private let wrapper = UIView()
+    private let image = UIImageView()
+    private let circleMask = UIView()
+    private let maskCircle = CAShapeLayer()
+    private let knob = CALayer()
+    private let circle = CAShapeLayer()
+    private var pixels = [UInt8]()
+    private var pixelSize = (width: 0, height: 0)
+    private var selected: UIColor?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        wrapper.frame = bounds
+        wrapper.clipsToBounds = true
+        wrapper.layer.cornerRadius = 17
+        addSubview(wrapper)
+        image.frame = bounds
+        image.image = Self.spectrum(size: bounds.size)
+        wrapper.addSubview(image)
+        knob.contents = Self.knobImage().cgImage
+        knob.isHidden = true
+        layer.addSublayer(knob)
+        circle.path = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 26, height: 26)).cgPath
+        circle.isHidden = true
+        layer.addSublayer(circle)
+        readPixels()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// generateSpectrumImage: the Spectrum picture with the Grayscale ramp over it.
+    private static func spectrum(size: CGSize) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIImage(named: "MediaEditor/Spectrum")?.draw(in: CGRect(origin: .zero, size: size))
+            UIImage(named: "MediaEditor/Grayscale")?.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// generateKnobImage: a 32 pt white circle with a 9 pt shadow at 30%.
+    private static func knobImage() -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 52, height: 52)).image { context in
+            context.cgContext.setShadow(offset: .zero, blur: 9, color: UIColor.black.withAlphaComponent(0.3).cgColor)
+            context.cgContext.setFillColor(UIColor.white.cgColor)
+            context.cgContext.fillEllipse(in: CGRect(x: 10, y: 10, width: 32, height: 32))
+        }
+    }
+
+    func animateIn() {
+        circleMask.frame = bounds
+        maskCircle.fillColor = UIColor.black.cgColor
+        maskCircle.path = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 300, height: 300)).cgPath
+        maskCircle.bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
+        maskCircle.position = CGPoint(x: 15, y: bounds.height - 15)
+        circleMask.layer.addSublayer(maskCircle)
+        wrapper.mask = circleMask
+        maskCircle.transform = CATransform3DMakeScale(3, 3, 1)
+        let grow = CABasicAnimation(keyPath: "transform.scale")
+        grow.fromValue = 0.05
+        grow.toValue = 3
+        grow.duration = 0.35
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in self?.wrapper.mask = nil }
+        maskCircle.add(grow, forKey: "grow")
+        CATransaction.commit()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, selected == nil else { return }
+            onPick?(.white)
+        }
+    }
+
+    /// handlePan: the colour under the finger, in window points, kept inside the panel.
+    func pan(to point: CGPoint) {
+        var location = convert(point, from: nil)
+        location.x = max(0, min(bounds.width - 1, location.x))
+        location.y = max(0, min(bounds.height - 1, location.y))
+        guard let color = color(at: location) else { return }
+        selected = color
+        onPick?(color)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let knobFrame = CGRect(x: location.x - 16, y: location.y - 16 - 33, width: 32, height: 32)
+        knob.frame = knobFrame.insetBy(dx: -10, dy: -10)
+        circle.frame = knobFrame.insetBy(dx: 3, dy: 3)
+        circle.fillColor = color.cgColor
+        knob.isHidden = false
+        circle.isHidden = false
+        CATransaction.commit()
+    }
+
+    func animateOut() {
+        if let selected { onPick?(selected) }
+        knob.isHidden = true
+        circle.isHidden = true
+        let filler = UIView(frame: bounds)
+        filler.backgroundColor = selected ?? .white
+        filler.alpha = 0
+        wrapper.addSubview(filler)
+        UIView.animate(withDuration: 0.25) { filler.alpha = 1 }
+        circleMask.frame = bounds
+        if maskCircle.superlayer == nil {
+            maskCircle.fillColor = UIColor.black.cgColor
+            maskCircle.path = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 300, height: 300)).cgPath
+            maskCircle.bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
+            circleMask.layer.addSublayer(maskCircle)
+        }
+        wrapper.mask = circleMask
+        maskCircle.position = CGPoint(x: 16, y: bounds.height - 16)
+        maskCircle.transform = CATransform3DMakeScale(0.06333, 0.06333, 1)
+        let shrink = CABasicAnimation(keyPath: "transform.scale")
+        shrink.fromValue = 3
+        shrink.toValue = 0.06333
+        shrink.duration = 0.35
+        let move = CABasicAnimation(keyPath: "position")
+        move.fromValue = CGPoint(x: 15, y: bounds.height - 15)
+        move.duration = 0.25
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in self?.removeFromSuperview() }
+        maskCircle.add(shrink, forKey: "shrink")
+        maskCircle.add(move, forKey: "move")
+        CATransaction.commit()
+    }
+
+    private func readPixels() {
+        guard let cgImage = image.image?.cgImage else { return }
+        let width = cgImage.width
+        let height = cgImage.height
+        var buffer = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn: Bool = buffer.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(
+                data: raw.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+            ) else { return false }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return }
+        pixels = buffer
+        pixelSize = (width, height)
+    }
+
+    /// getColor(at:): the spectrum's pixel under the point.
+    private func color(at point: CGPoint) -> UIColor? {
+        guard pixelSize.width > 0, bounds.width > 0, bounds.height > 0 else { return nil }
+        let x = min(pixelSize.width - 1, Int(point.x / bounds.width * CGFloat(pixelSize.width)))
+        let y = min(pixelSize.height - 1, Int(point.y / bounds.height * CGFloat(pixelSize.height)))
+        let offset = (y * pixelSize.width + x) * 4
+        return UIColor(
+            red: CGFloat(pixels[offset]) / 255,
+            green: CGFloat(pixels[offset + 1]) / 255,
+            blue: CGFloat(pixels[offset + 2]) / 255,
+            alpha: 1,
+        )
     }
 }
 

@@ -751,7 +751,12 @@ UIColorPickerViewControllerDelegate {
         }
         drawingTools.onResizeEnd = { [weak self] in self?.entitiesView.drawingView.setBrushSizePreview(nil) }
         sizeSlider.onRelease = { [weak self] in self?.entitiesView.drawingView.setBrushSizePreview(nil) }
-        drawingSwatch.addAction(UIAction { [weak self] _ in self?.presentColorPicker() }, for: .touchUpInside)
+        drawingSwatch.onTap = { [weak self] in self?.presentColorPicker() }
+        drawingSwatch.onPick = { [weak self] color in
+            guard let self, drawingColors[drawingTool] != nil else { return }
+            drawingColors[drawingTool] = color
+            applyDrawingTool()
+        }
         entitiesView.drawingView.onStrokesChange = { [weak self] in self?.updateUndo() }
         entitiesView.drawingView.storyImage = { [weak self] in self?.media.canvas.cgImage }
         imageView.isUserInteractionEnabled = true
