@@ -1489,6 +1489,16 @@ ClientRestorableNavigationEntry {
             avatarPressed()
             return
         }
+        showExpandedPhoto(step: step)
+    }
+
+    /// A swipe pages the expanded photo as the side taps do: to the left for the next one.
+    @objc private func expandedAvatarSwiped(_ gesture: UISwipeGestureRecognizer) {
+        guard expandedPhotos.count > 1 else { return }
+        showExpandedPhoto(step: gesture.direction == .left ? 1 : -1)
+    }
+
+    private func showExpandedPhoto(step: Int) {
         expandedPhotoIndex = (expandedPhotoIndex + step + expandedPhotos.count) % expandedPhotos.count
         let item = expandedPhotos[expandedPhotoIndex]
         expandedAvatarView.configure(
@@ -3067,6 +3077,11 @@ ClientRestorableNavigationEntry {
             target: self,
             action: #selector(expandedAvatarTapped(_:)),
         ))
+        for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
+            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(expandedAvatarSwiped(_:)))
+            swipe.direction = direction
+            expandedAvatarView.addGestureRecognizer(swipe)
+        }
         expandedPhotoIndicator.translatesAutoresizingMaskIntoConstraints = false
         expandedAvatarView.addSubview(expandedPhotoIndicator)
         NSLayoutConstraint.activate([
