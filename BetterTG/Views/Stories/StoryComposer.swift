@@ -758,7 +758,8 @@ UIColorPickerViewControllerDelegate {
             applyDrawingTool()
         }
         entitiesView.drawingView.onStrokesChange = { [weak self] in self?.updateUndo() }
-        entitiesView.drawingView.storyImage = { [weak self] in self?.media.canvas.cgImage }
+        // getCurrentImage: a video's frame on screen now, on its canvas, or the photo.
+        entitiesView.drawingView.storyImage = { [weak self] in await self?.currentStoryImage() }
         imageView.isUserInteractionEnabled = true
         imageView.addSubview(entitiesView)
         // A tap while the caption is edited only ends that, as MediaEditorScreen's tap does with the keyboard up.
@@ -945,6 +946,18 @@ UIColorPickerViewControllerDelegate {
     }
 
     /// The slider's place: the leading edge, centred between the top inset and the keyboard or the bottom inset.
+    private func currentStoryImage() async -> CGImage? {
+        guard case .video(let url, _, _, _, _, _) = media, let player else { return media.canvas.cgImage }
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        guard let frame = try? await generator.image(at: player.currentTime()).image else {
+            return media.canvas.cgImage
+        }
+        return StoryComposer.canvas(UIImage(cgImage: frame)).cgImage
+    }
+
     /// The video looping over its trimmed part.
     private func loop(_ url: URL, over range: ClosedRange<Double>) {
         guard let player else { return }

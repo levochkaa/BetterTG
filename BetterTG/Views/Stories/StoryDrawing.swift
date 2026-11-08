@@ -364,12 +364,18 @@ final class StoryDrawingView: UIView {
     var tool = StoryDrawingTool.pen {
         didSet {
             guard tool != oldValue else { return }
-            preparedBlurredImage = tool == .blur ? makeBlurredImage() : nil
+            preparedBlurredImage = nil
+            guard tool == .blur else { return }
+            // updateBlurredImage: the source comes off the main path, as getFullImage's does.
+            Task { [weak self] in
+                guard let story = await self?.storyImage?(), let self, tool == .blur else { return }
+                preparedBlurredImage = makeBlurredImage(from: story)
+            }
         }
     }
 
     /// The story under the drawing, which the blur tool blurs.
-    var storyImage: (() -> CGImage?)?
+    var storyImage: (() async -> CGImage?)?
     var color = StoryDrawingTool.pen.initialColor ?? .white
     var size = StoryDrawingTool.pen.initialSize
     var onStrokesChange: (() -> Void)?
@@ -515,8 +521,7 @@ final class StoryDrawingView: UIView {
 
     /// getFullImage: the story and the drawing fitted into 256 pt and blurred twice with a radius of 7, roughly a
     /// Gaussian of 6 there.
-    private func makeBlurredImage() -> CGImage? {
-        guard let story = storyImage?() else { return nil }
+    private func makeBlurredImage(from story: CGImage) -> CGImage? {
         let scale = min(256 / bounds.width, 256 / bounds.height)
         let size = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
