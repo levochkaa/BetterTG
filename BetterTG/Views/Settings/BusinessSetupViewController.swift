@@ -895,7 +895,7 @@ private final class BusinessIntroPreviewView: UIView {
 /// The intro's sticker choice (BusinessIntroSetupScreen's sticker panel): favorite and recent stickers, then the
 /// installed packs, in a grid; a tap picks one.
 final class BusinessStickerPickerViewController: UIViewController, UICollectionViewDataSource,
-UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdating {
+UICollectionViewDelegateFlowLayout, TelegramNavigationSearchProvider, UISearchResultsUpdating {
     let telegramNavigationSearch = UISearchController(searchResultsController: nil)
     var onSelect: ((Sticker) -> Void)?
 
@@ -903,6 +903,9 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
     private var stickers = [Sticker]()
     /// The panel's stickers, which an empty search brings back.
     private var allStickers = [Sticker]()
+    /// StickerPaneSearchContentNode's packs above the found stickers, each with ADD or ADDED.
+    private var packs = [TDNativeStickerSetInfo]()
+    private var installedPackIDs = Set<Int64>()
     private var searchTask: Task<Void, Never>?
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
@@ -935,6 +938,10 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
             ComposerStickerCell.self,
             forCellWithReuseIdentifier: ComposerStickerCell.reuseIdentifier,
         )
+        collectionView.register(
+            StickerPackSearchCell.self,
+            forCellWithReuseIdentifier: StickerPackSearchCell.reuseIdentifier,
+        )
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -946,25 +953,42 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
         load()
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        guard let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout else { return }
-        let width = collectionView.bounds.width - 16
-        let perRow = max(4, Int(width / 80))
-        let side = floor((width - CGFloat(perRow - 1) * 4) / CGFloat(perRow))
-        if layout.itemSize.width != side {
-            layout.itemSize = CGSize(width: side, height: side)
-        }
+    func numberOfSections(in _: UICollectionView) -> Int { 2 }
+
+    func collectionView(_: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        section == 0 ? packs.count : stickers.count
     }
 
-    func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int {
-        stickers.count
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout _: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath,
+    ) -> CGSize {
+        let width = collectionView.bounds.width - 16
+        if indexPath.section == 0 { return CGSize(width: width, height: 56) }
+        let perRow = max(4, Int(width / 80))
+        let side = floor((width - CGFloat(perRow - 1) * 4) / CGFloat(perRow))
+        return CGSize(width: side, height: side)
     }
 
     func collectionView(
         _ collectionView: UICollectionView,
         cellForItemAt indexPath: IndexPath,
     ) -> UICollectionViewCell {
+        if indexPath.section == 0 {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: StickerPackSearchCell.reuseIdentifier,
+                for: indexPath,
+            )
+            if let cell = cell as? StickerPackSearchCell, let pack = packs[safe: indexPath.item] {
+                cell.configure(
+                    pack: pack,
+                    isInstalled: pack.isInstalled || installedPackIDs.contains(pack.id),
+                    client: client,
+                ) { [weak self] in self?.install(pack) }
+            }
+            return cell
+        }
         let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: ComposerStickerCell.reuseIdentifier,
             for: indexPath,
@@ -977,6 +1001,11 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
     }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        if indexPath.section == 0 {
+            guard let pack = packs[safe: indexPath.item] else { return }
+            StickerPackPreviewViewController.present(setID: pack.id, client: client, from: self, onSend: nil)
+            return
+        }
         guard let sticker = stickers[safe: indexPath.item] else { return }
         onSelect?(sticker)
     }
@@ -989,6 +1018,7 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
         guard !query.isEmpty else {
             searchTask = nil
             stickers = allStickers
+            packs = []
             collectionView.reloadData()
             return
         }
@@ -998,6 +1028,10 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
+            async let packsRequest = client.send(TDNativeRequests.searchStickerSets(
+                stickerType: .stickerTypeRegular,
+                query: query,
+            ))
             let found = await (try? client.send(TDNativeRequests.searchStickers(
                 stickerType: .stickerTypeRegular,
                 emojis: isEmoji ? query : "",
@@ -1006,9 +1040,25 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
                 offset: 0,
                 limit: 100,
             )))?.stickers ?? []
+            let foundPacks = isEmoji ? [] : await (try? packsRequest)?.sets ?? []
             guard !Task.isCancelled, let self else { return }
+            packs = Array(foundPacks.prefix(5))
             stickers = found
             collectionView.reloadData()
+        }
+    }
+
+    /// The pack's ADD: installs it (changeStickerSet) and shows it ADDED.
+    private func install(_ pack: TDNativeStickerSetInfo) {
+        let client = client
+        Task { [weak self] in
+            guard await (try? client.send(TDNativeRequests.changeStickerSet(
+                setId: pack.id,
+                isInstalled: true,
+                isArchived: false,
+            ))) != nil, let self else { return }
+            installedPackIDs.insert(pack.id)
+            collectionView.reloadSections(IndexSet(integer: 0))
         }
     }
 
@@ -1036,5 +1086,70 @@ UICollectionViewDelegate, TelegramNavigationSearchProvider, UISearchResultsUpdat
         guard searchTask == nil else { return }
         stickers = allStickers
         collectionView.reloadData()
+    }
+}
+
+// MARK: - StickerPackSearchCell
+
+/// StickerPaneSearchGlobalItem: a found pack's cover, title and count, and ADD (ADDED once installed).
+private final class StickerPackSearchCell: UICollectionViewCell {
+    static let reuseIdentifier = "StickerPackSearchCell"
+
+    private let coverView = CustomEmojiInlineView()
+    private let titleLabel = UILabel()
+    private let countLabel = UILabel()
+    private let addButton = UIButton(configuration: .filled())
+    private var onAdd: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        countLabel.font = .systemFont(ofSize: 13)
+        countLabel.textColor = .secondaryLabel
+        addButton.configuration?.cornerStyle = .capsule
+        addButton.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14)
+        addButton.addAction(UIAction { [weak self] _ in self?.onAdd?() }, for: .touchUpInside)
+        let labels = UIStackView(arrangedSubviews: [titleLabel, countLabel])
+        labels.axis = .vertical
+        labels.spacing = 2
+        for view in [coverView, labels, addButton] as [UIView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(view)
+        }
+        addButton.setContentHuggingPriority(.required, for: .horizontal)
+        addButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            coverView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            coverView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            coverView.widthAnchor.constraint(equalToConstant: 44),
+            coverView.heightAnchor.constraint(equalToConstant: 44),
+            labels.leadingAnchor.constraint(equalTo: coverView.trailingAnchor, constant: 12),
+            labels.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: addButton.leadingAnchor, constant: -8),
+            addButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            addButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        coverView.prepareForReuse()
+    }
+
+    func configure(pack: TDNativeStickerSetInfo, isInstalled: Bool, client: TDLibClient, onAdd: @escaping () -> Void) {
+        titleLabel.text = pack.title
+        countLabel.text = L10n.telegramPlural("StickerPack.StickerCount", count: pack.size)
+        if let cover = pack.covers.first { coverView.configure(sticker: cover, client: client) }
+        var title = AttributedString(L10n.telegram(isInstalled ? "Stickers.Installed" : "Stickers.Install"))
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        addButton.configuration?.attributedTitle = title
+        addButton.configuration?.baseBackgroundColor = isInstalled ? .tertiarySystemFill : .tintColor
+        addButton.configuration?.baseForegroundColor = isInstalled ? .secondaryLabel : .white
+        addButton.isEnabled = !isInstalled
+        self.onAdd = onAdd
     }
 }
