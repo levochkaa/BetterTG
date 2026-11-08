@@ -2998,12 +2998,46 @@ final class ChatComposerView: UIView {
         if mediaCount > 0 {
             actions += mediaSendActions(count: mediaCount)
         }
+        let hasMessage: Bool = !chatVM.text.characters.isEmpty || mediaCount > 0
+        let isPersonChat: Bool = chatVM.customChat.user != nil && chatVM.customChat.secretChatID == nil
+        let isEditing: Bool = chatVM.editCustomMessage != nil
+        var effects: TelegramContextReactionsProvider?
+        var excludesChat = reminders
+        #if DEBUG
+            // `-ui-probe-effects-in-saved`: the effects in Saved Messages too, to try them without writing to anyone.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-effects-in-saved") { excludesChat = false }
+        #endif
+        if !isEditing, !excludesChat, isPersonChat, hasMessage {
+            effects = messageEffectsProvider()
+        }
         nearestViewController?.presentTelegramContextMenu(
             sourceView: actionButton,
             actions: actions,
             tracking: gesture,
             presentationStyle: .sourceMorph,
+            reactionsProvider: effects,
         )
+    }
+
+    /// ChatSendMessageContextScreen's effects in a chat with a person: effectMessageReactions' emoji effects, those
+    /// that need Premium only for a Premium account. Choosing one sends the message with it.
+    private func messageEffectsProvider() -> TelegramContextReactionsProvider {
+        let client = chatVM.client
+        let send: (Int64) -> Void = { [weak self] id in
+            self?.send(options: ChatVM.sendOptions(effectID: id))
+        }
+        return {
+            let effects = await MessageEffectStore.shared.sendableReactionEffects(client: client)
+            return effects.map { effect in
+                TelegramContextMenuReaction(
+                    type: .reactionTypeEmoji(.init(emoji: effect.emoji)),
+                    isChosen: false,
+                    sticker: nil,
+                    client: client,
+                    handler: { send(effect.id) },
+                )
+            }
+        }
     }
 
     /// MediaPickerScreen's media menu: Send as File(s) without spoilers, Send Without Grouping for several items, and

@@ -4793,6 +4793,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     old: replacement.old,
                     new: replacement.new,
                 )
+                self?.playSentMessageEffect(old: replacement.old, new: replacement.new)
             }
             .store(in: &cancellables)
         chatVM.customChat
@@ -8408,6 +8409,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// didChangeFromPendingToSent: a message sent from here with an effect plays it once the server takes it. The ID
+    /// changes before the history takes the sent message, so the effect is read from the pending one.
+    private func playSentMessageEffect(old: Int64, new: Int64) {
+        guard presentationMode == .full,
+              let pending = chatVM.messages.lazy.flatMap(\.sourceMessages).first(where: { $0.id == old }),
+              pending.effectId != 0, playedMessageEffects.insert(new).inserted else { return }
+        let effectID = pending.effectId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            // A send that failed keeps its effect to itself.
+            if case .messageSendingStateFailed? = chatVM.messages
+                .lazy
+                .flatMap(\.sourceMessages)
+                .first(where: { $0.id == new })?
+                .sendingState { return }
+            playMessageEffect(effectID, messageID: new, isIncoming: false)
+        }
+    }
+
     /// ChatMessageBubbleItemNode's visibility check: an unread incoming message's effect plays the first time it
     /// shows.
     private func autoplayMessageEffectIfNeeded(_ displayedID: DisplayedMessageID) {
@@ -8423,18 +8443,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// ChatMessageItemView.playEffectAnimation: the effect's animation at 380 pt around the status line's effect
     /// icon, 0.3 of its width toward the bubble's middle and 10 pt up, mirrored for an incoming message.
-    private func playMessageEffect(_ effectID: Int64, messageID: Int64, isIncoming: Bool) {
+    /// `attempts`: a bubble still hidden (the composer's send glide carries it) is waited for a little.
+    private func playMessageEffect(_ effectID: Int64, messageID: Int64, isIncoming: Bool, attempts: Int = 0) {
         guard let effect = MessageEffectStore.shared.effect(effectID, client: chatVM.client) else {
             pendingMessageEffects[effectID] = (messageID, isIncoming)
             return
         }
-        guard activeEmojiEffects.count < 4, let file = MessageEffectStore.animationFile(of: effect),
-              let displayedID = chatVM.messages
-                .first(where: { $0.sourceMessages.contains { $0.id == messageID } })?
-                .displayedID,
-              let indexPath = dataSource.indexPath(for: .message(displayedID)),
-              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
-              let target = cell.messageEffectTargetView else { return }
+        guard activeEmojiEffects.count < 4, let file = MessageEffectStore.animationFile(of: effect) else { return }
+        let cell = chatVM.messages
+            .first(where: { $0.sourceMessages.contains { $0.id == messageID } })
+            .flatMap { dataSource.indexPath(for: .message($0.displayedID)) }
+            .flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
+        guard let target = cell?.messageEffectTargetView else {
+            guard attempts < 8 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.playMessageEffect(effectID, messageID: messageID, isIncoming: isIncoming, attempts: attempts + 1)
+            }
+            return
+        }
         let icon = target.convert(
             CGRect(x: 0, y: 0, width: target.bounds.height, height: target.bounds.height),
             to: view,

@@ -1908,6 +1908,7 @@ import UIKit
     static func sendOptions(
         silent: Bool = false,
         schedulingState: TDNativeMessageSchedulingState? = nil,
+        effectID: Int64 = 0,
     ) -> TDNativeMessageSendOptions {
         TDNativeMessageSendOptions(
             suggestedPostInfo: nil,
@@ -1918,7 +1919,7 @@ import UIKit
             paidMessageStarCount: 0,
             updateOrderOfInstalledStickerSets: false,
             schedulingState: schedulingState,
-            effectId: 0,
+            effectId: effectID,
             sendingId: silent ? silentSendingID : 0,
             onlyPreview: false,
         )

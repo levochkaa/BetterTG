@@ -1764,9 +1764,23 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// ReactionContextNode's anchor: the strip sits above the message, and while the message reaches above the room
     /// for it, at the top over the message, until scrolling leaves room above it again.
     private func layoutReactionStrip() {
-        guard presentationStyle == .message, !reactionStrip.isHidden else { return }
+        guard !reactionStrip.isHidden else { return }
         let availableWidth = menuMaxX - menuMinX
         let width = min(availableWidth, reactionStrip.preferredWidth)
+        if presentationStyle == .sourceMorph {
+            // ChatSendMessageContextScreen: the send button's effects stand over its menu, on the menu's outer edge.
+            let proposedX = targetMenuFrame.midX > view.bounds.midX
+                ? targetMenuFrame.maxX - width
+                : targetMenuFrame.minX
+            reactionStrip.frame = CGRect(
+                x: min(max(menuMinX, proposedX), menuMaxX - width),
+                y: targetMenuFrame.minY - 56 + contentScrollOffset,
+                width: width,
+                height: 46,
+            )
+            return
+        }
+        guard presentationStyle == .message else { return }
         let proposedX = targetPreviewFrame.midX > view.bounds.midX
             ? targetPreviewFrame.maxX - width
             : targetPreviewFrame.minX

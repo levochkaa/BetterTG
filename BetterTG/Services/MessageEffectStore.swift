@@ -42,6 +42,20 @@ import TDLibKit
         availableStickerEffectIDs = update.stickerEffectIds
     }
 
+    /// The emoji effects a message can be sent with by this account: Premium ones only for Premium.
+    func sendableReactionEffects(client: TDLibClient) async -> [MessageEffect] {
+        let isPremium = await (try? client.getMe().isPremium) ?? false
+        var result = [MessageEffect]()
+        for id in availableReactionEffectIDs.prefix(24) {
+            guard let effect = try? await client.send(TDNativeRequests.getMessageEffect(effectId: id)),
+                  isPremium || !effect.isPremium, !effect.emoji.isEmpty
+            else { continue }
+            effects[id] = effect
+            result.append(effect)
+        }
+        return result
+    }
+
     /// The effect if TDLib has described it; otherwise nil while it is asked for.
     func effect(_ id: Int64, client: TDLibClient) -> MessageEffect? {
         guard id != 0 else { return nil }
