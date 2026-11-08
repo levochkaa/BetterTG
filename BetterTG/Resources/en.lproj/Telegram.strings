@@ -4192,3 +4192,16 @@
 "ChatList.Search.SectionPopularApps" = "POPULAR APPS";
 "ChatList.Search.SectionLocalChannels" = "CHANNELS YOU JOINED";
 "ChatList.Search.SectionRecommendedChannels" = "RECOMMENDED CHANNELS";
+"CreatePoll.LimitCountry" = "Limit by Country";
+"CreatePoll.LimitCountryInfo" = "Only users from selected countries can vote";
+"CreatePoll.AllowedCountries" = "Allowed Countries";
+"CreatePoll.AllowedCountries.Countries_1" = "%@ country";
+"CreatePoll.AllowedCountries.Countries_any" = "%@ countries";
+"CreatePoll.QuizCountryNeeded" = "Select at least one country";
+"CountriesList.SelectCountries" = "Select Countries";
+"CountriesList.SelectUpTo_1" = "select up to %@ country";
+"CountriesList.SelectUpTo_any" = "select up to %@ countries";
+"CountriesList.Search" = "Search";
+"CountriesList.MaximumReached" = "You can select up to %@.";
+"CountriesList.MaximumReached.Countries_1" = "%@ country";
+"CountriesList.MaximumReached.Countries_any" = "%@ countries";

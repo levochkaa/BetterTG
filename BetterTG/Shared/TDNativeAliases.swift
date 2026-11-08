@@ -64,6 +64,7 @@ public typealias CommunityChat = TDNativeCommunityChat
 public typealias ConnectionState = TDNativeConnectionState
 public typealias Contact = TDNativeContact
 public typealias Count = TDNativeCount
+public typealias Countries = TDNativeCountries
 public typealias DateTimeFormattingTypeAbsolute = TDNativeDateTimeFormattingTypeAbsolute
 public typealias DeviceTokenWebPush = TDNativeDeviceTokenWebPush
 public typealias DiceStickers = TDNativeDiceStickers

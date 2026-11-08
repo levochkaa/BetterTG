@@ -39,6 +39,9 @@ import UIKit
         case duration
         case hideResults
         case restrictToSubscribers
+        /// A channel poll's Limit by Country and, while it is on, its Allowed Countries.
+        case limitCountry
+        case countries
     }
 
     private enum TimeLimit {
@@ -187,6 +190,9 @@ import UIKit
     private var timeLimit = TimeLimit.duration(24 * 60 * 60)
     private var hidesResults = false
     private var restrictsToSubscribers = false
+    private var limitsCountry = false
+    /// The country codes allowed to vote, in the order they were chosen; "FT" is Fragment.
+    private var countryCodes = [String]()
     private var didSend = false
 
     private var sections: [Section] {
@@ -200,7 +206,10 @@ import UIKit
         if !isChannel { items.append(.addingOptions) }
         items += [.revoting, .shuffle, .quiz, .limitDuration]
         if limitsDuration { items += [.duration, .hideResults] }
-        if isChannel { items.append(.restrictToSubscribers) }
+        if isChannel {
+            items += [.restrictToSubscribers, .limitCountry]
+            if limitsCountry { items.append(.countries) }
+        }
         return items
     }
 
@@ -360,7 +369,9 @@ import UIKit
             return cell
         case .settings:
             guard let item = settingsItems[safe: indexPath.row] else { return UITableViewCell() }
-            let identifier = item == .duration ? Self.durationIdentifier : CreatePollToggleCell.reuseIdentifier
+            let identifier = item == .duration || item == .countries
+                ? Self.durationIdentifier
+                : CreatePollToggleCell.reuseIdentifier
             let cell = tableView.dequeueReusableCell(withIdentifier: identifier, for: indexPath)
             configureSettingsCell(cell, item: item, animated: false)
             return cell
@@ -379,6 +390,8 @@ import UIKit
             textCell.beginEditing()
         } else if sections[safe: indexPath.section] == .settings, settingsItems[safe: indexPath.row] == .duration {
             presentTimeLimitOptions(from: cell)
+        } else if sections[safe: indexPath.section] == .settings, settingsItems[safe: indexPath.row] == .countries {
+            openCountriesSelection()
         }
     }
 
@@ -1113,6 +1126,10 @@ import UIKit
             configureDurationCell(cell)
             return
         }
+        if item == .countries {
+            configureCountriesCell(cell)
+            return
+        }
         guard let cell = cell as? CreatePollToggleCell else { return }
         let symbol: String?
         let tint: UIColor
@@ -1188,7 +1205,16 @@ import UIKit
                 "CreatePoll.RestrictToSubscribersInfo",
             )
             isOn = restrictsToSubscribers
-        case .duration:
+        case .limitCountry:
+            (symbol, tint, titleKey, subtitleKey) = (
+                "flag.fill",
+                UIColor(rgb: 0xFF9F0A),
+                "CreatePoll.LimitCountry",
+                "CreatePoll.LimitCountryInfo",
+            )
+            isOn = limitsCountry
+        case .countries,
+             .duration:
             return
         }
         cell.configure(
@@ -1267,10 +1293,81 @@ import UIKit
             hidesResults = isOn
         case .restrictToSubscribers:
             restrictsToSubscribers = isOn
-        case .duration:
+        case .limitCountry:
+            updateSettingsRows { self.limitsCountry = isOn }
+            return
+        case .countries,
+             .duration:
             break
         }
         refreshSettingsCells()
+    }
+
+    /// Allowed Countries: none yet, one country's name, or how many (CreatePoll.AllowedCountries.Countries).
+    private func configureCountriesCell(_ cell: UITableViewCell) {
+        var content = UIListContentConfiguration.valueCell()
+        content.text = L10n.telegram("CreatePoll.AllowedCountries")
+        content.secondaryText =
+            switch countryCodes.count {
+            case 0: ""
+            case 1:
+                countryCodes[0] == "FT"
+                    ? "Fragment"
+                    : Locale.current.localizedString(forRegionCode: countryCodes[0]) ?? countryCodes[0]
+            default:
+                L10n.telegramPlural(
+                    "CreatePoll.AllowedCountries.Countries",
+                    count: countryCodes.count,
+                    formattedCount: countryCodes.count.formatted(.number),
+                )
+            }
+        content.secondaryTextProperties.color = .secondaryLabel
+        content.image = Self.emptyIcon
+        content.imageProperties.maximumSize = CGSize(width: 25, height: 25)
+        content.imageProperties.reservedLayoutSize = CGSize(width: 25, height: 0)
+        cell.contentConfiguration = content
+        cell.backgroundColor = .secondarySystemGroupedBackground
+        cell.accessoryView = nil
+        cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
+    }
+
+    /// openCountriesSelection: CountriesMultiselectionScreen with the chosen countries.
+    private func openCountriesSelection() {
+        view.endEditing(true)
+        let picker = PollCountriesViewController(selected: countryCodes, client: client) { [weak self] codes in
+            guard let self else { return }
+            countryCodes = codes
+            refreshSettingsCells()
+        }
+        navigationController?.pushViewController(picker, animated: true)
+    }
+
+    /// Settings rows that come and go with a toggle (Limit Duration's, Limit by Country's), scrolled to as Telegram
+    /// does when they appear.
+    private func updateSettingsRows(_ change: () -> Void) {
+        guard let section = sections.firstIndex(of: .settings) else {
+            change()
+            return
+        }
+        let previousItems = settingsItems
+        change()
+        let currentItems = settingsItems
+        let deleted = previousItems.indices
+            .filter { !currentItems.contains(previousItems[$0]) }
+            .map { IndexPath(row: $0, section: section) }
+        let inserted = currentItems.indices
+            .filter { !previousItems.contains(currentItems[$0]) }
+            .map { IndexPath(row: $0, section: section) }
+        tableView.performBatchUpdates {
+            self.tableView.deleteRows(at: deleted, with: .fade)
+            self.tableView.insertRows(at: inserted, with: .fade)
+        }
+        refreshSettingsCells()
+        refreshFooter(of: .settings)
+        if let last = inserted.last {
+            tableView.scrollToRow(at: last, at: .none, animated: true)
+        }
     }
 
     /// Set Correct Answer: a quiz takes no added options or revotes, checks its correct answers and has an explanation.
@@ -1373,6 +1470,9 @@ import UIKit
                     ? "CreatePoll.QuizCorrectOptionNeededMultiple"
                     : "CreatePoll.QuizCorrectOptionNeeded"))
         }
+        if isChannel, limitsCountry, countryCodes.isEmpty {
+            return .failed(L10n.telegram("CreatePoll.QuizCountryNeeded"))
+        }
         if isQuiz, isUploading(explanationMedia) { return .uploading }
         if isUploading(pollMedia) { return .uploading }
         let type: TDNativeInputPollType =
@@ -1403,7 +1503,7 @@ import UIKit
             allowsMultipleAnswers: isQuiz ? allowsMultipleAnswers : allowsMultipleAnswers && filled.count > 1,
             allowsRevoting: canRevote,
             membersOnly: isChannel && restrictsToSubscribers,
-            countryCodes: [],
+            countryCodes: isChannel && limitsCountry ? countryCodes : [],
             shuffleOptions: shuffleOptions,
             hideResultsUntilCloses: limitsDuration && hidesResults,
             type: type,
