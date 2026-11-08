@@ -243,6 +243,12 @@ final class TelegramSideColumnView: UIView {
     /// iPhone Duo's status island beside the row.
     var trailingButtonsInset: CGFloat = 0
 
+    /// How much of the title and subtitle shows: a profile's name fades into the bar as it scrolls under it
+    /// (PeerInfoHeaderNode's navigation title transition).
+    var titleAlpha: CGFloat = 1 {
+        didSet { if titleAlpha != oldValue { setNeedsLayout() } }
+    }
+
     /// White bar buttons over a profile's colour cover (PeerInfoHeaderNode's navigation contents primary colour); nil
     /// gives the buttons back their own tints.
     var buttonTintOverride: UIColor? {
@@ -398,7 +404,7 @@ final class TelegramSideColumnView: UIView {
         for item in [titleLabel, subtitleLabel] + glassPlatters + [customTitle].compactMap(\.self) {
             item.alpha = searchActive
                 ? 0
-                : 1
+                : item === titleLabel || item === subtitleLabel ? titleAlpha : 1
         }
         // The search keeps to the band. Under the row it starts below the status island and takes the band's whole
         // width; open, it takes the row, clear of the island.

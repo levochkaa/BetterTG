@@ -2798,11 +2798,21 @@ ClientRestorableNavigationEntry {
         }
         avatarView.alpha = 1 - progress
         storyRingView.alpha = 1 - progress
-        let collapsed = titleRow.convert(titleRow.bounds, to: view).maxY < barBottom
-        let title = collapsed ? profileTitle() : ""
-        let subtitle = collapsed && !statusLabel.isHidden ? statusLabel.text : nil
+        // The name crossfades from the header into the bar while it passes under the bar's bottom edge.
+        let titleFrame = titleRow.convert(titleRow.bounds, to: view)
+        let titleProgress = titleFrame.height > 0
+            ? min(1, max(0, (barBottom - titleFrame.minY) / titleFrame.height))
+            : 0
+        titleRow.alpha = 1 - titleProgress
+        let statusFrame = statusLabel.convert(statusLabel.bounds, to: view)
+        statusLabel.alpha = statusFrame.height > 0
+            ? 1 - min(1, max(0, (barBottom - statusFrame.minY) / statusFrame.height))
+            : 1
+        let title = profileTitle()
+        let subtitle = statusLabel.isHidden ? nil : statusLabel.text
         if navigationItem.title != title { navigationItem.title = title }
         if navigationItem.subtitle != subtitle { navigationItem.subtitle = subtitle }
+        view.subviews.lazy.compactMap { $0 as? TelegramClassicNavigationChrome }.first?.titleAlpha = titleProgress
     }
 
     /// PeerInfoCoverComponent behind the header down to the buttons, from 1000 pt above it so a pull keeps it.
@@ -2837,7 +2847,14 @@ ClientRestorableNavigationEntry {
         profileCoverTopFill.alpha = fill
         chrome?.backgroundAlpha = 1 - fill
         chrome?.titleColorOverride = fill > 0.5 ? .white : nil
-        chrome?.buttonTintOverride = fill > 0.5 ? .white : nil
+        // The buttons stay white only while the cover is behind all of them: beside the Duo's strip the column puts
+        // them lower than the bar.
+        let coverBottom = profileCoverView.convert(profileCoverView.bounds, to: view).maxY
+        let buttonsBottom = chrome?.glassPlatters
+            .filter { !$0.isHidden && $0.window != nil }
+            .map { $0.convert($0.bounds, to: view).maxY }
+            .max() ?? 0
+        chrome?.buttonTintOverride = fill > 0.5 && coverBottom >= buttonsBottom ? .white : nil
     }
 
     /// PeerInfoHeaderNode over a profile colour: white title and secondary text, and the buttons on translucent white
