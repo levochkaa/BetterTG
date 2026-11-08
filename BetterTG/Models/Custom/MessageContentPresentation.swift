@@ -148,6 +148,35 @@ struct MessageContentPresentation {
         )
     }
 
+    #if DEBUG
+        /// `-ui-probe-invoice-card`: a message or photo captioned #invoice-probe draws as a test invoice, the photo as
+        /// the product's.
+        private static func probeInvoice(photo: Photo?) -> Self? {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-invoice-card") else { return nil }
+            let invoice = TDNativeMessageInvoice(
+                productInfo: TDNativeProductInfo(
+                    title: "Coffee Beans",
+                    description: FormattedText(entities: [], text: "A pound of fresh roast, ground to order."),
+                    photo: photo,
+                ),
+                currency: "USD",
+                totalAmount: 1250,
+                startParameter: "",
+                isTest: true,
+                needShippingAddress: false,
+                receiptMessageId: 0,
+                paidMedia: nil,
+                paidMediaCaption: nil,
+            )
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: "Coffee Beans",
+                supplement: .invoice(invoice),
+            )
+        }
+    #endif
+
     private static func make(
         _ content: MessageContent,
         liveLocationDeadline: Foundation.Date?,
@@ -157,32 +186,7 @@ struct MessageContentPresentation {
         switch content {
         case .messageText(let message):
             #if DEBUG
-                // `-ui-probe-invoice-card`: a message reading #invoice-probe draws as a test invoice without a photo.
-                if message.text.text == "#invoice-probe",
-                   ProcessInfo.processInfo.arguments.contains("-ui-probe-invoice-card")
-                {
-                    let invoice = TDNativeMessageInvoice(
-                        productInfo: TDNativeProductInfo(
-                            title: "Coffee Beans",
-                            description: FormattedText(entities: [], text: "A pound of fresh roast, ground to order."),
-                            photo: nil,
-                        ),
-                        currency: "USD",
-                        totalAmount: 1250,
-                        startParameter: "",
-                        isTest: true,
-                        needShippingAddress: false,
-                        receiptMessageId: 0,
-                        paidMedia: nil,
-                        paidMediaCaption: nil,
-                    )
-                    return Self(
-                        formattedText: nil,
-                        isVisualMedia: false,
-                        summary: "Coffee Beans",
-                        supplement: .invoice(invoice),
-                    )
-                }
+                if message.text.text == "#invoice-probe", let probe = probeInvoice(photo: nil) { return probe }
             #endif
             return Self(
                 formattedText: message.text,
@@ -235,6 +239,10 @@ struct MessageContentPresentation {
         case .messagePaidMedia:
             return excludedPaidContent(title: L10n.betterTG("Message.PaidMedia"))
         case .messagePhoto(let message):
+            #if DEBUG
+                if message.caption.text == "#invoice-probe",
+                   let probe = probeInvoice(photo: message.photo) { return probe }
+            #endif
             return presentation(
                 formattedText: nonEmpty(message.caption),
                 summary: captionSummary(
