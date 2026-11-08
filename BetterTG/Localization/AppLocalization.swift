@@ -110,6 +110,9 @@ final class AppLocalization: @unchecked Sendable {
     /// numbered or not, take the arguments, so a plain "%" in a string such as "uses %1$@% of your cache" stays.
     private static let telegramArgumentPattern = /%(?:(\d+)\$)?([@df])/
 
+    /// The app's own localizations, such as pt-BR and zh-Hans; the language pack IDs come lowercased.
+    private static let bundleLocalizations = Bundle.main.localizations
+
     private let lock = NSLock()
     private var availableLanguagesStorage: [AppLanguage]
     private var cancellables = Set<AnyCancellable>()
@@ -238,10 +241,14 @@ final class AppLocalization: @unchecked Sendable {
         return preferred.split(separator: "-").first.map(String.init) ?? "en"
     }
 
+    /// The bundle's lproj names for a language pack ID: the pack's own, then its base language's. iOS looks lproj
+    /// folders up case-sensitively, so pt-br finds pt-BR here.
     private static func bundleLanguageCandidates(_ languageID: String) -> [String] {
         let normalized = languageID.lowercased().replacing("_", with: "-")
         let base = normalized.split(separator: "-").first.map(String.init)
-        return [normalized, base].compactMap(\.self).uniqued()
+        return [normalized, base].compactMap(\.self).uniqued().compactMap { candidate in
+            bundleLocalizations.first { $0.lowercased() == candidate }
+        }
     }
 
     private static func isRTLLanguage(_ languageID: String) -> Bool {

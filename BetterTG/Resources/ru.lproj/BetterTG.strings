@@ -603,6 +603,7 @@
 "Accessibility.UnreadMentions" = "Непрочитанных упоминаний: %d";
 "Accessibility.UnreadReactions" = "Непрочитанных реакций: %d";
 "Accessibility.UnreadPollVotes" = "Непрочитанных голосов: %d";
+"Accessibility.VoiceNotListened" = "Не прослушано";
 
 "VideoNote.RetryPaidUnsupported" = "Для повторной отправки этого видеосообщения нужна платная отправка, а BetterTG её не поддерживает.";
 "VideoNote.RetryNeedsAnotherReply" = "Это видеосообщение нельзя повторно отправить с исходным ответом или отправителем.";
