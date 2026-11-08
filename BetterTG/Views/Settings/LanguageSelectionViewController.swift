@@ -5,6 +5,14 @@ import UIKit
 
 final class LanguageSelectionViewController: UITableViewController, UISearchResultsUpdating,
 TelegramNavigationSearchProvider {
+    /// The Translate Messages section's rows: Show Translate Button, Translate Entire Chat, and Do Not Translate while
+    /// either translates.
+    private enum TranslateRow {
+        case showButton
+        case entireChat
+        case doNotTranslate
+    }
+
     // MARK: Private
 
     /// LocalizationListControllerNode's Do Not Translate value: the codes of several languages, or one language's
@@ -20,6 +28,8 @@ TelegramNavigationSearchProvider {
     // MARK: Private
 
     private var applyingLanguageID: String?
+    /// Translate Entire Chat needs Premium; without it the switch is locked off.
+    private var isPremium = false
     private var cancellables = Set<AnyCancellable>()
     private var languages = [AppLanguage]()
     private var query = ""
@@ -30,6 +40,18 @@ TelegramNavigationSearchProvider {
             $0.name.localizedCaseInsensitiveContains(query)
                 || $0.nativeName.localizedCaseInsensitiveContains(query)
                 || $0.id.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var translatesChats: Bool {
+        isPremium && ChatTranslation.translatesChats
+    }
+
+    private var translateRows: [TranslateRow] {
+        if MessageTranslation.showsTranslateButton || translatesChats {
+            [.showButton, .entireChat, .doNotTranslate]
+        } else {
+            [.showButton, .entireChat]
         }
     }
 
@@ -63,12 +85,18 @@ TelegramNavigationSearchProvider {
 
         reloadLanguages()
         Task { await AppLocalization.shared.refreshAvailableLanguages() }
+        Task { [weak self] in
+            let isPremium = await (try? TDLib.shared.activeClient.getMe())?.isPremium ?? false
+            guard let self, isPremium != self.isPremium else { return }
+            self.isPremium = isPremium
+            if showsTranslateSection { tableView.reloadSections(IndexSet(integer: 0), with: .none) }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // Do Not Translate's value follows the list the user just edited.
-        if showsTranslateSection, MessageTranslation.showsTranslateButton {
+        if showsTranslateSection, MessageTranslation.showsTranslateButton || translatesChats {
             tableView.reloadSections(IndexSet(integer: 0), with: .none)
         }
     }
@@ -77,7 +105,7 @@ TelegramNavigationSearchProvider {
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
         guard isTranslateSection(section) else { return visibleLanguages.count }
-        return MessageTranslation.showsTranslateButton ? 2 : 1
+        return translateRows.count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -86,7 +114,7 @@ TelegramNavigationSearchProvider {
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
         guard isTranslateSection(section) else { return L10n.betterTG("Localization.LanguagePacksInfo") }
-        guard MessageTranslation.showsTranslateButton else {
+        guard MessageTranslation.showsTranslateButton || translatesChats else {
             return L10n.telegram("Localization.ShowTranslateInfoExtended")
         }
         return L10n.telegram(MessageTranslation.ignoredLanguageList.count > 1
@@ -96,7 +124,26 @@ TelegramNavigationSearchProvider {
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "LanguageCell", for: indexPath)
-        if isTranslateSection(indexPath.section), indexPath.row == 1 {
+        let translateRow = isTranslateSection(indexPath.section) ? translateRows[safe: indexPath.row] : nil
+        if translateRow == .entireChat {
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = L10n.telegram("Localization.TranslateEntireChat")
+            if !isPremium {
+                // The locked switch's lock before the title.
+                configuration.image = UIImage(systemName: "lock.fill")
+                configuration.imageProperties.tintColor = .secondaryLabel
+                configuration.imageProperties.maximumSize = CGSize(width: 14, height: 14)
+            }
+            cell.contentConfiguration = configuration
+            cell.accessoryType = .none
+            cell.selectionStyle = .none
+            let toggle = UISwitch()
+            toggle.isOn = translatesChats
+            toggle.addTarget(self, action: #selector(translateChatsChanged(_:)), for: .valueChanged)
+            cell.accessoryView = toggle
+            return cell
+        }
+        if translateRow == .doNotTranslate {
             var configuration = UIListContentConfiguration.valueCell()
             configuration.text = L10n.telegram("Localization.DoNotTranslate")
             configuration.secondaryText = Self.doNotTranslateValue
@@ -150,7 +197,7 @@ TelegramNavigationSearchProvider {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if isTranslateSection(indexPath.section), indexPath.row == 1 {
+        if isTranslateSection(indexPath.section), translateRows[safe: indexPath.row] == .doNotTranslate {
             navigationController?.pushViewController(
                 TranslationLanguagesViewController(mode: .doNotTranslate),
                 animated: true,
@@ -187,6 +234,22 @@ TelegramNavigationSearchProvider {
 
     @objc private func showTranslateChanged(_ sender: UISwitch) {
         MessageTranslation.showsTranslateButton = sender.isOn
+        tableView.reloadSections(IndexSet(integer: 0), with: .automatic)
+    }
+
+    /// toggleTranslateChats; without Premium the switch goes back and says why (showPremiumInfo).
+    @objc private func translateChatsChanged(_ sender: UISwitch) {
+        guard isPremium else {
+            sender.setOn(false, animated: true)
+            TelegramUndoToast.show(
+                text: L10n.telegram("Premium.TranslationStandaloneInfo").withoutTelegramMarkup,
+                in: view.window ?? view,
+                bottomInset: 12,
+                undo: nil,
+            )
+            return
+        }
+        ChatTranslation.translatesChats = sender.isOn
         tableView.reloadSections(IndexSet(integer: 0), with: .automatic)
     }
 

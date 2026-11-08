@@ -131,6 +131,16 @@ enum MessageTranslation {
         return name.prefix(1).uppercased() + name.dropFirst()
     }
 
+    /// normalizeTranslationLanguage, for other translation code.
+    static func normalizedLanguage(_ code: String) -> String {
+        normalized(code)
+    }
+
+    /// supportedTranslationLanguages.contains.
+    static func isSupportedLanguage(_ code: String) -> Bool {
+        supportedLanguages.contains(code)
+    }
+
     /// normalizeTranslationLanguage.
     private static func normalized(_ code: String) -> String {
         let base = code.components(separatedBy: "-").first ?? code

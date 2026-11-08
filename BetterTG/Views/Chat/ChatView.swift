@@ -203,6 +203,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
     private let chatActionBarView = ChatActionBarView()
+    private let translationPanel = ChatTranslationPanelView()
+    private var translationPanelHeightConstraint: NSLayoutConstraint!
+    /// The translation the panel last showed, to translate what is visible when it turns on.
+    private var shownTranslationState: ChatTranslationState?
     private var cachedEmptyStateView: ChatEmptyStateView?
     /// Speak's SpeechSynthesizerHolder: the message being read aloud.
     private var speechSynthesizer: AVSpeechSynthesizer?
@@ -655,8 +659,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
             || (chatActionBarHeightConstraint?.constant ?? 0) > 0
+            || (translationPanelHeightConstraint?.constant ?? 0) > 0
         {
-            chatActionBarView.frame.maxY
+            translationPanel.frame.maxY
         } else {
             customNavigationBar.frame.maxY
         }
@@ -1713,6 +1718,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
            let message = message(for: displayedID)
         {
             hideSentTextBubbleIfPending(cell, message: message.message)
+            chatVM.translateIfNeeded(message)
         }
         if let cell = cell as? ChatSponsoredMessageCell {
             cell.setPlaybackVisible(presentedViewController == nil)
@@ -3016,6 +3022,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatActionBarView.onClose = { [weak self] in self?.chatVM.dismissChatActionBar() }
         view.addSubview(chatActionBarView)
         chatActionBarHeightConstraint = chatActionBarView.heightAnchor.constraint(equalToConstant: 0)
+        translationPanel.translatesAutoresizingMaskIntoConstraints = false
+        translationPanel.isHidden = true
+        translationPanel.onToggle = { [weak self] in self?.toggleTranslation() }
+        translationPanel.onMore = { [weak self] source in self?.presentTranslationMenu(from: source) }
+        view.addSubview(translationPanel)
+        translationPanelHeightConstraint = translationPanel.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             topicReopenBar.topAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
             topicReopenBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -3025,10 +3037,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatActionBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             chatActionBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             chatActionBarHeightConstraint,
+            translationPanel.topAnchor.constraint(equalTo: chatActionBarView.bottomAnchor),
+            translationPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            translationPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            translationPanelHeightConstraint,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            navigationBackground.bottomAnchor.constraint(equalTo: chatActionBarView.bottomAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: translationPanel.bottomAnchor),
         ])
         if let cover = restoredPinnedBannerCover {
             cover.isUserInteractionEnabled = false
@@ -5122,6 +5138,120 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// ChatReportPeerTitlePanelNode's join request notice: "… is an admin of …" with both names in bold.
+    /// ChatTranslationPanelNode under the other title panels while the chat is in a language to translate.
+    private func updateTranslationPanel(_ state: ChatTranslationState?, animated: Bool) {
+        guard translationPanelHeightConstraint != nil else { return }
+        let turnedOn = state?.isEnabled == true
+            && (shownTranslationState?.isEnabled != true
+                || shownTranslationState?.effectiveToLang != state?.effectiveToLang)
+        shownTranslationState = state
+        if let state { translationPanel.update(state: state) }
+        if turnedOn { translateVisibleMessages() }
+        let desiredHeight: CGFloat = state == nil ? 0 : ChatTranslationPanelView.contentHeight
+        guard abs(translationPanelHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        if desiredHeight > 0 { translationPanel.isHidden = false }
+        view.layoutIfNeeded()
+        translationPanelHeightConstraint.constant = desiredHeight
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self else { return }
+            translationPanel.isHidden = translationPanelHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            view.layoutIfNeeded()
+            completion(true)
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            animations: { self.view.layoutIfNeeded() },
+            completion: completion,
+        )
+    }
+
+    /// The messages on screen ask for their translations when the chat turns translated.
+    private func translateVisibleMessages() {
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: displayedID) else { continue }
+            chatVM.translateIfNeeded(message)
+        }
+    }
+
+    /// The panel's button: Translate to … or Show Original.
+    private func toggleTranslation() {
+        guard let state = chatVM.translationState else { return }
+        chatVM.setTranslationEnabled(!state.isEnabled)
+    }
+
+    /// ChatTranslationPanelNode's more menu: Choose Another Language, Do Not Translate (the chat's language), Hide.
+    private func presentTranslationMenu(from source: UIView) {
+        guard let state = chatVM.translationState else { return }
+        let fromName = MessageTranslation.languageName(state.fromLang) ?? state.fromLang
+        let actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.Translation.ChooseLanguage"),
+                image: UIImage(systemName: "translate"),
+            ) { [weak self] in self?.chooseTranslationLanguage() },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.Translation.DoNotTranslate", fromName),
+                image: UIImage(systemName: "nosign"),
+                startsNewSection: true,
+            ) { [weak self] in self?.doNotTranslate(state.fromLang, name: fromName) },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.Translation.Hide"),
+                image: UIImage(systemName: "xmark.circle"),
+            ) { [weak self] in self?.hideTranslationPanel() },
+        ]
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    /// TranslationLanguagesContextMenuContent's choice: the chat translates to the picked language.
+    private func chooseTranslationLanguage() {
+        guard let state = chatVM.translationState else { return }
+        let picker = TranslationLanguagesViewController(mode: .target(selected: state.effectiveToLang) {
+            [weak self] code in
+            guard let self else { return }
+            navigationController?.popViewController(animated: true)
+            chatVM.setTranslationLanguage(code)
+        })
+        navigationController?.pushViewController(picker, animated: true)
+    }
+
+    /// addDoNotTranslateLanguage's toast, whose Settings opens the Do Not Translate list.
+    private func doNotTranslate(_ code: String, name: String) {
+        chatVM.doNotTranslate(code)
+        showChatToast(
+            L10n.telegram("Conversation.Translation.AddedToDoNotTranslateText", name).withoutTelegramMarkup,
+            actionTitle: L10n.telegram("Conversation.Translation.Settings"),
+        ) { [weak self] in
+            self?.navigationController?.pushViewController(
+                TranslationLanguagesViewController(mode: .doNotTranslate),
+                animated: true,
+            )
+        }
+    }
+
+    /// hideTranslationPanel's toast for the chat, group or channel, with Undo.
+    private func hideTranslationPanel() {
+        chatVM.setTranslationHidden(true)
+        let key =
+            switch chatVM.customChat.chat.type {
+            case .chatTypeSupergroup(let type) where type.isChannel:
+                "Conversation.Translation.TranslationBarHiddenChannelText"
+            case .chatTypeBasicGroup,
+                 .chatTypeSupergroup:
+                "Conversation.Translation.TranslationBarHiddenGroupText"
+            default:
+                "Conversation.Translation.TranslationBarHiddenChatText"
+            }
+        showChatToast(L10n.telegram(key), actionTitle: L10n.telegram("Undo.Undo")) { [weak self] in
+            self?.chatVM.setTranslationHidden(false)
+        }
+    }
+
     private func barContent(_ content: ChatVM.ActionBarContent) -> ChatActionBarView.Content {
         switch content {
         case .buttons(let buttons):
@@ -5373,6 +5503,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? chatVM.actionBarContent
             : nil
         updateChatActionBar(actionBar, animated: animated)
+        updateTranslationPanel(
+            presentationMode == .full && !messageSearchActive && !isSelectingMessages ? chatVM.translationState : nil,
+            animated: animated,
+        )
         // ChatTitlePanelContext: pending join requests rank above the pinned message.
         let joinRequests = presentationMode == .full && !messageSearchActive && !isSelectingMessages
             && !showsReopenBar && actionBar == nil
@@ -6719,7 +6853,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
             || (chatActionBarHeightConstraint?.constant ?? 0) > 0
-            ? chatActionBarView.frame.maxY + 8
+            || (translationPanelHeightConstraint?.constant ?? 0) > 0
+            ? translationPanel.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
         if composerBottomConstraint != nil { composerView.topContentLimit = visualTopInset }
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)

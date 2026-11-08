@@ -392,8 +392,16 @@ import UIKit
             refreshAllMessagesForumTopicsIfNeeded()
             refreshDeliveryStates()
             messagesDidChange.send()
+            refreshTranslationStateIfNeeded()
         }
     }
+
+    /// The chat's translation while its panel shows (ChatTranslationState); nil leaves the chat untranslated.
+    @Published var translationState: ChatTranslationState?
+    /// Translations already received, by message and language.
+    var translatedTexts = [Int64: [String: FormattedText]]()
+    var translationRequests = Set<String>()
+    var translationDetectionStarted = false
 
     var recordingVideoTopicDemand: MessageTopic? {
         didSet { queueForumTopicDemandRefresh() }

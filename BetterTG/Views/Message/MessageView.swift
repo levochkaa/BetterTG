@@ -849,7 +849,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             .first {
                 MessageContentPresentation.make($0).formattedText == message.formattedText
             }?.id ?? message.id
-        if let text = message.formattedText { captionTexts[textSourceID] = text }
+        // The text's spoiler state draws the text, so a translated chat gives it the translation.
+        if let text = message.translatedText ?? message.formattedText { captionTexts[textSourceID] = text }
         textSpoilers.configure(
             source: spoilerSource?.clientID == client.id ? spoilerSource : nil,
             chatID: message.message.chatId, texts: captionTexts,
@@ -1079,7 +1080,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             selectionActive ? selectedAlbumItemIDs : nil,
             animated: reconfiguresSameMessage,
         )
-        let displayedFormattedText = structuredContentView.handlesAlbumCaptions ? nil : message.formattedText
+        // A translated chat shows the text in its language (ChatMessageTextBubbleContentNode's translation).
+        let displayedFormattedText = structuredContentView.handlesAlbumCaptions
+            ? nil
+            : message.translatedText ?? message.formattedText
 
         let timestamp = Self.timeFormatter.string(from: message.date)
         let delivery = message.deliveryState

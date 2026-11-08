@@ -38,6 +38,8 @@ import TDLibKit
     @Published var expandedQuoteBlocks = Set<Int>()
     /// The fact check opened past its four lines (ChatMessageFactCheckBubbleContentNode's isExpanded).
     @Published var isFactCheckExpanded = false
+    /// The text in the chat's translation language while the chat is translated (TranslationMessageAttribute).
+    @Published var translatedText: FormattedText?
 
     var isReplyQuoteExpanded = false {
         didSet { renderRevision &+= 1 }
@@ -112,6 +114,7 @@ import TDLibKit
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
         self.expandedQuoteBlocks = value.expandedQuoteBlocks
         self.isFactCheckExpanded = value.isFactCheckExpanded
+        self.translatedText = value.translatedText
         self.serviceText = value.serviceText
     }
 
