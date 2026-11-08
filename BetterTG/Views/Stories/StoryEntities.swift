@@ -241,6 +241,14 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
     private let textView: StoryEntityTextView
 
     private let layoutManager = StoryTextLayoutManager()
+    /// CustomEmojiContainerView's emoji, in the text's order, each over its clear character.
+    private var emojiViews = [(id: Int64, view: CustomEmojiInlineView)]()
+    private var emojiTask: Task<Void, Never>?
+    /// The emoji views given their sticker.
+    private var configuredEmoji = Set<ObjectIdentifier>()
+    /// The text's attributes, which typing takes after an emoji too.
+    private var baseAttributes = [NSAttributedString.Key: Any]()
+    private var emojiTemplateColor = UIColor.white
 
     /// toggleInputMode: the emoji panel stands in for the keyboard.
     var isShowingEmojiPanel: Bool {
@@ -283,6 +291,14 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         textView.frame = bounds
+        layoutEmoji()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        for item in emojiViews {
+            item.view.setPlaybackVisible(window != nil)
+        }
     }
 
     /// UIColor.lightness: Rec. 709 luma.
@@ -320,6 +336,24 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
 
     func insertEmoji(_ emoji: String) {
         textView.insertText(emoji)
+    }
+
+    /// The emoji panel's custom emoji: its fallback emoji carrying the emoji's id, drawn clear under the emoji itself.
+    func insertCustomEmoji(_ sticker: Sticker) {
+        guard case .stickerFullTypeCustomEmoji(let type) = sticker.fullType else {
+            insertEmoji(sticker.emoji)
+            return
+        }
+        let start = textView.selectedRange.location
+        textView.insertText(sticker.emoji)
+        let range = NSRange(location: start, length: (sticker.emoji as NSString).length)
+        guard NSMaxRange(range) <= textView.textStorage.length else { return }
+        textView.textStorage.addAttributes(
+            [.telegramCustomEmoji: NSNumber(value: type.customEmojiId), .foregroundColor: UIColor.clear],
+            range: range,
+        )
+        textView.typingAttributes = baseAttributes
+        updateEmoji()
     }
 
     func deleteBackward() {
@@ -376,20 +410,101 @@ final class StoryTextEntityView: UIView, UITextViewDelegate {
             .paragraphStyle: paragraph,
         ]
         let selection = textView.selectedRange
-        textView.attributedText = NSAttributedString(string: textView.text ?? "", attributes: attributes)
+        let emoji = TelegramCustomEmojiRun.extract(from: textView.textStorage)
+        let text = NSMutableAttributedString(string: textView.text ?? "", attributes: attributes)
+        for run in emoji where NSMaxRange(run.range) <= text.length {
+            text.addAttributes(
+                [.telegramCustomEmoji: NSNumber(value: run.id), .foregroundColor: UIColor.clear],
+                range: run.range,
+            )
+        }
+        textView.attributedText = text
+        baseAttributes = attributes
+        emojiTemplateColor = textColor
         textView.typingAttributes = attributes
         textView.selectedRange = selection
         textView.textAlignment = alignment
         resize()
         textView.setNeedsDisplay()
         layoutManager.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: textView.textStorage.length))
+        updateEmoji()
     }
 
     func textViewDidChange(_: UITextView) {
         textView.tintColor = isEmpty ? .white : textView.tintColor
         resize()
         textView.setNeedsDisplay()
+        updateEmoji()
         onChange?()
+    }
+
+    /// Typing next to an emoji takes the text's own attributes, not the emoji's clear ones.
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        if !baseAttributes.isEmpty { textView.typingAttributes = baseAttributes }
+    }
+
+    /// The emoji views for the text's custom emoji: kept where the same emoji stays in its place, loaded for new ones.
+    private func updateEmoji() {
+        let runs = TelegramCustomEmojiRun.extract(from: textView.textStorage)
+        let old = emojiViews
+        var reused = Set<ObjectIdentifier>()
+        emojiViews = runs.enumerated().map { index, run in
+            if index < old.count, old[index].id == run.id {
+                reused.insert(ObjectIdentifier(old[index].view))
+                return old[index]
+            }
+            let view = CustomEmojiInlineView()
+            view.isUserInteractionEnabled = false
+            textView.addSubview(view)
+            return (run.id, view)
+        }
+        for item in old where !reused.contains(ObjectIdentifier(item.view)) {
+            configuredEmoji.remove(ObjectIdentifier(item.view))
+            item.view.prepareForReuse()
+            item.view.removeFromSuperview()
+        }
+        layoutEmoji()
+        let pending = emojiViews.filter { !configuredEmoji.contains(ObjectIdentifier($0.view)) }
+        guard !pending.isEmpty else { return }
+        let client = TDLib.shared.activeClient
+        emojiTask?.cancel()
+        emojiTask = Task { [weak self] in
+            let stickers = await CustomEmojiStickerRepository.shared.stickers(for: pending.map(\.id), client: client)
+            guard let self, !Task.isCancelled else { return }
+            for item in pending where item.view.superview != nil {
+                guard let sticker = stickers[item.id],
+                      configuredEmoji.insert(ObjectIdentifier(item.view)).inserted
+                else { continue }
+                item.view.templateColor = emojiTemplateColor
+                item.view.configure(sticker: sticker, client: client)
+                item.view.setPlaybackVisible(window != nil)
+            }
+        }
+    }
+
+    /// CustomEmojiContainerView.update: each emoji 24/17 of its font's size, centred 1 pt under its character's middle.
+    private func layoutEmoji() {
+        guard !emojiViews.isEmpty else { return }
+        layoutManager.ensureLayout(for: textView.textContainer)
+        let runs = TelegramCustomEmojiRun.extract(from: textView.textStorage)
+        let beginning = textView.beginningOfDocument
+        for (run, item) in zip(runs, emojiViews) {
+            guard let start = textView.position(from: beginning, offset: run.range.location),
+                  let end = textView.position(from: start, offset: run.range.length),
+                  let range = textView.textRange(from: start, to: end)
+            else { continue }
+            let rect = textView.firstRect(for: range)
+            guard rect.origin.x.isFinite, rect.origin.y.isFinite else { continue }
+            let font = textView.textStorage.attribute(.font, at: run.range.location, effectiveRange: nil) as? UIFont
+            let side = (24 * (font?.pointSize ?? 17) / 17).rounded(.down)
+            item.view.templateColor = emojiTemplateColor
+            item.view.frame = CGRect(
+                x: (rect.midX - side / 2).rounded(.down),
+                y: (rect.midY - side / 2).rounded(.down) + 1,
+                width: side,
+                height: side,
+            )
+        }
     }
 
     /// sizeThatFits: the text at the entity's width, at least 224 pt and 20 pt wider than it.

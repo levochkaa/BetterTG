@@ -1047,7 +1047,7 @@ private final class StoryPreviewViewController: UIViewController, UITextViewDele
         picker.allowsStickersAndGIFs = false
         picker.presentationHost = self
         picker.onEmoji = { [weak entity] emoji in entity?.insertEmoji(emoji) }
-        picker.onCustomEmoji = { [weak entity] sticker in entity?.insertEmoji(sticker.emoji) }
+        picker.onCustomEmoji = { [weak entity] sticker in entity?.insertCustomEmoji(sticker) }
         picker.onDeleteBackward = { [weak entity] in entity?.deleteBackward() }
         picker.onSwitchToKeyboard = { [weak self] in self?.toggleEmojiPanel() }
         let size = view.window?.bounds.size ?? view.bounds.size
