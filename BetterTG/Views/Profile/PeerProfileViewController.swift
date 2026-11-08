@@ -164,9 +164,16 @@ ClientRestorableNavigationEntry {
         /// `-ui-probe-expanded-photo-paging`: the expanded photo lists the peer's photos three times over, so paging
         /// and
         /// its strip show on a profile with a single photo.
-        static let probeRepeatsExpandedPhotos = ProcessInfo.processInfo
-.arguments
-            .contains("-ui-probe-expanded-photo-paging")
+        static let probeRepeatsExpandedPhotos = ProcessInfo.processInfo.arguments.contains(
+            "-ui-probe-expanded-photo-paging",
+        )
+        /// `-ui-probe-video-avatar PATH`: every photo of a profile plays the video at PATH as its animation, for a
+        /// check where no reachable peer has a video photo.
+        static let probeVideoAvatarPath: String? = {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-ui-probe-video-avatar") else { return nil }
+            return arguments[safe: index + 1]
+        }()
     #endif
 
     private static let giftCollectionsLimit = 6
@@ -1189,6 +1196,44 @@ ClientRestorableNavigationEntry {
         return (photos, videos)
     }
 
+    /// The video's local path once downloaded; the probe's file stands in for any.
+    private static func videoPath(fileID: Int, priority: Int, client: TDLibClient) async -> String? {
+        #if DEBUG
+            if let probe = probeVideoAvatarPath { return probe }
+        #endif
+        guard let file = try? await client.downloadFile(
+            fileId: fileID,
+            priority: priority,
+            offset: 0,
+            limit: 0,
+            synchronous: true,
+        ), file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return nil }
+        return file.local.path
+    }
+
+    /// Plays the video muted and looping in the layer from the timestamp, and returns its looper.
+    private static func loopVideo(
+        at path: String,
+        from timestamp: Double,
+        in layer: AVPlayerLayer,
+        frame: CGRect,
+    ) async -> AVPlayerLooper {
+        let player = AVQueuePlayer()
+        player.isMuted = true
+        let looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: URL(filePath: path)))
+        if timestamp > 0 {
+            await player.seek(to: CMTime(seconds: timestamp, preferredTimescale: 600))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.frame = frame
+        CATransaction.commit()
+        layer.player = player
+        layer.isHidden = false
+        player.play()
+        return looper
+    }
+
     /// Whether this is the account's own Saved Messages profile, which View as Chats goes back to.
     func showsSavedMessages(chatID: Int64) -> Bool {
         isSavedMessagesProfile && topic == nil && customChat.id == chatID
@@ -1512,47 +1557,31 @@ ClientRestorableNavigationEntry {
         var animation = currentProfilePhoto?.animation
         if let shown = currentUserProfilePhoto, shown.id != currentProfilePhoto?.id { animation = nil }
         if !EnergyUsage.shared.allows(.autoplayVideo) { animation = nil }
-        guard animation?.file.id != headerVideoFileID else { return }
+        var fileID = animation?.file.id
+        #if DEBUG
+            if Self.probeVideoAvatarPath != nil, currentProfilePhoto != nil { fileID = -1 }
+        #endif
+        guard fileID != headerVideoFileID else { return }
         headerVideoTask?.cancel()
         headerVideoLooper?.disableLooping()
         headerVideoLooper = nil
         headerVideoLayer.player = nil
         headerVideoLayer.isHidden = true
-        headerVideoFileID = animation?.file.id
-        guard let animation else { return }
+        headerVideoFileID = fileID
+        guard let fileID else { return }
         if headerVideoLayer.superlayer == nil {
             headerVideoLayer.videoGravity = .resizeAspectFill
             avatarView.layer.addSublayer(headerVideoLayer)
         }
         let client = client
-        let fileID = animation.file.id
+        let timestamp = animation?.mainFrameTimestamp ?? 0
         headerVideoTask = Task { [weak self] in
-            guard let file = try? await client.downloadFile(
-                fileId: fileID,
-                priority: 8,
-                offset: 0,
-                limit: 0,
-                synchronous: true,
-            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty,
+            guard let path = await Self.videoPath(fileID: fileID, priority: 8, client: client),
                   let self, !Task.isCancelled, headerVideoFileID == fileID
             else { return }
-            let player = AVQueuePlayer()
-            player.isMuted = true
-            headerVideoLooper = AVPlayerLooper(
-                player: player,
-                templateItem: AVPlayerItem(url: URL(filePath: file.local.path)),
-            )
-            if animation.mainFrameTimestamp > 0 {
-                await player.seek(to: CMTime(seconds: animation.mainFrameTimestamp, preferredTimescale: 600))
-            }
-            guard !Task.isCancelled, headerVideoFileID == fileID else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            headerVideoLayer.frame = avatarView.bounds
-            CATransaction.commit()
-            headerVideoLayer.player = player
-            headerVideoLayer.isHidden = false
-            player.play()
+            let looper = await Self.loopVideo(at: path, from: timestamp, in: headerVideoLayer, frame: avatarView.bounds)
+            guard !Task.isCancelled, headerVideoFileID == fileID else { return looper.disableLooping() }
+            headerVideoLooper = looper
         }
     }
 
@@ -1563,36 +1592,25 @@ ClientRestorableNavigationEntry {
         expandedVideoLooper = nil
         expandedVideoLayer.player = nil
         expandedVideoLayer.isHidden = true
-        guard let animation = item?.animation else { return }
+        var fileID = item?.animation?.file.id
+        #if DEBUG
+            if Self.probeVideoAvatarPath != nil, item != nil { fileID = -1 }
+        #endif
+        guard let fileID else { return }
         let client = client
-        let fileID = animation.file.id
+        let timestamp = item?.animation?.mainFrameTimestamp ?? 0
         expandedVideoTask = Task { [weak self] in
-            guard let file = try? await client.downloadFile(
-                fileId: fileID,
-                priority: 16,
-                offset: 0,
-                limit: 0,
-                synchronous: true,
-            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty,
+            guard let path = await Self.videoPath(fileID: fileID, priority: 16, client: client),
                   let self, !Task.isCancelled, isAvatarExpanded
             else { return }
-            let player = AVQueuePlayer()
-            player.isMuted = true
-            expandedVideoLooper = AVPlayerLooper(
-                player: player,
-                templateItem: AVPlayerItem(url: URL(filePath: file.local.path)),
+            let looper = await Self.loopVideo(
+                at: path,
+                from: timestamp,
+                in: expandedVideoLayer,
+                frame: expandedAvatarView.bounds,
             )
-            if animation.mainFrameTimestamp > 0 {
-                await player.seek(to: CMTime(seconds: animation.mainFrameTimestamp, preferredTimescale: 600))
-            }
-            guard !Task.isCancelled else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            expandedVideoLayer.frame = expandedAvatarView.bounds
-            CATransaction.commit()
-            expandedVideoLayer.player = player
-            expandedVideoLayer.isHidden = false
-            player.play()
+            guard !Task.isCancelled else { return looper.disableLooping() }
+            expandedVideoLooper = looper
         }
     }
 
