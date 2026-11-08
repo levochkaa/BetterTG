@@ -448,6 +448,7 @@ UISearchBarDelegate {
     private static let recentStickerLimit = 20
     /// The emoji tab's category bar sits where the other tabs have their search field.
     private static let emojiCategoryBarHeight: CGFloat = 36
+    private static let emojiSearchHeaderHeight: CGFloat = 36
 
     let mode: Mode
     /// The expanded search: the field takes focus as the page appears.
@@ -463,6 +464,12 @@ UISearchBarDelegate {
     private var searchBarHeightConstraint: NSLayoutConstraint!
     /// Telegram's emoji category icons (EntityKeyboardTopPanelComponent's static emoji segments) with Recently Used.
     private let emojiCategoryBar = UIStackView()
+    /// EmojiSearchHeaderView's bar above the categories in the input panel; the expanded search has the field.
+    private let emojiSearchHeader = EmojiSearchHeaderBar()
+    /// getEmojiCategories' groups with the emoji each one shows.
+    private var emojiGroups = [(name: String, icon: Sticker, emojis: [String])]()
+    /// searchEmojis' emoji for the expanded search's text; nil while it is empty.
+    private var emojiSearchResults: [String]?
     private var emojiCategoryButtons = [(Section, UIButton)]()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, ItemID>!
@@ -680,6 +687,16 @@ UISearchBarDelegate {
         view.addSubview(searchBar)
         searchBarHeightConstraint = searchBar.heightAnchor.constraint(equalToConstant: 44)
         configureEmojiCategoryBar()
+        emojiSearchHeader.translatesAutoresizingMaskIntoConstraints = false
+        emojiSearchHeader.onSearch = { [weak self] in
+            guard let self, contextIsCurrent else { return }
+            onExpandSearch?(.emoji)
+        }
+        emojiSearchHeader.onSelectGroup = { [weak self] _ in
+            self?.applyEmojiSnapshot()
+            self?.scrollToTop()
+        }
+        view.addSubview(emojiSearchHeader)
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = presentationStyle == .input ? .clear : .systemBackground
@@ -721,7 +738,11 @@ UISearchBarDelegate {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            emojiCategoryBar.topAnchor.constraint(equalTo: searchBar.topAnchor),
+            emojiSearchHeader.topAnchor.constraint(equalTo: searchBar.topAnchor),
+            emojiSearchHeader.heightAnchor.constraint(equalToConstant: Self.emojiSearchHeaderHeight),
+            emojiSearchHeader.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor),
+            emojiSearchHeader.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor),
+            emojiCategoryBar.heightAnchor.constraint(equalToConstant: Self.emojiCategoryBarHeight),
             emojiCategoryBar.bottomAnchor.constraint(equalTo: searchBar.bottomAnchor),
             emojiCategoryBar.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor),
             emojiCategoryBar.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor),
@@ -861,14 +882,28 @@ UISearchBarDelegate {
         searchBar.placeholder = mode == .gifs
             ? L10n.telegram("Gif.Search")
             : L10n.telegram("StickersSearch.SearchStickersPlaceholder")
-        searchBar.isHidden = mode == .emoji
-        emojiCategoryBar.isHidden = mode != .emoji
-        searchBarHeightConstraint.constant = mode == .emoji ? Self.emojiCategoryBarHeight : 44
+        // The input panel's emoji tab has the search bar with its groups over the categories; the expanded search
+        // has the field alone.
+        let inputEmoji = mode == .emoji && presentationStyle == .input
+        searchBar.isHidden = inputEmoji
+        emojiSearchHeader.isHidden = !inputEmoji
+        emojiCategoryBar.isHidden = !inputEmoji
+        emojiSearchResults = nil
+        emojiSearchHeader.clearSelection()
+        searchBarHeightConstraint.constant = inputEmoji
+            ? Self.emojiSearchHeaderHeight + 4 + Self.emojiCategoryBarHeight
+            : 44
+        if mode == .emoji {
+            searchBar.placeholder = L10n.telegram("Common.Search")
+        }
         collectionView.collectionViewLayout.invalidateLayout()
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
-            loadTask = Task { [weak self] in await self?.loadCustomEmojiPacks() }
+            loadTask = Task { [weak self] in
+                await self?.loadEmojiGroups()
+                await self?.loadCustomEmojiPacks()
+            }
         case .gifs,
              .stickers:
             loadTask = Task { [weak self] in await self?.reload(query: "") }
@@ -879,6 +914,19 @@ UISearchBarDelegate {
         guard contextIsCurrent else { return }
         switch mode {
         case .emoji:
+            // searchEmojis in the app's and the keyboard's languages; the emoji the keywords lead to, once each.
+            if query.isEmpty {
+                emojiSearchResults = nil
+            } else {
+                let languages = Array(Set([Locale.current.language.languageCode?.identifier ?? "en", "en"]
+                        + (searchBar.textInputMode?.primaryLanguage.map { [String($0.prefix(2))] } ?? [])))
+                let found = try? await client.send(TDNativeRequests.searchEmojis(
+                    text: query,
+                    inputLanguageCodes: languages,
+                ))
+                guard !Task.isCancelled, contextIsCurrent else { return }
+                emojiSearchResults = (found?.emojiKeywords.map(\.emoji) ?? []).uniqued()
+            }
             applyEmojiSnapshot()
         case .stickers:
             guard !query.isEmpty else {
@@ -987,7 +1035,41 @@ UISearchBarDelegate {
     /// An emoji used now moves to the front the next time the tab opens, so the grid stays put under the finger.
     /// EmojiPagerContentSignals' emoji tab: Recently Used, then the installed custom emoji packs before Telegram's
     /// emoji categories with Premium, after them without.
+    /// EmojiSearchSearchBarComponent's groups: getEmojiCategories' default ones that list their emoji.
+    private func loadEmojiGroups() async {
+        guard presentationStyle == .input, emojiGroups.isEmpty, contextIsCurrent,
+              let categories = try? await client
+                .send(TDNativeRequests.getEmojiCategories(type: .emojiCategoryTypeDefault)),
+              !Task.isCancelled, contextIsCurrent else { return }
+        emojiGroups = categories.categories.compactMap { category in
+            guard case .emojiCategorySourceSearch(let source) = category.source else { return nil }
+            return (category.name, category.icon, source.emojis)
+        }
+        emojiSearchHeader.setGroups(emojiGroups.map { ($0.name, $0.icon) }, client: client)
+    }
+
     private func applyEmojiSnapshot() {
+        // A chosen group or a search shows its emoji alone.
+        let filtered: [String]? =
+            if presentationStyle == .input {
+                emojiSearchHeader.selectedIndex.flatMap { emojiGroups.indices.contains($0)
+                    ? emojiGroups[$0].emojis
+                    : nil
+                }
+            } else {
+                emojiSearchResults
+            }
+        if let filtered {
+            sectionTitles = [:]
+            sectionDetails = [:]
+            var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
+            snapshot.appendSections([.content])
+            snapshot.appendItems(filtered.uniqued().map { .emoji(.content, $0) }, toSection: .content)
+            dataSource.apply(snapshot, animatingDifferences: false)
+            collectionView.backgroundView = filtered.isEmpty ? emptyLabel() : nil
+            updateEmojiCategoryHighlight()
+            return
+        }
         var titles = [Section: String]()
         var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
         let recent = RecentEmojiStore.shared.emojis(accountID: accountID).uniqued()
