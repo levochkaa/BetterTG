@@ -2073,9 +2073,16 @@ ClientRestorableNavigationEntry {
             guard gesture.state == .began, contextIsCurrent,
                   let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
                   let id = dataSource.itemIdentifier(for: path),
-                  let actions = savedChatsPane?.menuActions(for: id, host: self), !actions.isEmpty,
-                  let cell = collectionView.cellForItem(at: path) else { return }
-            presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
+                  let savedChatsPane, case let actions = savedChatsPane.menuActions(for: id, host: self),
+                  !actions.isEmpty, let cell = collectionView.cellForItem(at: path) else { return }
+            // chatContextMenu: the sublist's preview over its items.
+            presentTelegramContextMenu(
+                sourceView: cell,
+                actions: actions,
+                tracking: gesture,
+                presentationStyle: .chatPreview,
+                previewController: savedChatsPane.previewController(for: id),
+            )
             return
         }
         if currentSharedTab == .members {

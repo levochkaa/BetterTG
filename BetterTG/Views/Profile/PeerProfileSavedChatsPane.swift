@@ -154,12 +154,12 @@ extension PeerProfileViewController {
 
     /// The sublist's chat: ChatController on Saved Messages' `.replyThread`.
     func open(_ item: Int64) {
-        let location = ChatLocation.current(
-            chatID: savedMessages.id,
-            topic: .messageTopicSavedMessages(MessageTopicSavedMessages(savedMessagesTopicId: item)),
-            client: client,
-        )
-        NavigationStorage.shared.push(.customChat(savedMessages, location: location))
+        NavigationStorage.shared.push(.customChat(savedMessages, location: location(of: item)))
+    }
+
+    /// The sublist as the menu's chat preview.
+    func previewController(for item: Int64) -> ChatViewController {
+        ChatViewController(customChat: savedMessages, location: location(of: item), presentationMode: .contextPreview)
     }
 
     /// chatContextMenuItems for a Saved Messages chat: Pin or Unpin, and Delete.
@@ -188,6 +188,14 @@ extension PeerProfileViewController {
                 confirmDelete(topic, host: host)
             },
         ]
+    }
+
+    private func location(of item: Int64) -> ChatLocation {
+        ChatLocation.current(
+            chatID: savedMessages.id,
+            topic: .messageTopicSavedMessages(MessageTopicSavedMessages(savedMessagesTopicId: item)),
+            client: client,
+        )
     }
 
     /// DeleteChatPeerActionSheetItem's question for a Saved Messages chat, then deleteSavedMessagesTopicHistory.
