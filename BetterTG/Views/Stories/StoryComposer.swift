@@ -38,6 +38,12 @@ import VideoToolbox
         let camera = StoryCameraViewController()
         camera.modalPresentationStyle = .fullScreen
         camera.onPhoto = { image in composer.openPreview(.photo(Self.canvas(image))) }
+        camera.onVideo = { url in
+            Task { @MainActor in
+                guard let media = await Self.videoMedia(url) else { return }
+                composer.openPreview(media)
+            }
+        }
         camera.onGallery = { [weak camera] in
             guard let camera else { return }
             composer.presentPicker(from: camera)
