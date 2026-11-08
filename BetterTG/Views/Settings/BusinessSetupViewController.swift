@@ -453,22 +453,15 @@ final class BusinessHoursViewController: SettingsListViewController {
         navigationController?.pushViewController(controller, animated: true)
     }
 
+    /// TimezoneSelectionScreen: every zone TDLib knows, searchable, the chosen one checked.
     private func chooseTimeZone() {
-        let alert = UIAlertController(
-            title: L10n.telegram("BusinessHoursSetup.TimeZone"),
-            message: nil,
-            preferredStyle: .actionSheet,
-        )
-        let current = Foundation.TimeZone.current.identifier
-        let candidates = timeZones.filter { $0.id == current || $0.id == timeZoneID }
-        for zone in candidates {
-            alert.addAction(UIAlertAction(title: zone.name, style: .default) { [weak self] _ in
-                self?.timeZoneID = zone.id
-                self?.reload()
-            })
+        let picker = BusinessTimeZonePickerViewController(zones: timeZones, selectedID: timeZoneID)
+        picker.onSelect = { [weak self] id in
+            self?.timeZoneID = id
+            self?.reload()
+            self?.navigationController?.popViewController(animated: true)
         }
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        present(alert, animated: true)
+        navigationController?.pushViewController(picker, animated: true)
     }
 
     private func save() {
@@ -580,6 +573,66 @@ final class BusinessHoursDayViewController: SettingsListViewController {
 
     private func changed() {
         onChange?(intervals)
+        reload()
+    }
+}
+
+// MARK: - BusinessTimeZonePickerViewController
+
+/// TimezoneSelectionScreen: the time zones from getTimeZones by UTC offset, each with its offset, filtered by the
+/// search
+/// field; a tap picks one.
+final class BusinessTimeZonePickerViewController: SettingsListViewController, TelegramNavigationSearchProvider,
+UISearchResultsUpdating {
+    let telegramNavigationSearch = UISearchController(searchResultsController: nil)
+    var onSelect: ((String) -> Void)?
+
+    private let zones: [TDNativeTimeZone]
+    private let selectedID: String
+    private var query = ""
+
+    init(zones: [TDNativeTimeZone], selectedID: String) {
+        self.zones = zones.sorted { ($0.utcTimeOffset, $0.name) < ($1.utcTimeOffset, $1.name) }
+        self.selectedID = selectedID
+        super.init()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.telegram("BusinessHoursSetup.TimeZone")
+        telegramNavigationSearch.obscuresBackgroundDuringPresentation = false
+        telegramNavigationSearch.searchResultsUpdater = self
+        telegramNavigationSearch.searchBar.placeholder = L10n.telegram("Common.Search")
+    }
+
+    override func makeSections() -> [SettingsSection] {
+        let normalized = query.trimmingCharacters(in: .whitespaces)
+        let shown = normalized.isEmpty
+            ? zones
+            : zones.filter { $0.name.localizedCaseInsensitiveContains(normalized) }
+        return [SettingsSection(rows: shown.map { zone in
+            SettingsRow(
+                title: zone.name,
+                detail: Self.offsetText(zone.utcTimeOffset),
+                accessory: zone.id == selectedID ? .checkmark : .none,
+            ) { [weak self] in self?.onSelect?(zone.id) }
+        })]
+    }
+
+    /// TimezoneListEntry's label: UTC +3, UTC -5:30.
+    static func offsetText(_ seconds: Int) -> String {
+        let sign = seconds >= 0 ? "+" : "-"
+        let hours = abs(seconds) / 3600
+        let minutes = abs(seconds) % 3600 / 60
+        return minutes == 0 ? "UTC \(sign)\(hours)" : String(format: "UTC %@%d:%02d", sign, hours, minutes)
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        query = searchController.searchBar.text ?? ""
         reload()
     }
 }
