@@ -75,6 +75,9 @@ extension RootVM {
         nc.scopedPublisher(&cancellables, for: .updateOwnedStarCount) { event in
             StarsBalanceStore.shared.receive(event.value, source: event.source)
         }
+        nc.scopedPublisher(&cancellables, for: .updateSavedMessagesTags) { event in
+            SavedMessagesTagsStore.shared.receive(event.value, clientID: event.source.clientID)
+        }
         nc.scopedPublisher(&cancellables, for: .updateServiceNotification) { event in
             guard event.source == TDLib.shared.activeUpdateSource else { return }
             ServiceNotificationPresenter.present(event.value)

@@ -1,5 +1,6 @@
 // MessageReactionView.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -75,6 +76,7 @@ final class MessageReactionStripView: UIView {
         horizontalAlignment: NSTextAlignment,
         onTap: @escaping (ReactionType) -> Void,
         onLongPress: ((ReactionType) -> Void)? = nil,
+        tagLabel: ((ReactionType) -> String?)? = nil,
     ) -> Bool {
         prepareForReuse()
         let visibleReactions = MessageReactionStateReducer.visible(reactions)
@@ -91,6 +93,7 @@ final class MessageReactionStripView: UIView {
                 interactionEnabled: !mutationInFlight && (canAddReactions || reaction.isChosen),
                 onTap: onTap,
                 onLongPress: onLongPress,
+                tag: tagLabel.map { label -> String? in label(reaction.type) },
             )
             button.setPlaybackVisible(playbackVisible)
             buttons.append(button)
@@ -236,6 +239,13 @@ private final class MessageReactionButton: UIControl {
     private let emojiLabel = UILabel()
     private let countLabel = UILabel()
     private let unreadDot = UIView()
+    /// ReactionButtonComponent's tag: the label, nil without one; the whole value is nil for a reaction.
+    private var tagTitle: String??
+    private let tagMask = CALayer()
+    private let tagShape = CAShapeLayer()
+    private let tagHole = CAShapeLayer()
+    private var emojiLeading: NSLayoutConstraint!
+    private var countLeading: NSLayoutConstraint!
     private var customEmojiView: CustomEmojiInlineView?
     private var reactionType: ReactionType?
     private var onTap: ((ReactionType) -> Void)?
@@ -277,12 +287,17 @@ private final class MessageReactionButton: UIControl {
         unreadDot.isAccessibilityElement = false
         addSubview(unreadDot)
 
+        self.emojiLeading = emojiLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        self.countLeading = countLabel.leadingAnchor.constraint(equalTo: emojiLabel.trailingAnchor, constant: 3)
+        tagHole.opacity = 0.5
+        tagMask.addSublayer(tagShape)
+        tagMask.addSublayer(tagHole)
         NSLayoutConstraint.activate([
-            emojiLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            emojiLeading,
             emojiLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             emojiLabel.widthAnchor.constraint(equalToConstant: 20),
             emojiLabel.heightAnchor.constraint(equalToConstant: 22),
-            countLabel.leadingAnchor.constraint(equalTo: emojiLabel.trailingAnchor, constant: 3),
+            countLeading,
             countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             unreadDot.topAnchor.constraint(equalTo: topAnchor, constant: 3),
@@ -305,7 +320,68 @@ private final class MessageReactionButton: UIControl {
             CGSize(width: 100, height: 22),
         )
         .width)
+        if let tagTitle {
+            // ReactionButtonComponent's tag: 20 pt for the image and 11 pt each side, one more without a label,
+            // otherwise 2 pt and the label and 5 pt more.
+            return CGSize(width: tagTitle == nil ? 43 : 20 + 22 + 2 + countWidth + 5, height: 30)
+        }
         return CGSize(width: max(44, 8 + 20 + 3 + countWidth + 8), height: 30)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard tagTitle != nil else { return }
+        tagMask.frame = bounds
+        tagShape.frame = bounds
+        tagHole.frame = bounds
+        tagShape.path = Self.tagPath(width: bounds.width, height: bounds.height)
+        // The ring at the tip shows through at half strength.
+        let hole = UIBezierPath(ovalIn: CGRect(x: bounds.width - 12, y: (bounds.height - 6) / 2, width: 6, height: 6))
+        let shape = UIBezierPath(cgPath: Self.tagPath(width: bounds.width, height: bounds.height))
+        shape.append(hole)
+        shape.usesEvenOddFillRule = true
+        tagShape.path = shape.cgPath
+        tagShape.fillRule = .evenOdd
+        tagHole.path = hole.cgPath
+    }
+
+    /// MessageTagBackground.svg (23 × 30) stretched after its 8 pt left cap: rounded on the left, a point on the
+    /// right.
+    private static func tagPath(width: CGFloat, height _: CGFloat) -> CGPath {
+        let dx = max(0, width - 23)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 0, y: 6))
+        path.addCurve(
+            to: CGPoint(x: 6, y: 0),
+            controlPoint1: CGPoint(x: 0, y: 2.686),
+            controlPoint2: CGPoint(x: 2.686, y: 0),
+        )
+        path.addLine(to: CGPoint(x: 8.155 + dx, y: 0))
+        path.addCurve(
+            to: CGPoint(x: 14.402 + dx, y: 3.002),
+            controlPoint1: CGPoint(x: 10.585 + dx, y: 0),
+            controlPoint2: CGPoint(x: 12.884 + dx, y: 1.105),
+        )
+        path.addLine(to: CGPoint(x: 22.001 + dx, y: 12.501))
+        path.addCurve(
+            to: CGPoint(x: 22.001 + dx, y: 17.499),
+            controlPoint1: CGPoint(x: 23.17 + dx, y: 13.962),
+            controlPoint2: CGPoint(x: 23.17 + dx, y: 16.038),
+        )
+        path.addLine(to: CGPoint(x: 14.402 + dx, y: 26.998))
+        path.addCurve(
+            to: CGPoint(x: 8.155 + dx, y: 30),
+            controlPoint1: CGPoint(x: 12.884 + dx, y: 28.895),
+            controlPoint2: CGPoint(x: 10.585 + dx, y: 30),
+        )
+        path.addLine(to: CGPoint(x: 6, y: 30))
+        path.addCurve(
+            to: CGPoint(x: 0, y: 24),
+            controlPoint1: CGPoint(x: 2.686, y: 30),
+            controlPoint2: CGPoint(x: 0, y: 27.314),
+        )
+        path.close()
+        return path.cgPath
     }
 
     func configure(
@@ -314,15 +390,33 @@ private final class MessageReactionButton: UIControl {
         interactionEnabled: Bool,
         onTap: @escaping (ReactionType) -> Void,
         onLongPress: ((ReactionType) -> Void)? = nil,
+        tag: String?? = nil,
     ) {
         prepareForReuse()
         reactionType = reaction.type
         self.onTap = onTap
         self.onLongPress = onLongPress
+        tagTitle = tag
         longPressRecognizer.isEnabled = onLongPress != nil
         emojiLabel.text = reaction.type.standardEmoji ?? "◇"
         countLabel.text = compactNumericCountString(reaction.totalCount)
         unreadDot.isHidden = !unread
+        // Saved Messages' tags: the tag shape, the image 6 pt in, and the label in place of the count.
+        let isTag = tagTitle != nil
+        emojiLeading.constant = isTag ? 6 : 8
+        // The label starts 32 pt in (textOrigin).
+        countLeading.constant = isTag ? 6 : 3
+        layer.cornerRadius = isTag ? 0 : 15
+        layer.borderWidth = isTag ? 0 : 1
+        layer.mask = isTag ? tagMask : nil
+        if let tagTitle {
+            countLabel.text = tagTitle
+            countLabel.isHidden = tagTitle == nil
+            unreadDot.isHidden = true
+            setNeedsLayout()
+        } else {
+            countLabel.isHidden = false
+        }
         isEnabled = interactionEnabled
         alpha = interactionEnabled ? 1 : 0.72
         backgroundColor = reaction.isChosen
@@ -402,5 +496,47 @@ private final class MessageReactionButton: UIControl {
         guard gesture.state == .began, let reactionType, let onLongPress else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onLongPress(reactionType)
+    }
+}
+
+// MARK: - SavedMessagesTagsStore
+
+/// getSavedMessagesTags and updateSavedMessagesTags for the client: the labels the account gave its Saved Messages
+/// tags, which the tags show in place of a count.
+@MainActor final class SavedMessagesTagsStore {
+    static let shared = SavedMessagesTagsStore()
+
+    let changes = PassthroughSubject<Void, Never>()
+
+    private var clientID: Int32?
+    private var labels = [ReactionType: String]()
+    private var isLoading = false
+
+    func receive(_ update: TDNativeUpdateSavedMessagesTags, clientID: Int32) {
+        guard update.savedMessagesTopicId == 0 else { return }
+        apply(update.tags.tags, clientID: clientID)
+    }
+
+    /// The tag's label, loading the labels the first time the client asks.
+    func label(for type: ReactionType, client: TDLibClient) -> String? {
+        if clientID != client.id, !isLoading {
+            isLoading = true
+            Task { [weak self] in
+                let tags = try? await client.send(TDNativeRequests.getSavedMessagesTags(savedMessagesTopicId: 0))
+                guard let self else { return }
+                isLoading = false
+                if let tags { apply(tags.tags, clientID: client.id) }
+            }
+        }
+        guard clientID == client.id, let label = labels[type], !label.isEmpty else { return nil }
+        return label
+    }
+
+    private func apply(_ tags: [TDNativeSavedMessagesTag], clientID: Int32) {
+        let updated = Dictionary(tags.map { ($0.tag, $0.label) }, uniquingKeysWith: { first, _ in first })
+        guard updated != labels || self.clientID != clientID else { return }
+        self.clientID = clientID
+        labels = updated
+        changes.send()
     }
 }

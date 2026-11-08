@@ -1135,6 +1135,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 : (message.message.isOutgoing ? .right : .left),
             onTap: onReactionTap,
             onLongPress: message.reactions?.canGetAddedReactions == true ? onReactionLongPress : nil,
+            // Saved Messages' reactions are tags (areReactionsTags), labelled as the account named them.
+            tagLabel: message.reactions?.areTags == true
+                ? { SavedMessagesTagsStore.shared.label(for: $0, client: client) }
+                : nil,
         )
         reactionView.isHidden = !hasReactions
 

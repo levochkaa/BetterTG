@@ -4776,6 +4776,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             }
             .store(in: &cancellables)
+        // A Saved Messages tag's label redraws the tags that show it.
+        SavedMessagesTagsStore.shared
+            .changes
+            .sink { [weak self] in
+                guard let self, chatVM.customChat.isSavedMessages else { return }
+                reconfigureMessages(ids: chatVM.messages.map(\.displayedID))
+            }
+            .store(in: &cancellables)
         chatVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
