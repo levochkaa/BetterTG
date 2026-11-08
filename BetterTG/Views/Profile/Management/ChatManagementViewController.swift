@@ -74,6 +74,13 @@ final class ChatManagementViewController: SettingsListViewController {
             .store(in: &cancellables)
         let source = TDLib.shared.activeUpdateSource
         let chatID = chatID
+        // A community made from here, or left elsewhere, changes the community section.
+        nc.scopedPublisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] event in
+            guard let self, event.source == source, event.value.supergroupId == target?.supergroupID,
+                  event.value.supergroupFullInfo.communityId != target?.supergroupInfo?.communityId
+            else { return }
+            load()
+        }
         nc.scopedPublisher(&cancellables, for: .updateChatWelcomeMessages) { [weak self] event in
             guard let self, event.source == source, event.value.chatId == chatID else { return }
             welcomeMessages = event.value.messages
@@ -119,6 +126,25 @@ final class ChatManagementViewController: SettingsListViewController {
         let management = managementRows(target)
         if !management.isEmpty { sections.append(SettingsSection(rows: management)) }
         if let hideMembers = hideMembersSection(target) { sections.append(hideMembers) }
+        // PeerInfoProfileItems' community section: the owner of a chat outside a community may start one around it.
+        // Leaving a community waits for TDLib.
+        if target.isCreator, let info = target.supergroupInfo, info.communityId == 0 {
+            let isChannel = isChannel
+            sections.append(SettingsSection(
+                footer: L10n.telegram(isChannel ? "PeerInfo.Community.ChannelInfo" : "PeerInfo.Community.GroupInfo"),
+                rows: [SettingsRow(
+                    title: L10n.telegram(isChannel ? "PeerInfo.Community.AddChannel" : "PeerInfo.Community.AddGroup"),
+                    style: .action(destructive: false),
+                    symbol: "person.3",
+                ) { [weak self] in
+                    self?.push(CommunitiesViewController(
+                        chat: target.chat,
+                        isChannel: isChannel,
+                        memberCount: info.memberCount,
+                    ))
+                }],
+            ))
+        }
         if target.isCreator {
             sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram(isChannel ? "ChannelInfo.DeleteChannel" : "Group.DeleteGroup"),
