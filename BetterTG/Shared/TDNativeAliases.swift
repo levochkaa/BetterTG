@@ -239,6 +239,7 @@ public typealias TextQuote = TDNativeTextQuote
 public typealias ThemeParameters = TDNativeThemeParameters
 public typealias Thumbnail = TDNativeThumbnail
 public typealias TimeZone = TDNativeTimeZone
+public typealias TopChatCategory = TDNativeTopChatCategory
 public typealias UnreadReaction = TDNativeUnreadReaction
 public typealias Update = TDNativeUpdate
 public typealias UpdateAccentColors = TDNativeUpdateAccentColors
