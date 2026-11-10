@@ -108,6 +108,18 @@ import UIKit
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()
+        #if DEBUG
+            // `-background-launch`: hands TDLib back as a launch into the background does, which no simulator makes.
+            let simulatesBackgroundLaunch = ProcessInfo.processInfo.arguments.contains("-background-launch")
+        #else
+            let simulatesBackgroundLaunch = false
+        #endif
+        // Asked once the scene has connected, in this same turn, with the notification response that started the app:
+        // until a scene comes to the foreground, an app with scenes is in the background on every launch.
+        Task { @MainActor in
+            guard UIApplication.shared.applicationState == .background || simulatesBackgroundLaunch else { return }
+            TDLib.shared.releaseAfterBackgroundLaunch()
+        }
         return true
     }
 
@@ -273,8 +285,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
 
         if let response = connectionOptions.notificationResponse {
+            // Held from here, before a launch into the background hands TDLib back.
+            TDLib.shared.beginBackgroundLaunchWork()
             Task {
                 await PushRelayCoordinator.shared.handleNotificationResponse(response)
+                TDLib.shared.endBackgroundLaunchWork()
             }
         }
     }

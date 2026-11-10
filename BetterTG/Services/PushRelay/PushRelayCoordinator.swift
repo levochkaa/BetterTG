@@ -181,7 +181,9 @@ import UserNotifications
                 response.notification.request.identifier,
             )
             .inserted else { return }
+            TDLib.shared.beginBackgroundLaunchWork()
             await sendQuickReply(response.userText, route: route)
+            TDLib.shared.endBackgroundLaunchWork()
         } else {
             handleNotificationResponse(userInfo: response.notification.request.content.userInfo)
         }

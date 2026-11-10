@@ -54,6 +54,8 @@ final class TDLib: @unchecked Sendable {
     private var ownershipBackgroundTaskEndTask: Task<Void, Never>?
     private var lifecycleSuspended = false
     private var wantsForegroundOwnership = true
+    private var releasesAfterBackgroundLaunch = false
+    private var backgroundLaunchWorkCount = 0
     private let clientLock = NSLock()
     private var storedActiveClient: ClientSnapshot?
     private var activationGeneration: UUID?
@@ -215,8 +217,30 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
+    /// The system started the app in the background: to prewarm it, for a push or for a notification's action. No
+    /// scene leaves the foreground then, so `releaseForNotificationService()` never runs, and iOS kills a process it
+    /// suspends with the App Group's file locks (0xDEAD10CC, which it reports as a crash). TDLib goes back as the
+    /// work that needs it ends.
+    @MainActor func releaseAfterBackgroundLaunch() {
+        releasesAfterBackgroundLaunch = true
+        releaseAfterBackgroundLaunchIfIdle()
+    }
+
+    /// Work that an app launched in the background needs TDLib for: a quick reply from the notification that started
+    /// it. Every call pairs with `endBackgroundLaunchWork()`.
+    @MainActor func beginBackgroundLaunchWork() {
+        backgroundLaunchWorkCount += 1
+    }
+
+    @MainActor func endBackgroundLaunchWork() {
+        backgroundLaunchWorkCount -= 1
+        releaseAfterBackgroundLaunchIfIdle()
+    }
+
     @MainActor func resumeAfterNotificationService() {
         wantsForegroundOwnership = true
+        // In the foreground the scene's own move to the background hands TDLib back.
+        releasesAfterBackgroundLaunch = false
         guard started, lifecycleSuspended, ownershipResumeTask == nil else { return }
         let releaseTask = ownershipReleaseTask
         ownershipResumeTask = Task { @MainActor [weak self] in
@@ -382,6 +406,13 @@ final class TDLib: @unchecked Sendable {
         clientReadiness.update(ready: true, source: source)
     }
     #endif
+
+    @MainActor private func releaseAfterBackgroundLaunchIfIdle() {
+        guard releasesAfterBackgroundLaunch, backgroundLaunchWorkCount == 0 else { return }
+        releasesAfterBackgroundLaunch = false
+        log("TDLib ownership released after a background launch")
+        releaseForNotificationService()
+    }
 
     private func publishAuthorizationState(_ authorizationState: AuthorizationState, source: TdUpdateSource) {
         log("TDLib authorization state received: \(authorizationState.diagnosticName)")
