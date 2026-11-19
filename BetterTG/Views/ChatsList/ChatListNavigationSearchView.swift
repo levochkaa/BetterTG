@@ -46,6 +46,8 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     /// The close button's action in place of clearing the field and its focus, for an owner that closes the search
     /// itself.
     var onClose: (() -> Void)?
+    /// The token before the query went with Backspace or the clear button (Telegram's searchTokensUpdated).
+    var onTokenRemoved: (() -> Void)?
     /// Whether the field's focus opens and closes the search. A chat's search stays open with the keyboard down, its
     /// bar presenting the field (`setPresented`).
     var followsFocus = true
@@ -84,6 +86,8 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private var lastContentAlpha: CGFloat = 1
     /// The alpha the text colours and placeholder were last built with.
     private var appliedTextAlpha: CGFloat?
+    /// The token the owner set, which the field's own editing can take away.
+    private var hasToken = false
 
     var isActive: Bool { searchField.isFirstResponder }
     var hasMarkedText: Bool { searchField.markedTextRange != nil }
@@ -163,6 +167,12 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.text = query
     }
 
+    /// Telegram's SearchBarToken before the query, such as the folder or the archive a search keeps to.
+    func setToken(_ token: UISearchToken?) {
+        hasToken = token != nil
+        searchField.tokens = token.map { [$0] } ?? []
+    }
+
     func unfocus() {
         searchField.resignFirstResponder()
     }
@@ -205,6 +215,12 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     func textFieldDidEndEditing(_: UITextField) {
         if followsFocus { setActive(false) }
+    }
+
+    /// The clear button takes the token with the query, as Telegram's searchTextClearTokens does.
+    func textFieldShouldClear(_: UITextField) -> Bool {
+        DispatchQueue.main.async { [weak self] in self?.reportTokenRemoval() }
+        return true
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -323,7 +339,14 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     }
 
     @objc private func queryChanged() {
+        reportTokenRemoval()
         onQueryChange?(searchField.text ?? "")
+    }
+
+    private func reportTokenRemoval() {
+        guard hasToken, searchField.tokens.isEmpty else { return }
+        hasToken = false
+        onTokenRemoved?()
     }
 
     @objc private func closeSearch() {

@@ -358,6 +358,22 @@ import TDLibKit
         return peerType(for: record) != nil
     }
 
+    /// Whether TDLib puts the chat in `list` (`chat.chatLists`), whether or not the list has loaded that far: a
+    /// position comes only with the loaded part.
+    func belongs(chatID: Int64, to list: ChatList) -> Bool {
+        records[chatID]?.chatLists.contains(list) ?? false
+    }
+
+    /// The chats TDLib puts in `list`, loaded into its pages or not.
+    func chatIDs(belongingTo list: ChatList) -> [Int64] {
+        records.values.filter { $0.chatLists.contains(list) }.map(\.id)
+    }
+
+    /// The chat's type as TDLib sent it, secret chats included.
+    func chatType(chatID: Int64) -> ChatType? {
+        records[chatID]?.type
+    }
+
     /// The peer of a chat TDLib has sent, whichever lists hold it.
     func peerType(chatID: Int64) -> CustomChat.CustomChatType? {
         records[chatID].flatMap(peerType(for:))

@@ -7,7 +7,8 @@ import UIKit
 // MARK: - ChatListSearchResultsViewController
 
 /// Telegram's chat list search (ChatListSearchListPaneNode, Chats pane) over TDLib: chats and contacts, global public
-/// chats, then messages from the searched chat list. Every result belongs to the client that issued its query.
+/// chats, then messages from the searched chat list. Every result belongs to the client that issued its query. A
+/// search in the archive or a folder keeps to its chats (`ChatListSearchScope`) until its token is removed.
 @MainActor final class ChatListSearchResultsViewController: UIViewController, UITableViewDelegate {
     private enum Section: Hashable {
         /// The empty search's People row and recently found chats (ChatListSearchListPaneNode with no query).
@@ -67,8 +68,10 @@ import UIKit
         }
     }
 
+    /// Where the search looks: the list it opened from, or the main list once the field's token is removed.
+    private(set) var scope: ChatListSearchScope
+
     private let rootVM: RootVM
-    private let chatList: ChatList
     private let actionAuthority: ChatListActionAuthority
     private let tableView = TelegramListTableView(frame: .zero, style: .plain)
     /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip: at the bottom like the chat list's
@@ -87,8 +90,6 @@ import UIKit
     /// ChatListSearchListPaneNode's searchScope for the Chats tab's messages: all chats, or private chats, groups or
     /// channels only, chosen from the Messages header.
     private var messagesScope: SearchMessagesChatTypeFilter?
-    /// The chat type the shown messages were searched with, which their next pages keep.
-    private var searchedMessageType: SearchMessagesChatTypeFilter?
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let emptyView = ChatListSearchEmptyView()
     private var dataSource: UITableViewDiffableDataSource<Section, Item>!
@@ -106,7 +107,8 @@ import UIKit
     private var messageKeys = [MessageKey]()
     /// Row models for found messages; a row keeps its model while it may re-apply a late sender name.
     private var messageChats = [MessageKey: CustomChat]()
-    private var nextMessagesOffset = ""
+    /// The shown messages' search, which their next pages continue.
+    private var messageSearch: ChatListMessageSearch?
     private var isLoadingMessages = false
     /// TDLib's top chats with people and recently found chats, shown before a query is typed.
     private var topPeerIDs = [Int64]()
@@ -126,9 +128,9 @@ import UIKit
         ChatListSearchFilter.allCases.filter { $0 != .downloads || hasDownloads }
     }
 
-    init(rootVM: RootVM, chatList: ChatList, actionAuthority: ChatListActionAuthority) {
+    init(rootVM: RootVM, scope: ChatListSearchScope, actionAuthority: ChatListActionAuthority) {
         self.rootVM = rootVM
-        self.chatList = chatList
+        self.scope = scope
         self.actionAuthority = actionAuthority
         super.init(nibName: nil, bundle: nil)
     }
@@ -274,6 +276,15 @@ import UIKit
         refreshDownloadsAvailability()
         guard query.isEmpty else { return }
         loadEmptyState()
+    }
+
+    /// Searches again where the field's token now says.
+    func setScope(_ scope: ChatListSearchScope) {
+        guard scope != self.scope else { return }
+        self.scope = scope
+        guard isViewLoaded else { return }
+        startSearch()
+        applyFilter()
     }
 
     func updateQuery(_ rawQuery: String) {
@@ -508,7 +519,7 @@ import UIKit
             if !showsMessages { filterResults.reset() }
             return
         }
-        filterResults.show(filter: filter, query: query, client: actionAuthority.client, chatList: chatList)
+        filterResults.show(filter: filter, query: query, client: actionAuthority.client, scope: scope)
     }
 
     private func updateFilterPicker() {
@@ -799,7 +810,7 @@ import UIKit
         globalChatIDs = []
         messageKeys = []
         messageChats = [:]
-        nextMessagesOffset = ""
+        messageSearch = nil
         guard !query.isEmpty else {
             localChatIDs = []
             isLoadingMessages = false
@@ -854,6 +865,7 @@ import UIKit
         guard isCurrent(requestGeneration, scope) else { return }
         // Telegram lists the account itself only as Saved Messages, matched by that title above.
         ids += (chats?.chatIds ?? []).filter { $0 != accountUserID }
+        let searchScope = self.scope
         // Contacts are people, which the Channels and Apps tabs leave out.
         let contacts = filter == .chats ? try? await client.searchContacts(query: query, limit: 50) : nil
         guard isCurrent(requestGeneration, scope) else { return }
@@ -864,7 +876,7 @@ import UIKit
             if let chat { ids.append(chat.id) }
         }
         guard let local = await hydrate(
-            Self.deduplicated(ids),
+            Self.deduplicated(ids).filter(searchScope.admits),
             generation: requestGeneration,
             scope: scope,
             client: client,
@@ -880,33 +892,34 @@ import UIKit
         }
         guard isCurrent(requestGeneration, scope) else { return }
 
-        let chatList = chatList
         let messagesLimit = Self.messagesFirstPageLimit
         async let serverChats = client.searchChatsOnServer(limit: 50, query: query, typeFilter: typeFilter)
-        async let publicChats = client.searchPublicChats(query: query, typeFilter: typeFilter)
+        // Public chats are the account's to find only outside a folder or the archive, as Telegram's folder token
+        // leaves out its remote peers.
+        async let publicChats = searchScope.isRestricted
+            ? nil
+            : client.searchPublicChats(query: query, typeFilter: typeFilter)
         // The Channels tab finds channel posts too; the Apps tab finds no messages.
         let messageTypeFilter: SearchMessagesChatTypeFilter? = filter == .channels
             ? .searchMessagesChatTypeFilterChannel
             : filter == .chats ? messagesScope : nil
-        searchedMessageType = messageTypeFilter
-        async let foundMessages = filter == .apps
+        let search = filter == .apps
             ? nil
-            : client.searchMessages(
-                chatList: chatList,
+            : ChatListMessageSearch(
+                client: client,
+                scope: searchScope,
                 query: query,
-                offset: "",
-                limit: messagesLimit,
                 filter: nil,
                 chatTypeFilter: messageTypeFilter,
-                minDate: 0,
-                maxDate: 0,
             )
+        messageSearch = search
+        async let foundMessages = search?.loadMore(limit: messagesLimit)
 
         // The account's own chats found on the server join the local section, as Telegram's remote peers do.
         let server = try? await serverChats
         guard isCurrent(requestGeneration, scope) else { return }
         let serverIDs = Self.deduplicated((server?.chatIds ?? []).filter {
-            $0 != accountUserID && !localChatIDs.contains($0)
+            $0 != accountUserID && !localChatIDs.contains($0) && searchScope.admits($0)
         })
         guard let hydratedServer = await hydrate(
             serverIDs, generation: requestGeneration, scope: scope, client: client,
@@ -924,22 +937,19 @@ import UIKit
         globalChatIDs = hydratedPublic
         applySnapshot()
 
-        let found = try? await foundMessages
+        let found = await foundMessages
         guard isCurrent(requestGeneration, scope) else { return }
         if let found {
-            guard await appendMessages(found.messages, generation: requestGeneration, scope: scope, client: client)
+            guard await appendMessages(found, generation: requestGeneration, scope: scope, client: client)
             else { return }
-            nextMessagesOffset = found.nextOffset
         }
         completedGeneration = requestGeneration
     }
 
     private func loadMoreMessages() {
-        guard searchTask == nil, moreMessagesTask == nil, !nextMessagesOffset.isEmpty, !query.isEmpty else { return }
+        guard searchTask == nil, moreMessagesTask == nil, let search = messageSearch, search.hasMore, !query.isEmpty
+        else { return }
         let requestGeneration = generation
-        let query = query
-        let offset = nextMessagesOffset
-        let chatList = chatList
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         // The task starts after this display callback, so the loading row is not inserted mid-display.
@@ -955,32 +965,17 @@ import UIKit
                     scheduleMoreMessagesCheck()
                 }
             }
-            let messageType = searchedMessageType
-            let found = try? await client.searchMessages(
-                chatList: chatList,
-                query: query,
-                offset: offset,
-                limit: Self.messagesPageLimit,
-                filter: nil,
-                chatTypeFilter: messageType,
-                minDate: 0,
-                maxDate: 0,
-            )
-            guard isCurrent(requestGeneration, scope) else { return }
-            guard let found else {
-                // A failed page ends paging instead of retrying from every displayed row.
-                nextMessagesOffset = ""
-                return
-            }
-            guard await appendMessages(found.messages, generation: requestGeneration, scope: scope, client: client)
+            // A failed page ends paging instead of retrying from every displayed row.
+            guard let found = await search.loadMore(limit: Self.messagesPageLimit),
+                  isCurrent(requestGeneration, scope)
             else { return }
-            nextMessagesOffset = found.nextOffset
+            _ = await appendMessages(found, generation: requestGeneration, scope: scope, client: client)
         }
     }
 
     /// A short page leaves its last rows on screen with no later display callback to request the next page.
     private func scheduleMoreMessagesCheck() {
-        guard !nextMessagesOffset.isEmpty else { return }
+        guard messageSearch?.hasMore == true else { return }
         DispatchQueue.main.async { [weak self] in self?.loadMoreMessagesIfNeeded() }
     }
 
@@ -1033,7 +1028,7 @@ import UIKit
             // A found message shows as its chat's row with that message, as Telegram's ChatListItem does.
             messageChats[key] = CustomChat(
                 chat: chat.chat,
-                position: ChatPosition(isPinned: false, list: chatList, order: 0, source: nil),
+                position: ChatPosition(isPinned: false, list: self.scope.chatList, order: 0, source: nil),
                 unreadCount: 0,
                 type: chat.type,
                 lastMessage: message,
@@ -1058,11 +1053,12 @@ import UIKit
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         let requestGeneration = generation
+        let searchScope = self.scope
         emptyStateTask = Task { [weak self] in
             async let top = client.getTopChats(category: .topChatCategoryUsers, limit: 30)
             async let recent = client.searchRecentlyFoundChats(query: "", typeFilter: nil, limit: 50)
-            let topIDs = await (try? top)?.chatIds ?? []
-            let recentIDs = await (try? recent)?.chatIds ?? []
+            let topIDs = await ((try? top)?.chatIds ?? []).filter(searchScope.admits)
+            let recentIDs = await ((try? recent)?.chatIds ?? []).filter(searchScope.admits)
             guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
                   let hydratedTop = await hydrate(topIDs, generation: requestGeneration, scope: scope, client: client),
                   let hydratedRecent = await hydrate(
@@ -1086,9 +1082,10 @@ import UIKit
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         let requestGeneration = generation
+        let searchScope = self.scope
         emptyStateTask = Task { [weak self] in
-            let recentIDs = await (try? client.getTopChats(category: .topChatCategoryWebAppBots, limit: 30))?
-                .chatIds ?? []
+            let recentIDs = await ((try? client.getTopChats(category: .topChatCategoryWebAppBots, limit: 30))?
+                .chatIds ?? []).filter(searchScope.admits)
             guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
                   let hydrated = await hydrate(recentIDs, generation: requestGeneration, scope: scope, client: client)
             else { return }
@@ -1100,7 +1097,8 @@ import UIKit
 
     /// bots.getPopularAppBots a page at a time, leaving out the apps already listed.
     private func loadMorePopularApps() {
-        guard filter == .apps, query.isEmpty, popularAppsTask == nil, popularAppsOffset != "-" else { return }
+        guard filter == .apps, query.isEmpty, popularAppsTask == nil, popularAppsOffset != "-", !scope.isRestricted
+        else { return }
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         let requestGeneration = generation
@@ -1136,15 +1134,17 @@ import UIKit
         let client = actionAuthority.client
         let requestGeneration = generation
         let store = TelegramChatListStore.shared
+        let searchScope = self.scope
         let joined = (store.chatIDs(in: .chatListMain) + store.chatIDs(in: .chatListArchive)).filter { id in
-            if case .supergroup(let supergroup)? = store.peerType(chatID: id) {
-                supergroup.isChannel
-            } else {
-                false
+            guard searchScope.admits(id), case .supergroup(let supergroup)? = store.peerType(chatID: id) else {
+                return false
             }
+            return supergroup.isChannel
         }
         emptyStateTask = Task { [weak self] in
-            let recommended = await (try? client.send(TDNativeRequests.getRecommendedChats()))?.chatIds ?? []
+            let recommended = searchScope.isRestricted
+                ? []
+                : await (try? client.send(TDNativeRequests.getRecommendedChats()))?.chatIds ?? []
             guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
                   let hydratedJoined = await hydrate(
                       joined,
@@ -1412,7 +1412,7 @@ import UIKit
         globalChatIDs = []
         messageKeys = []
         messageChats = [:]
-        nextMessagesOffset = ""
+        messageSearch = nil
         isLoadingMessages = false
         if isViewLoaded { applySnapshot() }
     }
@@ -1454,9 +1454,12 @@ import UIKit
                 snapshot.appendSections([.topPeers])
                 snapshot.appendItems([.topPeers])
             }
-            if !recentChatIDs.isEmpty {
+            // A chat leaves the rows while its search reloads it: its row would stay blank, as the same item keeps its
+            // cell.
+            let recent = recentChatIDs.filter { chatsByID[$0] != nil }
+            if !recent.isEmpty {
                 snapshot.appendSections([.recent])
-                snapshot.appendItems(recentChatIDs.map(Item.recentPeer))
+                snapshot.appendItems(recent.map(Item.recentPeer))
             }
         }
         if !localChatIDs.isEmpty {

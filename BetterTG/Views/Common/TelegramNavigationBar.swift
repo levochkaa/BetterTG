@@ -20,6 +20,11 @@ final class TelegramListNavigationBar: UIView {
         didSet { searchView.onQueryChange = onQueryChange }
     }
 
+    /// The token before the query went, which widens the search to the main list.
+    var onSearchTokenRemoved: (() -> Void)? {
+        didSet { searchView.onTokenRemoved = onSearchTokenRemoved }
+    }
+
     /// Makes the title a button, like Telegram's ChatTitleComponent opening the peer's info.
     var onTitleTap: (() -> Void)? {
         didSet { updateTitleInteraction() }
@@ -263,6 +268,11 @@ final class TelegramListNavigationBar: UIView {
             return
         }
         openButtonSearch(animated: animated)
+    }
+
+    /// The folder or the archive the search keeps to, as a token before the query; nil takes it away.
+    func setSearchToken(_ token: UISearchToken?) {
+        searchView.setToken(token)
     }
 
     /// A search with a query comes back open, without the keyboard unless `focusSearch` asks for it.

@@ -24,9 +24,11 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private let navigationBarView: TelegramListNavigationBar
     private lazy var searchResultsController = ChatListSearchResultsViewController(
         rootVM: rootVM,
-        chatList: .chatListArchive,
+        scope: .archive,
         actionAuthority: actionAuthority,
     )
+    /// Whether the search is open, with the archive token before its query.
+    private var isSearchScopeOpen = false
     /// A non-empty query shows TDLib results over the archive, as Telegram's search container does.
     private var isShowingSearchResults = false
     private var navigationBarHeightConstraint: NSLayoutConstraint!
@@ -117,8 +119,12 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             updateSearchResults(animated: true)
             scheduleRestorationRetry()
         }
+        navigationBarView.onSearchTokenRemoved = { [weak self] in
+            self?.searchResultsController.setScope(.main)
+        }
         navigationBarView.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
+            updateSearchScope(active: active)
             folderController.setSearchActive(
                 active, animated: !isRestoringSearchFocus, preservingViewport: isRestoringSearchFocus,
             )
@@ -483,7 +489,18 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         updateSearchResults(animated: false)
     }
 
+    /// Telegram's archive token: the archive's search keeps to the archive until the token is removed, which searches
+    /// the main list, or the search closes.
+    private func updateSearchScope(active: Bool) {
+        let isOpen = active || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard isOpen != isSearchScopeOpen else { return }
+        isSearchScopeOpen = isOpen
+        searchResultsController.setScope(.archive)
+        navigationBarView.setSearchToken(isOpen ? ChatListSearchScope.archive.token : nil)
+    }
+
     private func updateSearchResults(animated: Bool) {
+        updateSearchScope(active: navigationBarView.isSearchActive)
         searchResultsController.updateQuery(query)
         let showsResults = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard showsResults != isShowingSearchResults else { return }

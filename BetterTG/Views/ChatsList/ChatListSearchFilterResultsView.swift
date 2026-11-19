@@ -94,9 +94,9 @@ enum ChatListSearchFilter: Int, CaseIterable {
     private var filter = ChatListSearchFilter.media
     private var query = ""
     private var client: TDLibClient?
-    private var chatList: ChatList?
+    private var scope = ChatListSearchScope.main
     private var messages = [Message]()
-    private var nextOffset = ""
+    private var search: ChatListMessageSearch?
     private var loadTask: Task<Void, Never>?
     private var generation = UInt64.zero
 
@@ -157,19 +157,27 @@ enum ChatListSearchFilter: Int, CaseIterable {
     }
 
     /// Starts the tab's search over, unless it already shows this tab and query from this client.
-    func show(filter: ChatListSearchFilter, query: String, client: TDLibClient, chatList: ChatList) {
-        guard filter != self.filter || query != self.query || client.id != self.client?.id || messages.isEmpty
-            && loadTask == nil else { return }
+    func show(filter: ChatListSearchFilter, query: String, client: TDLibClient, scope: ChatListSearchScope) {
+        guard filter != self.filter || query != self.query || client.id != self.client?.id || scope != self.scope
+            || messages.isEmpty && loadTask == nil else { return }
         let layoutChanged = (filter == .media) != (self.filter == .media)
         self.filter = filter
         self.query = query
         self.client = client
-        self.chatList = chatList
+        self.scope = scope
         loadTask?.cancel()
         loadTask = nil
         generation &+= 1
         messages = []
-        nextOffset = ""
+        search = filter.messagesFilter.map { messagesFilter in
+            ChatListMessageSearch(
+                client: client,
+                scope: scope,
+                query: query,
+                filter: messagesFilter,
+                chatTypeFilter: nil,
+            )
+        }
         emptyText.text = filter.emptyText
         if layoutChanged { collectionView.setCollectionViewLayout(makeLayout(), animated: false) }
         collectionView.reloadData()
@@ -182,7 +190,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
         loadTask = nil
         generation &+= 1
         messages = []
-        nextOffset = ""
+        search = nil
         client = nil
         collectionView.reloadData()
         updateState()
@@ -246,7 +254,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
     }
 
     func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        if indexPath.item >= messages.count - 12, !nextOffset.isEmpty { loadPage() }
+        if indexPath.item >= messages.count - 12, search?.hasMore == true { loadPage() }
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -261,36 +269,22 @@ enum ChatListSearchFilter: Int, CaseIterable {
     }
 
     private func loadPage() {
-        guard loadTask == nil, let client, let chatList, let messagesFilter = filter.messagesFilter else { return }
+        guard loadTask == nil, let search, search.hasMore else { return }
         let requestGeneration = generation
-        let offset = nextOffset
-        let query = query
         updateState(loading: true)
         loadTask = Task { [weak self] in
-            let found = try? await client.searchMessages(
-                chatList: chatList,
-                query: query,
-                offset: offset,
-                limit: Self.pageLimit,
-                filter: messagesFilter,
-                chatTypeFilter: nil,
-                minDate: 0,
-                maxDate: 0,
-            )
+            let found = await search.loadMore(limit: Self.pageLimit)
             guard let self, !Task.isCancelled, requestGeneration == generation else { return }
             loadTask = nil
             if let found {
                 let known = Set(messages.map { "\($0.chatId)/\($0.id)" })
-                let fresh = found.messages.filter { !known.contains("\($0.chatId)/\($0.id)") }
+                let fresh = found.filter { !known.contains("\($0.chatId)/\($0.id)") }
                 let start = messages.count
                 messages += fresh
-                nextOffset = found.nextOffset
                 let inserted = (start..<messages.count).map { IndexPath(item: $0, section: 0) }
                 collectionView.performBatchUpdates { [collectionView] in
                     collectionView.insertItems(at: inserted)
                 }
-            } else {
-                nextOffset = ""
             }
             updateState()
         }

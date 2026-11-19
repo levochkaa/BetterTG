@@ -118,9 +118,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var searchQuery = ""
     private lazy var searchResultsController = ChatListSearchResultsViewController(
         rootVM: rootVM,
-        chatList: .chatListMain,
+        scope: .main,
         actionAuthority: actionAuthority,
     )
+    /// Whether the search is open with its scope set: search opened from a folder keeps to it, behind a token.
+    private var isSearchScopeOpen = false
     /// A non-empty query shows TDLib results over every folder page, as Telegram's search container does.
     private var isShowingSearchResults = false
     private var pageScrollObservation: NSKeyValueObservation?
@@ -1118,6 +1120,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             searchQuery = query
             updateSearchResults(animated: true)
         }
+        customNavigationBar.onSearchTokenRemoved = { [weak self] in
+            self?.searchResultsController.setScope(.main)
+        }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
             updateHeaderPanels(animated: !isRestoringSearchFocus, searchActive: active)
@@ -1246,9 +1251,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// Telegram shows the search's recent and top people as soon as search is focused, before a query.
     private func updateSearchResults(animated: Bool, searchActive: Bool? = nil) {
-        searchResultsController.updateQuery(searchQuery)
         let showsResults = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || (searchActive ?? customNavigationBar.isSearchActive)
+        updateSearchScope(isOpen: showsResults)
+        searchResultsController.updateQuery(searchQuery)
         guard showsResults != isShowingSearchResults else { return }
         isShowingSearchResults = showsResults
         updateHeaderPanels(animated: animated)
@@ -1283,6 +1289,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             // A later query may have shown the results again.
             resultsView.isHidden = !self.isShowingSearchResults
         }
+    }
+
+    /// Telegram's folder token: a search opened on a folder's page keeps to the folder (ChatListControllerNode's
+    /// `folder`), until the token is removed or the search closes.
+    private func updateSearchScope(isOpen: Bool) {
+        guard isOpen != isSearchScopeOpen else { return }
+        isSearchScopeOpen = isOpen
+        let scope = isOpen ? currentFolderController.map { ChatListSearchScope(folder: $0.folder) } ?? .main : .main
+        searchResultsController.setScope(scope)
+        customNavigationBar.setSearchToken(scope.token)
     }
 
     private func updateNavigationBarHeight() {
