@@ -173,7 +173,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
         emptyText.text = filter.emptyText
         if layoutChanged { collectionView.setCollectionViewLayout(makeLayout(), animated: false) }
         collectionView.reloadData()
-        collectionView.setContentOffset(.zero, animated: false)
+        collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: false)
         loadPage()
     }
 

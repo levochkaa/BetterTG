@@ -491,6 +491,8 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         let resultsView = searchResultsController.view!
         if showsResults {
             resultsView.isHidden = false
+            // Hidden, the results followed no layout: they start at their top under the bar as it is now.
+            searchResultsController.restAtTop()
             if usesSearchField { navigationBarView.applyScroll(offset: 0, animated: animated) }
         } else if usesSearchField {
             navigationBarView.applyScroll(offset: folderController.searchScrollOffset, animated: animated)
