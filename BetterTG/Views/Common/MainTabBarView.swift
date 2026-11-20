@@ -98,6 +98,7 @@ final class MainTabBarView: UIView {
         effect.isInteractive = true
         let view = UIVisualEffectView(effect: effect)
         view.cornerConfiguration = .capsule()
+        view.layer.cornerCurve = .continuous
         return view
     }()
 
@@ -292,6 +293,9 @@ final class MainTabBarView: UIView {
         liftedContainer.frame = bounds
         let held = heldStrip()
         glassView.frame = held?.capsuleFrame ?? bounds
+        // `.capsule()` resolves to the final radius at once, so a release spring narrowing the capsule showed it
+        // square for a few frames; an explicit radius animates on the same spring as the frame.
+        glassView.layer.cornerRadius = min(glassView.frame.width, glassView.frame.height) / 2
         stripView.frame = glassView.contentView.bounds
         selectedLayer.frame = stripView.bounds
         normalLayer.frame = stripView.bounds
