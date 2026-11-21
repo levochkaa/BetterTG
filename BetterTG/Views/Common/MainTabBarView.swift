@@ -222,9 +222,11 @@ final class MainTabBarView: UIView {
         label.minimumScaleFactor = 0.7
         // On iOS 27 a label's `alpha` reaches the screen only on the next layout pass, so a release left the names
         // standing through their fade; they fade by the layer's opacity instead. `alpha` is set after the opacity, or
-        // the text draws clear.
+        // the text draws clear. Out of a hold they are hidden: UIKit sets the opacity back from `alpha` when the bar
+        // returns to the window, as after a push and a pop.
         label.layer.opacity = 0
         label.alpha = 1
+        label.isHidden = true
         label.isAccessibilityElement = false
         label.accessibilityElementsHidden = true
         label.bounds = CGRect(
@@ -329,6 +331,7 @@ final class MainTabBarView: UIView {
                 label.transform = CGAffineTransform(scaleX: itemScale, y: itemScale)
                 // The release's fade stays the opacity's only animation.
                 if label.layer.opacity != Float(titleAlpha) { label.layer.opacity = Float(titleAlpha) }
+                if hold != nil { label.isHidden = false }
             }
         }
     }
@@ -580,6 +583,15 @@ final class MainTabBarView: UIView {
         holdLink = nil
         hold = nil
         // The names fade first, on their own curve, as the system's do; the spring below leaves their opacity alone.
+        // They hide once the fade ends, unless a new hold has shown them again.
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, hold == nil else { return }
+            for label in titleLabels + selectedTitleLabels {
+                label.isHidden = true
+            }
+        }
+        defer { CATransaction.commit() }
         for label in titleLabels + selectedTitleLabels {
             let layer = label.layer
             let opacity = layer.presentation()?.opacity ?? layer.opacity
