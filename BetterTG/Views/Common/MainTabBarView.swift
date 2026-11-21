@@ -221,8 +221,13 @@ final class MainTabBarView: UIView {
         label.textAlignment = .center
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.7
-        label.alpha = 0
+        // On iOS 27 a label's `alpha` reaches the screen only on the next layout pass, so a release left the names
+        // standing through their fade; they fade by the layer's opacity instead. `alpha` is set after the opacity, or
+        // the text draws clear.
+        label.layer.opacity = 0
+        label.alpha = 1
         label.isAccessibilityElement = false
+        label.accessibilityElementsHidden = true
         label.bounds = CGRect(
             x: 0,
             y: 0,
@@ -324,8 +329,8 @@ final class MainTabBarView: UIView {
             for label in [titleLabels[index], selectedTitleLabels[index]] {
                 label.center = CGPoint(x: center.x, y: center.y + TabBarHold.titleOffset * itemScale)
                 label.transform = CGAffineTransform(scaleX: itemScale, y: itemScale)
-                // UIKit adds a second animation of the alpha to the first, so the release's fade stays its only one.
-                if label.alpha != titleAlpha { label.alpha = titleAlpha }
+                // The release's fade stays the opacity's only animation.
+                if label.layer.opacity != Float(titleAlpha) { label.layer.opacity = Float(titleAlpha) }
             }
         }
     }
@@ -534,13 +539,22 @@ final class MainTabBarView: UIView {
                 selectedIndex = index
                 updateAccessibility()
                 layoutSelection(animated: true)
-                onSelect?(index)
+                deliverSelection(index)
             } else {
                 layoutSelection(animated: true)
                 onReselect?(index)
             }
         default:
             cancelHold()
+        }
+    }
+
+    /// Switching the tab builds its screen on the main thread, about 150 ms the first time; the release's springs go to
+    /// the render server first, or the bar stands still through that work and then jumps.
+    private func deliverSelection(_ index: Int) {
+        DispatchQueue.main.async { [weak self] in
+            CATransaction.flush()
+            self?.onSelect?(index)
         }
     }
 
@@ -567,15 +581,19 @@ final class MainTabBarView: UIView {
         holdLink?.invalidate()
         holdLink = nil
         hold = nil
-        // The names fade first, on their own curve, as the system's do; the spring below leaves their alpha alone.
-        UIView.animate(
-            withDuration: Self.holdTitleFadeDuration,
-            delay: 0,
-            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
-        ) {
-            for label in self.titleLabels + self.selectedTitleLabels {
-                label.alpha = 0
-            }
+        // The names fade first, on their own curve, as the system's do; the spring below leaves their opacity alone.
+        for label in titleLabels + selectedTitleLabels {
+            let layer = label.layer
+            let opacity = layer.presentation()?.opacity ?? layer.opacity
+            layer.removeAnimation(forKey: "opacity")
+            layer.opacity = 0
+            guard opacity > 0 else { continue }
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = opacity
+            fade.toValue = 0
+            fade.duration = Self.holdTitleFadeDuration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(fade, forKey: "opacity")
         }
         UIView.animate(
             springDuration: Self.springDuration,
@@ -623,7 +641,7 @@ final class MainTabBarView: UIView {
                 selectedIndex = index
                 updateAccessibility()
                 layoutSelection(animated: true)
-                onSelect?(index)
+                deliverSelection(index)
             } else {
                 layoutSelection(animated: true)
                 if let index { onReselect?(index) }
