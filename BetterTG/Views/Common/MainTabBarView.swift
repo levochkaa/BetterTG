@@ -96,10 +96,9 @@ final class MainTabBarView: UIView {
     private let glassView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
-        let view = UIVisualEffectView(effect: effect)
-        view.cornerConfiguration = .capsule()
-        view.layer.cornerCurve = .continuous
-        return view
+        // No `cornerConfiguration`: the shape is the layer's corner radius, as in Telegram's GlassBackgroundView.
+        // `.capsule()` resolves from the final bounds, so a release spring narrowing the capsule showed it square.
+        return UIVisualEffectView(effect: effect)
     }()
 
     /// The tabs' box inside the capsule, `innerInset` from its edges.
@@ -298,8 +297,7 @@ final class MainTabBarView: UIView {
         liftedContainer.frame = bounds
         let held = heldStrip()
         glassView.frame = held?.capsuleFrame ?? bounds
-        // `.capsule()` resolves to the final radius at once, so a release spring narrowing the capsule showed it
-        // square for a few frames; an explicit radius animates on the same spring as the frame.
+        // The radius animates on the same spring as the frame.
         glassView.layer.cornerRadius = min(glassView.frame.width, glassView.frame.height) / 2
         stripView.frame = glassView.contentView.bounds
         selectedLayer.frame = stripView.bounds
