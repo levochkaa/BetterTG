@@ -2137,11 +2137,10 @@ final class FolderPickerView: UIView {
 
     // MARK: Private
 
-    private static let springDuration: TimeInterval = 0.4
     /// The least time the lens stays lifted after a tap, so that it crosses the strip as a lens, as Telegram's
     /// folder tabs do.
     private static let liftDuration: TimeInterval = 0.3
-    private static let restingTintFadeDuration: TimeInterval = 0.2
+    /// The selection drawn without UIKit's lens.
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
 
     /// The client that loads the tabs' trailing stickers.
@@ -2204,8 +2203,6 @@ final class FolderPickerView: UIView {
     /// The scrolled content: the folders, the lens and the selected copies the lens shows.
     private let stripView = UIView()
     private let selectedLabelsView = UIView()
-    /// The selected folder's background, which the lens cuts to its shape at rest.
-    private let restingTintView = UIView()
     private let selectedButtonStack = UIStackView()
     private let labelsView = UIView()
     private let buttonStack = UIStackView()
@@ -2445,10 +2442,6 @@ final class FolderPickerView: UIView {
         }
         selectedLabelsView.isUserInteractionEnabled = false
         selectedLabelsView.accessibilityElementsHidden = true
-        restingTintView.frame = selectedLabelsView.bounds
-        restingTintView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        restingTintView.backgroundColor = Self.selectionTint
-        selectedLabelsView.addSubview(restingTintView)
         for (stack, layer) in [(selectedButtonStack, selectedLabelsView), (buttonStack, labelsView)] {
             stack.translatesAutoresizingMaskIntoConstraints = false
             stack.axis = .horizontal
@@ -2800,22 +2793,8 @@ final class FolderPickerView: UIView {
     private func layoutSelection(animated: Bool) {
         let frame = selectionFrame()
         if let lens {
-            // A lifted lens is clear glass, as the system's is.
-            let restingAlpha: CGFloat = isLifted ? 0 : 1
-            if restingTintView.alpha != restingAlpha {
-                if animated {
-                    UIView.animate(
-                        withDuration: Self.restingTintFadeDuration,
-                        delay: 0,
-                        options: [.beginFromCurrentState, .allowUserInteraction],
-                    ) {
-                        self.restingTintView.alpha = restingAlpha
-                    }
-                } else {
-                    restingTintView.alpha = restingAlpha
-                }
-            }
-            lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
+            // The lens shows the resting selection while it rests; a lifted lens is clear glass, as the system's is.
+            lens.place(frame, isLifted: isLifted, curve: animated ? .default : nil)
             return
         }
         guard let frame else {

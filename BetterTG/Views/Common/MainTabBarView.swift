@@ -58,8 +58,9 @@ final class MainTabBarView: UIView {
     // MARK: Private
 
     private static let springDuration: TimeInterval = 0.4
-    /// The least time the lens stays lifted after a tap, so that it crosses the bar as a lens.
-    private static let liftDuration: TimeInterval = 0.3
+    /// A released hold's lens lands on the narrowing capsule's spring.
+    private static let releaseCurve = LiquidLensCurve.spring(duration: springDuration, bounce: 0)
+    /// The selection drawn without UIKit's lens.
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
 
     /// A held standing bar widens after this long, or as soon as the finger moves this far.
@@ -106,14 +107,12 @@ final class MainTabBarView: UIView {
     /// The copies the lens shows, in the accent colour, and the ones it cuts away.
     private let selectedLayer = UIView()
     private let normalLayer = UIView()
-    private let restingTintView = UIView()
     private let fallbackSelection = UIView()
     private var normalViews = [MainTabBarItemView]()
     private var selectedViews = [MainTabBarItemView]()
     private var itemFrames = [CGRect]()
     private var lens: LiquidLens?
     private var isLifted = false
-    private var lowering: DispatchWorkItem?
     private lazy var tabGesture = LiquidLensTabRecognizer(target: self, action: #selector(stripTouched(_:)))
     private lazy var holdGesture: UILongPressGestureRecognizer = {
         let gesture = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -128,8 +127,8 @@ final class MainTabBarView: UIView {
     private var titleLabels = [UILabel]()
     private var selectedTitleLabels = [UILabel]()
 
-    /// The touched tab's frame and when the touch began, while a finger carries the lens.
-    private var drag: (frame: CGRect, time: CFTimeInterval)?
+    /// The touched tab's frame, while a finger carries the lens.
+    private var drag: CGRect?
     private var heldFrame: CGRect?
     private var heldIndex: Int?
 
@@ -304,7 +303,6 @@ final class MainTabBarView: UIView {
         stripView.frame = glassView.contentView.bounds
         selectedLayer.frame = stripView.bounds
         normalLayer.frame = stripView.bounds
-        restingTintView.frame = selectedLayer.bounds
         let inset = Metrics.innerInset
         itemFrames = Self.itemFrames(axis: axis, isCompact: isCompact, count: items.count, size: bounds.size)
             .map { $0.offsetBy(dx: inset, dy: inset) }
@@ -370,8 +368,6 @@ final class MainTabBarView: UIView {
         selectedLayer.isUserInteractionEnabled = false
         selectedLayer.accessibilityElementsHidden = true
         normalLayer.isUserInteractionEnabled = false
-        restingTintView.backgroundColor = Self.selectionTint
-        selectedLayer.addSubview(restingTintView)
         glassView.contentView.addGestureRecognizer(tabGesture)
         glassView.contentView.addGestureRecognizer(holdGesture)
 
@@ -443,20 +439,12 @@ final class MainTabBarView: UIView {
         }
     }
 
-    private func layoutSelection(animated: Bool) {
+    /// The lens rests over the selected tab and shows the resting selection there; lifted, it hangs for its own
+    /// hang time after the finger lets go.
+    private func layoutSelection(animated: Bool, curve: LiquidLensCurve = .default) {
         let frame = selectionFrame()
         if let lens {
-            let restingAlpha: CGFloat = isLifted ? 0 : 1
-            if restingTintView.alpha != restingAlpha {
-                UIView.animate(withDuration: animated ? 0.2 : 0, delay: 0, options: [.beginFromCurrentState]) {
-                    self.restingTintView.alpha = restingAlpha
-                }
-            }
-            if hold != nil, !animated, let frame {
-                lens.follow(frame)
-            } else {
-                lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
-            }
+            lens.place(frame, isLifted: isLifted, curve: animated ? curve : nil)
             return
         }
         guard let frame else { return }
@@ -501,9 +489,11 @@ final class MainTabBarView: UIView {
             let now = CACurrentMediaTime()
             var press = TabBarHoldSpring.press()
             press.target = 1
-            let lensStart = rest.itemCenters.indices.contains(selectedIndex)
-                ? rest.itemCenters[selectedIndex]
-                : rest.itemCenters[index]
+            // The lens starts where it is on screen, also partway through a move.
+            let lensStart = lens?.presentationCenter?.y
+                ?? (rest.itemCenters.indices.contains(selectedIndex)
+                    ? rest.itemCenters[selectedIndex]
+                    : rest.itemCenters[index])
             hold = Hold(
                 startIndex: index,
                 touchStart: position,
@@ -518,8 +508,6 @@ final class MainTabBarView: UIView {
             for view in [glassView, stripView] + normalViews + selectedViews + titleLabels + selectedTitleLabels {
                 view.layer.removeAllAnimations()
             }
-            lowering?.cancel()
-            lowering = nil
             isLifted = lens != nil
             layoutCapsule()
             layoutSelection(animated: true)
@@ -539,10 +527,10 @@ final class MainTabBarView: UIView {
                 UISelectionFeedbackGenerator().selectionChanged()
                 selectedIndex = index
                 updateAccessibility()
-                layoutSelection(animated: true)
+                layoutSelection(animated: true, curve: Self.releaseCurve)
                 deliverSelection(index)
             } else {
-                layoutSelection(animated: true)
+                layoutSelection(animated: true, curve: Self.releaseCurve)
                 onReselect?(index)
             }
         default:
@@ -563,7 +551,7 @@ final class MainTabBarView: UIView {
         guard hold != nil else { return }
         endHold()
         isLifted = false
-        layoutSelection(animated: true)
+        layoutSelection(animated: true, curve: Self.releaseCurve)
     }
 
     private func startHoldLink() {
@@ -624,15 +612,15 @@ final class MainTabBarView: UIView {
         case .began:
             let index = index(at: gesture.location(in: stripView))
             let frame = lensFrame(for: itemFrames[index])
-            drag = (frame, CACurrentMediaTime())
+            drag = frame
             heldFrame = frame
             heldIndex = index
-            lift()
+            isLifted = lens != nil
             layoutSelection(animated: true)
         case .changed:
             guard let drag else { return }
             let translation = gesture.translation
-            var frame = drag.frame
+            var frame = drag
             let inset = Metrics.innerInset
             let maxX = max(inset, stripView.bounds.width - inset - frame.width)
             frame.origin.x = min(max(frame.minX + translation.x, inset), maxX)
@@ -644,11 +632,13 @@ final class MainTabBarView: UIView {
             }
             layoutSelection(animated: false)
         case .ended:
-            guard let drag else { return }
+            guard drag != nil else { return }
             let index = heldIndex
-            self.drag = nil
+            drag = nil
             heldFrame = nil
             heldIndex = nil
+            // The lens keeps lifted for the rest of its hang time, so a tap still carries it across as a lens.
+            isLifted = false
             if let index, index != selectedIndex {
                 selectedIndex = index
                 updateAccessibility()
@@ -658,13 +648,12 @@ final class MainTabBarView: UIView {
                 layoutSelection(animated: true)
                 if let index { onReselect?(index) }
             }
-            lower(after: max(0, Self.liftDuration - (CACurrentMediaTime() - drag.time)))
         default:
             drag = nil
             heldFrame = nil
             heldIndex = nil
+            isLifted = false
             layoutSelection(animated: true)
-            lower(after: 0)
         }
     }
 
@@ -680,28 +669,10 @@ final class MainTabBarView: UIView {
         drag = nil
         heldFrame = nil
         heldIndex = nil
+        isLifted = false
         layoutSelection(animated: true)
-        lower(after: 0)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onHold?(index, normalViews[index], gesture)
-    }
-
-    private func lift() {
-        lowering?.cancel()
-        lowering = nil
-        isLifted = lens != nil
-    }
-
-    private func lower(after delay: TimeInterval) {
-        lowering?.cancel()
-        let lowering = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.lowering = nil
-            isLifted = false
-            layoutSelection(animated: true)
-        }
-        self.lowering = lowering
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: lowering)
     }
 }
 

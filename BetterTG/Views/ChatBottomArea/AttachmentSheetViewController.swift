@@ -1969,9 +1969,8 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
     private let capsule = UIVisualEffectView()
     private let scroll = UIScrollView()
     private let stripView = UIView()
-    /// The tabs in the accent colour over the resting tint, shown inside the lens.
+    /// The tabs in the accent colour over the lens's resting selection, shown inside the lens.
     private let selectedTabsView = UIView()
-    private let restingTintView = UIView()
     /// The tabs as they rest, cut away under the lens.
     private let tabsView = UIView()
     private let buttonsView = UIView()
@@ -2016,8 +2015,6 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
         selectedTabsView.accessibilityElementsHidden = true
         tabsView.isUserInteractionEnabled = false
         tabsView.accessibilityElementsHidden = true
-        restingTintView.backgroundColor = Self.selectionTint
-        selectedTabsView.addSubview(restingTintView)
         self.lens = LiquidLens(liftedContainer: liftedContainer, liftedContent: selectedTabsView, punchout: tabsView)
         if lens == nil {
             selectedTabsView.removeFromSuperview()
@@ -2051,7 +2048,7 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
         for layer in [selectedTabsView, tabsView, buttonsView] {
             layer.frame = stripView.bounds
         }
-        let contentViews = [selectedTabsView, tabsView].map { $0.subviews.filter { $0 !== restingTintView } }
+        let contentViews = [selectedTabsView.subviews.filter { $0 is AttachmentTabContentView }, tabsView.subviews]
         for index in tabs.indices {
             let frame = tabFrame(at: index, width: width)
             for views in contentViews where views.indices.contains(index) {
@@ -2072,7 +2069,6 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
                 animated: false,
             )
         }
-        restingTintView.frame = selectedTabsView.bounds
         placeSelection(at: currentIndex, isLifted: false, animated: false)
     }
 
@@ -2089,7 +2085,7 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
         currentIndex = tabs.firstIndex(of: current) ?? 0
         needsSelectionReveal = true
         for view in selectedTabsView.subviews + tabsView.subviews + buttonsView.subviews
-            where view !== restingTintView
+            where view is AttachmentTabContentView || view.superview === buttonsView
         {
             view.removeFromSuperview()
         }
@@ -2127,8 +2123,7 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
 
     private func placeLens(_ frame: CGRect, isLifted: Bool, animated: Bool) {
         if let lens {
-            restingTintView.alpha = isLifted ? 0 : 1
-            lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
+            lens.place(frame, isLifted: isLifted, curve: animated ? .default : nil)
             return
         }
         let changes = {

@@ -900,7 +900,8 @@ private final class StoryCameraModeControl: UIView {
     private let selectedTitlesView = UIView()
     /// The titles as they rest, cut away under the lens.
     private let titlesView = UIView()
-    /// LiquidLensView's resting background, 10% white under the resting lens.
+    /// The selection without UIKit's lens: 10% white under the current mode. The lens draws its own resting
+    /// selection.
     private let selectionView = UIView()
     private var lens: LiquidLens?
     private var current = Mode.photo
@@ -927,14 +928,18 @@ private final class StoryCameraModeControl: UIView {
             selectedTitlesView.addSubview(Self.titleLabel(mode, color: Self.accent))
             titlesView.addSubview(Self.titleLabel(mode, color: .white))
         }
+        // ModeComponent's lens is dark over the camera, whatever the system's appearance.
         self.lens = LiquidLens(
             liftedContainer: liftedContainer,
             liftedContent: selectedTitlesView,
             punchout: titlesView,
+            isDark: true,
         )
         if lens == nil {
             // Without UIKit's lens the tinted capsule alone marks the current mode, whose title turns yellow.
             selectedTitlesView.removeFromSuperview()
+        } else {
+            selectionView.removeFromSuperview()
         }
         let gesture = LiquidLensTabRecognizer(target: self, action: #selector(touched(_:)))
         addGestureRecognizer(gesture)
@@ -1023,17 +1028,12 @@ private final class StoryCameraModeControl: UIView {
         guard frame.width > 0 else { return }
         let isLifted = offset != nil
         if let lens {
-            if isLifted, !animated {
-                lens.follow(frame)
-            } else {
-                lens.place(frame, isLifted: isLifted, springDuration: animated ? 0.4 : nil)
-            }
+            lens.place(frame, isLifted: isLifted, curve: animated ? .default : nil)
+            return
         }
         let changes = {
             self.selectionView.frame = frame
             self.selectionView.layer.cornerRadius = frame.height / 2
-            // The lifted lens shows no resting background.
-            self.selectionView.alpha = isLifted && self.lens != nil ? 0 : 1
         }
         if animated {
             UIView.animate(springDuration: 0.4, bounce: 0.15, animations: changes)
