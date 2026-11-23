@@ -583,7 +583,9 @@ final class MainTabBarView: UIView {
         holdLink = nil
         hold = nil
         // The names fade first, on their own curve, as the system's do; the spring below leaves their opacity alone.
-        // They hide once the fade ends, unless a new hold has shown them again.
+        // They hide once the fade ends, unless a new hold has shown them again. The fade gets its own transaction:
+        // sharing one with the spring would delay the hide until the spring ends and leave the names visible to
+        // UIKit, which restores their opacity from `alpha` when the bar returns to a window.
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             guard let self, hold == nil else { return }
@@ -591,7 +593,6 @@ final class MainTabBarView: UIView {
                 label.isHidden = true
             }
         }
-        defer { CATransaction.commit() }
         for label in titleLabels + selectedTitleLabels {
             let layer = label.layer
             let opacity = layer.presentation()?.opacity ?? layer.opacity
@@ -605,6 +606,7 @@ final class MainTabBarView: UIView {
             fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             layer.add(fade, forKey: "opacity")
         }
+        CATransaction.commit()
         UIView.animate(
             springDuration: Self.springDuration,
             bounce: 0,
