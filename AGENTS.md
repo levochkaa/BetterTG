@@ -8,6 +8,7 @@
 - Read Simulator and device screenshots as reduced copies: downscale before viewing (for example `sips -Z 1000 -s format jpeg shot.png --out shot.jpg`) and crop to the region of interest when only part of the screen matters. Full-size screenshots hit the image limit and cost more tokens.
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
+- `./script/liquid_lens_tests.sh` runs the liquid lens's flex, motion plan and curve tests (`Tests/LiquidLens`, ported from Telegram's LiquidLensTests) as a Mac executable. Run it after changing `LiquidLensFlex.swift`, `LiquidLensMotionPlan.swift` or `LiquidLensCurve.swift`.
 - Always run SwiftFormat after modifying Swift files. Pass every existing `.swift` file modified in the current task to a single invocation, and do not format the entire repository unless the user explicitly asks for it:
 
   ```sh
