@@ -27,6 +27,7 @@ run(LiquidLensCurveTests.self, [
     ("testDefaultIsDisplaysSpringBezier", LiquidLensCurveTests.testDefaultIsDisplaysSpringBezier),
     ("testSpringEndsOnTarget", LiquidLensCurveTests.testSpringEndsOnTarget),
     ("testSpringShape", LiquidLensCurveTests.testSpringShape),
+    ("testSpringMatchesCoreAnimation", LiquidLensCurveTests.testSpringMatchesCoreAnimation),
 ])
 if failureCount > 0 {
     print("\(failureCount) assertion(s) failed.")

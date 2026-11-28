@@ -1,6 +1,7 @@
 // LiquidLensCurveTests.swift
 
 import CoreGraphics
+import QuartzCore
 
 /// The curves a lens move follows: Telegram's default bezier, and UIKit's spring, which must end exactly on target so
 /// that the lens lands where its bounds animation does.
@@ -42,5 +43,31 @@ final class LiquidLensCurveTests: XCTestCase {
         let peak = (0...120).map { bouncy(Double($0) / 120) }.max() ?? 0
         XCTAssertGreaterThan(peak, 1.004)
         XCTAssertLessThan(peak, 1.0064)
+    }
+
+    /// The lift's release follows `UIView.animate(springDuration:bounce:)`, whose spring is Core Animation's for the
+    /// same duration and bounce, so the lens stays in step with the bounds UIKit animates beside it. (ArtWorkout's
+    /// `springMatchesCoreAnimation`.)
+    func testSpringMatchesCoreAnimation() {
+        for bounce: CGFloat in [0, 0.15] {
+            let curve = LiquidLensCurve.spring(duration: 0.4, bounce: bounce)
+            let progress = curve.makeProgress()
+            let animation = CASpringAnimation(perceptualDuration: 0.4, bounce: bounce)
+            var value: Double = 0
+            var velocity: Double = 0
+            let step = 1.0 / 4800
+            for index in 1...Int(curve.duration / step) {
+                let force = -Double(animation.stiffness) * (value - 1) - Double(animation.damping) * velocity
+                velocity += force / Double(animation.mass) * step
+                value += velocity * step
+                if index.isMultiple(of: 48) {
+                    XCTAssertEqual(
+                        Double(progress(Double(index) * step / curve.duration)),
+                        value,
+                        accuracy: 0.002,
+                    )
+                }
+            }
+        }
     }
 }

@@ -80,6 +80,9 @@ import UIKit
 
     /// The lens flexes from its lift until its unlift completes, and then settles back.
     private var isFlexActive = false
+    /// Whether UIKit's flex is switched off, so this lens flexes itself. Where UIKit's lens has no flex to switch off,
+    /// its own flex stays, and a second one on top would bend the glass twice.
+    private var flexesItself = false
     private var segment: LiquidLensPositionSegment?
     private var plan: LiquidLensMotionPlan?
     /// The lens's recent immediate positions (the finger's), newest last.
@@ -159,6 +162,7 @@ import UIKit
            flexInteraction.responds(to: NSSelectorFromString("setPreferredFlexSources:"))
         {
             flexInteraction.setValue(0 as NSNumber, forKey: "preferredFlexSources")
+            self.flexesItself = true
         }
         view.alpha = 0
         punchoutView.alpha = 0
@@ -220,8 +224,14 @@ import UIKit
         }
         let wasHidden = self.frame == nil
         guard wasHidden || isLifted != self.isLifted || frame != self.frame else { return }
+        let isRelifted = isLifted && !self.isLifted
         self.frame = frame
         self.isLifted = isLifted
+        if isRelifted, isLensLifted {
+            // A tap while the last one's hang time runs carries the lens across again, so its hang time starts over;
+            // else the lens would lower mid-move. Consecutive lifted updates (a drag) keep it.
+            liftTimestamp = CACurrentMediaTime()
+        }
         guard !wasHidden else {
             // A hidden lens appears where it is placed.
             let center = CGPoint(x: frame.midX, y: frame.midY)
@@ -291,7 +301,7 @@ import UIKit
         var resetsMotion = false
         if isLifted {
             liftTimestamp = CACurrentMediaTime()
-            if !isFlexActive {
+            if flexesItself, !isFlexActive {
                 isFlexActive = true
                 resetsMotion = true
             }
@@ -568,12 +578,14 @@ import UIKit
             Selector,
             Bool,
             Bool,
-            (@convention(block) () -> Void)?,
+            @escaping @convention(block) () -> Void,
             (@convention(block) () -> Void)?,
         ) -> Void
         let selector = NSSelectorFromString("setLifted:animated:alongsideAnimations:completion:")
         let setLifted = unsafeBitCast(view.method(for: selector), to: SetLifted.self)
-        setLifted(view, selector, isLifted, animated, nil, completion)
+        // The size and position are animated here, but UIKit gets a block, as UIKit's own callers pass: whether every
+        // version accepts none is not known.
+        setLifted(view, selector, isLifted, animated, {}, completion)
     }
 
     private func send(_ name: String, _ object: AnyObject) {
